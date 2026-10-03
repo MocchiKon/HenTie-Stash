@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<head th:fragment="head(title)">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- CSRF token for forms built in JS (e.g. the Manage filter results). -->
+    <meta name="csrf-param" th:content="${_csrf != null ? _csrf.parameterName : ''}">
+    <meta name="csrf-token" th:content="${_csrf != null ? _csrf.token : ''}">
+    <title th:text="${title} + ' · HenTie'">HenTie</title>
+    <link rel="icon" th:href="@{/images/logo.svg}" type="image/svg+xml">
+    <link rel="stylesheet" th:href="@{/css/app.css}">
+</head>
+<body>
+
+<nav th:fragment="nav" class="navbar">
+    <div class="nav-inner">
+        <a class="brand" th:href="@{/}"><img class="brand-logo" th:src="@{/images/logo.svg}" alt=""><span class="brand-name">Hen<span>Tie</span></span></a>
+        <button class="nav-toggle" type="button" aria-label="Toggle menu">☰</button>
+        <div class="nav-links">
+            <a th:href="@{/search}">Search</a>
+            <a th:href="@{/manage}">Manage</a>
+            <a th:href="@{/settings}">Settings</a>
+            <form th:action="@{/logout}" method="post" class="logout-form"
+                  th:if="${loginRequired}" sec:authorize="isAuthenticated()">
+                <button type="submit" class="link-btn">Logout</button>
+            </form>
+        </div>
+    </div>
+</nav>
+
+</body>
+</html>

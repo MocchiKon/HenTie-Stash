@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head('Edit chapter')}"></head>
+<body>
+<nav th:replace="~{fragments/layout :: nav}"></nav>
+
+<main class="container">
+    <div class="edit-head">
+        <h1>Edit chapter</h1>
+        <a class="btn btn-ghost" th:href="@{/chapter/{id}(id=${form.id})}">Back to chapter</a>
+    </div>
+
+    <form class="edit-form" method="post" th:action="@{/chapter/{id}(id=${form.id})}" th:object="${form}">
+        <div class="form-errors" th:if="${#fields.hasGlobalErrors()}">
+            <p th:each="err : ${#fields.globalErrors()}" th:text="${err}">error</p>
+        </div>
+        <div class="field">
+            <label>Full title<span class="req" aria-hidden="true">*</span></label>
+            <input type="text" name="titleFull" th:value="${form.titleFull}" maxlength="255" required>
+            <span class="field-error" th:if="${#fields.hasErrors('titleFull')}" th:errors="*{titleFull}">error</span>
+        </div>
+        <div class="field-row">
+            <div class="field">
+                <label>Pretty title</label>
+                <input type="text" name="title" th:value="${form.title}" maxlength="255">
+                <span class="field-error" th:if="${#fields.hasErrors('title')}" th:errors="*{title}">error</span>
+            </div>
+            <div class="field">
+                <label>Native title</label>
+                <input type="text" name="nativeTitle" th:value="${form.nativeTitle}" maxlength="255">
+                <span class="field-error" th:if="${#fields.hasErrors('nativeTitle')}" th:errors="*{nativeTitle}">error</span>
+            </div>
+        </div>
+        <div class="field">
+            <label>Language<span class="req" aria-hidden="true">*</span></label>
+            <input type="text" name="language" th:value="${form.language}" maxlength="255"
+                   autocomplete="off" data-language-autocomplete required>
+            <span class="field-error" th:if="${#fields.hasErrors('language')}" th:errors="*{language}">error</span>
+        </div>
+        <div class="field-row">
+            <div class="field">
+                <label>Status</label>
+                <select name="status">
+                    <option th:each="s : ${statuses}" th:value="${s.name()}" th:text="${s.displayName}"
+                            th:selected="${form.status != null and form.status == s}">Status</option>
+                </select>
+            </div>
+            <div class="field">
+                <label>Rating</label>
+                <div th:replace="~{fragments/components :: starSelect('score', ${form.score})}"></div>
+            </div>
+            <div class="field">
+                <label>Gallery ID</label>
+                <input type="text" name="galleryId" th:value="${form.galleryId}" maxlength="255">
+                <span class="field-error" th:if="${#fields.hasErrors('galleryId')}" th:errors="*{galleryId}">error</span>
+            </div>
+        </div>
+
+        <div th:replace="~{fragments/components :: tokenField('Tags','tag','tagIds','id',${selected.tags})}"></div>
+        <div th:replace="~{fragments/components :: tokenField('Artists','artist','artistIds','id',${selected.artists})}"></div>
+        <div th:replace="~{fragments/components :: tokenField('Characters','character','characterIds','id',${selected.characters})}"></div>
+        <div th:replace="~{fragments/components :: tokenField('Parodies','parody','parodyIds','id',${selected.parodies})}"></div>
+        <div th:replace="~{fragments/components :: tokenField('Groups','group','groupIds','id',${selected.groups})}"></div>
+        <div th:replace="~{fragments/components :: tokenField('Categories','category','categoryIds','id',${selected.categories})}"></div>
+
+        <div class="edit-actions">
+            <button type="submit" class="btn btn-accent">Save changes</button>
+            <a class="btn btn-ghost" th:href="@{/chapter/{id}/add-to-series(id=${form.id})}">Add to series</a>
+        </div>
+    </form>
+
+    <section class="danger-zone">
+        <h2 class="section-title">Danger zone</h2>
+        <form method="post" th:action="@{/chapter/{id}/delete(id=${form.id})}" class="confirm-delete">
+            <button type="submit" class="btn btn-danger">Delete this chapter</button>
+        </form>
+    </section>
+
+    <section class="pages" id="images">
+        <h2 class="section-title">Images</h2>
+        <form class="upload-form long-running" method="post" enctype="multipart/form-data"
+              th:action="@{/chapter/{id}/images(id=${form.id})}">
+            <input type="file" name="files" multiple th:attr="accept=${imageAccept}">
+            <button type="submit" class="btn btn-accent">Upload</button>
+        </form>
+        <p class="hint">
+            Uploaded images are processed with the Image Compression mode from Settings, which is
+            currently <strong th:text="${compressionModeName}">None</strong>. Uploading waits for that to
+            finish, so it can take a while for a large selection.
+        </p>
+
+        <div class="btn-row">
+            <!-- For a compilation of chapters: one page to mark where each chapter inside it starts. -->
+            <a class="btn btn-ghost" th:if="${pageUrls.size() > 1}"
+               th:href="@{/chapter/{id}/divide(id=${form.id})}">Divide into separate chapters</a>
+            <form class="inline-form" method="post" th:action="@{/chapter/{id}/images/rescan(id=${form.id})}">
+                <button type="submit" class="btn btn-ghost">Rescan images</button>
+            </form>
+            <form class="inline-form long-running" method="post"
+                  th:action="@{/chapter/{id}/images/compress(id=${form.id})}">
+                <button type="submit" class="btn btn-ghost">Compress images</button>
+            </form>
+        </div>
+        <p class="hint" th:if="${imagesRescanned == true}">Rescanned: page count and disk size updated.</p>
+        <p class="hint" th:if="${imagesRescanned == false}">
+            Rescanned: page count and disk size were already up to date.</p>
+        <p class="hint" th:if="${compressed != null}" th:text="${compressed}">Compressed.</p>
+
+        <!-- Ids number thumbnails by position, so a no-JavaScript delete lands where the deleted page stood.
+             The empty note is always rendered so app.js can show it after the last delete. -->
+        <div class="page-grid">
+            <div class="page-thumb editable flush" th:each="url, iter : ${pageUrls}" th:id="'page-' + ${iter.count}"
+                 th:with="filename=${url.substring(url.lastIndexOf('/') + 1)}">
+                <img th:src="${url}" th:alt="${filename}" loading="lazy">
+                <form method="post" th:action="@{/chapter/{id}/images/delete(id=${form.id})}"
+                      class="confirm-delete page-delete">
+                    <input type="hidden" name="filename" th:value="${filename}">
+                    <button type="submit" class="btn btn-danger btn-sm" th:text="'Delete ' + ${filename}">Delete</button>
+                </form>
+            </div>
+            <p class="empty" th:hidden="${!#lists.isEmpty(pageUrls)}">No images yet.</p>
+        </div>
+    </section>
+</main>
+
+<script th:src="@{/js/tokenized-input.js}"></script>
+<script th:src="@{/js/app.js}"></script>
+</body>
+</html>

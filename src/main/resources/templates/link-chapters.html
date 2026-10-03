@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head('Link chapters')}"></head>
+<body>
+<nav th:replace="~{fragments/layout :: nav}"></nav>
+
+<main class="container">
+    <div class="edit-head">
+        <h1>Link chapters</h1>
+        <a class="btn" th:href="@{/series/{id}(id=${series.id})}">Back</a>
+    </div>
+    <p class="hint">Finding chapters for series: <strong th:text="${series.titleFull}">title</strong></p>
+
+    <div th:if="${linked != null and linked > 0}" class="alert ok" role="status"
+         th:text="'Linked ' + ${linked} + ' chapter(s) to this series.'">Linked.</div>
+    <div th:if="${linked != null and linked == 0}" class="alert error" role="alert">
+        No chapter was linked: none was ticked, or the ones picked are already in this series or no longer exist.
+    </div>
+
+    <!-- Where to look. Both lists follow it, and the search and link forms carry it, so it stays put. -->
+    <form method="get" th:action="@{/series/{id}/link-chapters(id=${series.id})}" class="scope-form">
+        <input type="hidden" name="q" th:if="${query != null}" th:value="${query}">
+        <span class="scope-label">Look among</span>
+        <label class="checkbox" th:each="s : ${scopes}">
+            <input type="radio" name="scope" th:value="${s.name()}" th:checked="${s == scope}"
+                   onchange="this.form.submit()">
+            <span th:text="${s.displayName}">scope</span>
+        </label>
+        <noscript><button type="submit" class="btn btn-sm">Show</button></noscript>
+    </form>
+    <p class="hint" th:if="${scope.name() == 'ALL'}">
+        Linking a chapter that is in another series moves it here, and a series left with no chapters is
+        deleted.
+    </p>
+
+    <section class="pages">
+        <h2 class="section-title">Top matches</h2>
+        <form th:if="${!#lists.isEmpty(matches)}" method="post" class="link-chapters"
+              th:action="@{/series/{id}/link-chapters/link(id=${series.id})}">
+            <input type="hidden" name="scope" th:value="${scope.name()}">
+            <input type="hidden" name="q" th:if="${query != null}" th:value="${query}">
+            <div th:replace="~{fragments/components :: linkChaptersActions}"></div>
+            <div th:replace="~{fragments/components :: chapterCandidates(${matches}, true)}"></div>
+            <button type="submit" class="btn btn-accent link-submit-bottom">Link selected</button>
+        </form>
+        <p th:if="${#lists.isEmpty(matches)}" class="empty">No close matches found.</p>
+    </section>
+
+    <section class="pages">
+        <h2 class="section-title">Search for a chapter by name</h2>
+        <form method="get" th:action="@{/series/{id}/link-chapters(id=${series.id})}" class="inline-form">
+            <input type="hidden" name="scope" th:value="${scope.name()}">
+            <input type="search" name="q" th:value="${query}" placeholder="Chapter title…" required>
+            <button type="submit" class="btn btn-accent">Search</button>
+        </form>
+
+        <th:block th:if="${searchResults != null}">
+            <form th:if="${!#lists.isEmpty(searchResults)}" method="post" class="link-chapters"
+                  th:action="@{/series/{id}/link-chapters/link(id=${series.id})}">
+                <input type="hidden" name="scope" th:value="${scope.name()}">
+                <input type="hidden" name="q" th:value="${query}">
+                <div th:replace="~{fragments/components :: linkChaptersActions}"></div>
+                <div th:replace="~{fragments/components :: chapterCandidates(${searchResults}, false)}"></div>
+                <button type="submit" class="btn btn-accent link-submit-bottom">Link selected</button>
+            </form>
+            <p th:if="${#lists.isEmpty(searchResults)}" class="empty"
+               th:text="'No chapter matches “' + ${query} + '” among ' + ${#strings.toLowerCase(scope.displayName)} + '.'">
+                No chapter matches.
+            </p>
+        </th:block>
+    </section>
+
+    <section class="pages">
+        <h2 class="section-title">Link by chapter id</h2>
+        <form method="post" th:action="@{/series/{id}/link-chapters/link(id=${series.id})}" class="inline-form">
+            <input type="hidden" name="scope" th:value="${scope.name()}">
+            <input type="hidden" name="q" th:if="${query != null}" th:value="${query}">
+            <input type="number" name="chapterIds" min="1" placeholder="chapter id" required>
+            <button type="submit" class="btn btn-accent">Link</button>
+        </form>
+    </section>
+</main>
+
+<script th:src="@{/js/app.js}"></script>
+</body>
+</html>

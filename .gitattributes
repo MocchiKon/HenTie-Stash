@@ -1,0 +1,24 @@
+# The repository stores text with LF, and every checkout gets LF on Windows too, whatever core.autocrlf
+# says: the build, the tests and the release zips then see the same bytes on every platform.
+* text=auto eol=lf
+
+# cmd.exe misreads labels and goto in a batch file with LF endings.
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# Never converted, never diffed as text.
+*.exe      binary
+*.dll      binary
+*.AppImage binary
+*.icc      binary
+*.db       binary
+*.jar      binary
+*.ico      binary
+*.png      binary
+*.jpg      binary
+*.jpeg     binary
+*.gif      binary
+*.webp     binary
+*.avif     binary
+*.jxl      binary
+bin/linux/avifenc binary

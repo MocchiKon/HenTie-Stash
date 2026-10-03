@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head('Divide chapter')}"></head>
+<body>
+<nav th:replace="~{fragments/layout :: nav}"></nav>
+
+<main class="container">
+    <div class="edit-head">
+        <h1>Divide into separate chapters</h1>
+        <a class="btn btn-ghost" th:href="@{/chapter/{id}/edit(id=${chapter.id})}">Back to edit</a>
+    </div>
+    <p class="hint divide-source">Dividing <a th:href="@{/chapter/{id}(id=${chapter.id})}" th:text="${chapter.titleFull}">title</a></p>
+
+    <!-- A division that stopped part-way comes back here: what it made, then why it stopped. -->
+    <div th:if="${divided != null and !#lists.isEmpty(divided)}" class="alert ok" role="status">
+        <span th:text="'Created ' + ${#lists.size(divided)} + ' chapter(s):'">Created:</span>
+        <ul th:replace="~{fragments/components :: dividedParts(${divided})}"></ul>
+    </div>
+    <div th:if="${divideError != null}" class="alert error" role="alert" th:text="${divideError}">stopped</div>
+    <div th:if="${error != null}" class="alert error" role="alert" th:text="${error}">error</div>
+    <div th:if="${blocked != null}" class="alert error" role="alert" th:text="${blocked}">blocked</div>
+
+    <th:block th:if="${blocked == null}">
+    <form method="post" class="divide-form" data-divide
+          th:action="@{/chapter/{id}/divide(id=${chapter.id})}" th:data-default-title="${chapter.titleFull}">
+        <p class="hint">
+            Mark the first page of every chapter inside this one. Each mark starts a new chapter that runs up to the
+            next mark, and the pages before the first mark stay in this chapter. The new chapters copy this one's
+            language, native title, rating, tags, artists, characters, parodies, groups and categories, get the
+            status picked below, and matching puts each of them in a series, as it does any new chapter. A page's
+            number opens it full size.
+        </p>
+        <div th:if="${compressionRunning}" class="alert warning" role="status">
+            An Image Compression run is in progress. The chapter cannot be divided until it has finished, since it may
+            be re-encoding the pages that would move.
+        </div>
+
+        <!-- Only the new chapters get this status; this one keeps its own. -->
+        <div class="field divide-status">
+            <label for="divide-status">Status of the new chapters</label>
+            <select id="divide-status" name="partStatus">
+                <option th:each="s : ${statuses}" th:value="${s.name()}" th:text="${s.displayName}"
+                        th:selected="${divide.partStatus == s}">Status</option>
+            </select>
+        </div>
+
+        <div class="divide-part divide-part-kept">
+            <span class="divide-part-label" data-divide-label>Part 1 · stays as this chapter</span>
+            <label class="divide-title">
+                <span>Title</span>
+                <input type="text" name="keptTitle" th:value="${divide.keptTitle}" maxlength="255" required>
+            </label>
+        </div>
+
+        <!-- A page is its checkbox's label, so a tap anywhere marks it. The server renders only the dividers of a
+             form it sends back; app.js builds the rest from the template below. -->
+        <div class="page-grid divide-grid">
+            <th:block th:each="url, iter : ${pageUrls}" th:with="name=${url.substring(url.lastIndexOf('/') + 1)}">
+                <div class="divide-part" th:if="${!iter.first and divide.starts.contains(name)}">
+                    <span class="divide-part-label" data-divide-label>A new chapter starts here</span>
+                    <label class="divide-title">
+                        <span>Title</span>
+                        <input type="text" th:name="${'titles[' + name + ']'}" maxlength="255" required
+                               th:value="${divide.titles.containsKey(name) ? divide.titles.get(name) : chapter.titleFull}">
+                    </label>
+                    <button type="button" class="btn btn-ghost btn-sm" data-divide-unmark>Unmark</button>
+                </div>
+                <label class="page-thumb divide-page" th:data-page="${name}">
+                    <img th:src="${url}" th:alt="'Page ' + ${iter.count}" loading="lazy">
+                    <a class="divide-page-no" th:href="@{/chapter/{id}/view(id=${chapter.id}, page=${iter.count})}"
+                       target="_blank" rel="noopener" title="Open this page in the viewer" th:text="${iter.count}">1</a>
+                    <span class="divide-toggle" th:unless="${iter.first}">
+                        <input type="checkbox" name="starts" th:value="${name}"
+                               th:checked="${divide.starts.contains(name)}">
+                        <span>Starts a chapter</span>
+                    </span>
+                    <span class="divide-toggle is-first" th:if="${iter.first}">Part 1 starts here</span>
+                </label>
+            </th:block>
+        </div>
+
+        <div class="divide-actions">
+            <span class="divide-summary" data-divide-summary>Each marked page starts a new chapter.</span>
+            <button type="submit" class="btn btn-accent" data-divide-submit>Divide</button>
+        </div>
+    </form>
+
+    <template id="divide-part-template">
+        <div class="divide-part">
+            <span class="divide-part-label" data-divide-label>A new chapter starts here</span>
+            <label class="divide-title">
+                <span>Title</span>
+                <input type="text" maxlength="255" required>
+            </label>
+            <button type="button" class="btn btn-ghost btn-sm" data-divide-unmark>Unmark</button>
+        </div>
+    </template>
+    </th:block>
+</main>
+
+<script th:src="@{/js/app.js}"></script>
+</body>
+</html>

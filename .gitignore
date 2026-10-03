@@ -1,0 +1,40 @@
+HELP.md
+target/
+# Anchored to the repo root: the runtime database folder. Unanchored "db/" would also swallow
+# src/main/resources/db/migration (the Flyway schema), which MUST be committed.
+/db/
+/mock_server/
+/data/
+migration/out/
+password-delete-to-reset.txt
+.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+### STS ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+
+### IntelliJ IDEA ###
+.idea
+*.iws
+*.iml
+*.ipr
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+build/
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+### VS Code ###
+.vscode/

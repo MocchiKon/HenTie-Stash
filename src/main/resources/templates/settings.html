@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head('Settings')}"></head>
+<body>
+<nav th:replace="~{fragments/layout :: nav}"></nav>
+
+<main class="container narrow">
+    <h1>Settings</h1>
+
+    <div th:if="${param.saved}" class="alert ok">Settings saved.</div>
+    <div th:if="${param.passwordChanged}" class="alert ok">Password changed.</div>
+    <div th:if="${loginError}" class="alert error" role="alert" th:text="${loginError}">error</div>
+    <div th:if="${passwordError}" class="alert error" role="alert" th:text="${passwordError}">error</div>
+    <div th:if="${storageError}" class="alert error" role="alert" th:text="${storageError}">error</div>
+    <div th:if="${comfyuiError}" class="alert error" role="alert" th:text="${comfyuiError}">error</div>
+
+    <form class="edit-form" method="post" th:action="@{/settings}">
+        <label class="checkbox big">
+            <input type="checkbox" name="loginRequired" th:checked="${loginRequired}">
+            <span>Require login to access the app</span>
+        </label>
+        <p class="hint">If unchecked, anyone on your network can use this app without a password.</p>
+        <!-- Only while no password exists, since login needs one. Without JavaScript the fields always show. -->
+        <div class="login-password-setup" th:if="${!hasPassword}" data-login-password-setup>
+            <p class="hint">No password has been set yet. Choose one to require login with.</p>
+            <div class="field">
+                <label for="newPassword">Password</label>
+                <input type="password" id="newPassword" name="newPassword" autocomplete="new-password"
+                       maxlength="72">
+            </div>
+            <div class="field">
+                <label for="newPasswordRepeat">Repeat password</label>
+                <input type="password" id="newPasswordRepeat" name="newPasswordRepeat" autocomplete="new-password"
+                       maxlength="72" data-repeat-of="newPassword">
+            </div>
+        </div>
+
+        <div class="field">
+            <label>Default image view mode</label>
+            <select name="viewMode">
+                <option th:each="m : ${viewModes}" th:value="${m.name()}" th:text="${m.displayName}"
+                        th:selected="${m == viewMode}">mode</option>
+            </select>
+        </div>
+
+        <div class="field">
+            <label for="pagesAhead">Pages prepared ahead while reading</label>
+            <input type="number" id="pagesAhead" name="pagesAhead" min="0" th:max="${maxPagesAhead}"
+                   th:value="${pagesAhead}">
+        </div>
+        <p class="hint">
+            How many of the next pages the image viewer gets ready while you read one - decoded when your browser
+            cannot show JPEG XL, processed when a ComfyUI workflow is selected. One page at a time, and the page you
+            are reading always comes first. The previous page is prepared after the first four of them, or after all
+            of them when there are fewer. 0 prepares only the page on screen.
+        </p>
+
+        <div class="field">
+            <label>Search results per page</label>
+            <input type="number" name="searchPageSize" min="1" max="200" th:value="${searchPageSize}">
+        </div>
+
+        <div class="field">
+            <label for="nhentaiApiKey">Nhentai API key</label>
+            <input type="text" id="nhentaiApiKey" name="nhentaiApiKey" th:value="${nhentaiApiKey}" maxlength="255"
+                   autocomplete="off" spellcheck="false" placeholder="Paste your API key here">
+        </div>
+        <p class="hint">
+            Needed for "Download all favourites" on the Download page, and with it nhentai allows more downloads a
+            minute. Create one in your nhentai account settings, under API keys.
+        </p>
+
+        <div class="field">
+            <label>Title display mode for search results</label>
+            <select name="titleDisplayMode">
+                <option th:each="m : ${titleDisplayModes}" th:value="${m.name()}" th:text="${m.name()}"
+                        th:selected="${m == titleDisplayMode}">mode</option>
+            </select>
+        </div>
+
+        <label class="checkbox big">
+            <input type="checkbox" name="matchAutoLink" th:checked="${matchAutoLink}">
+            <span>Put new chapters into a series automatically</span>
+        </label>
+        <p class="hint">
+            When a chapter is added, it is linked to the series it matches best - or gets a new series of
+            its own when nothing matches well enough. Use Manage &rarr; Library maintenance &rarr;
+            "Match chapters" to do the same for chapters that are already in the library.
+        </p>
+
+        <div class="field">
+            <label>Match threshold (%)</label>
+            <input type="number" name="matchThreshold" min="0" max="100" th:value="${matchThreshold}">
+        </div>
+        <p class="hint">
+            How similar a series has to be, by artist and title, before a chapter joins it instead of
+            starting its own. Higher is stricter. Below about 70 a chapter can join a different work by
+            the same artist, and below about 60 the artist stops mattering at all.
+        </p>
+
+        <h2 class="section-title">Image Compression</h2>
+
+        <div class="field">
+            <label>Default Image Compression mode</label>
+            <select name="compressionMode" class="compression-mode-select"
+                    data-custom-href="/compression-modes/new">
+                <option th:each="m : ${compressionModes}" th:value="${m.key}" th:text="${m.label}"
+                        th:attr="data-custom=${m.custom}"
+                        th:selected="${m.key == compressionMode}">mode</option>
+            </select>
+        </div>
+        <p class="hint">
+            Applies to images you add by hand — creating a chapter, or uploading into an existing one — and
+            is what the Download page starts at; a download can still pick another mode per paste.
+            Your own modes are managed from the Manage page.
+        </p>
+
+        <label class="checkbox big">
+            <input type="checkbox" name="systemImageTools" th:checked="${systemImageTools}">
+            <span>Use the image tools installed on this system</span>
+        </label>
+        <p class="hint">
+            When unchecked, the copies of ImageMagick, cjxl, djxl and avifenc shipped with the app are
+            used. Check this to use your own <code>magick</code>, <code>cjxl</code>, <code>djxl</code> and
+            <code>avifenc</code> from the system PATH instead.
+        </p>
+
+        <div class="field">
+            <label>Send JPEG XL pages to the browser as</label>
+            <select name="jxlDelivery">
+                <option th:each="d : ${jxlDeliveries}" th:value="${d.name()}" th:text="${d.displayName}"
+                        th:selected="${d == jxlDelivery}">mode</option>
+            </select>
+        </div>
+        <p class="hint">
+            Some browsers cannot display JPEG XL, so pages encoded to it are decoded to PNG on the way out.
+            Automatic checks what this browser supports and decodes only when it has to.
+            On chrome you might need to enable the flag <code>chrome://flags/#enable-jxl-image-format</code> and on firefox <code>image.jxl.enabled</code>.
+        </p>
+
+        <h2 class="section-title" id="comfyui">ComfyUI</h2>
+        <p class="hint">
+            Show pages in the image viewer through your own ComfyUI workflows - upscaling, restoration, edits
+            with diffusion models. The files in the data folder are never changed. How to set up ComfyUI and
+            export workflows for the app is described in <code>COMFYUI.md</code>.
+        </p>
+
+        <div class="field">
+            <label for="comfyUrl">ComfyUI address</label>
+            <input type="text" id="comfyUrl" name="comfyUrl" th:value="${comfyUrl}" maxlength="255"
+                   placeholder="http://127.0.0.1:8188">
+        </div>
+        <p class="hint">
+            Where ComfyUI answers. <code>http://127.0.0.1:8188</code> is ComfyUI's own default; the ComfyUI
+            desktop app uses port <code>8000</code>.
+        </p>
+
+        <div class="field">
+            <label for="comfyWorkflowDir">Workflow folder</label>
+            <input type="text" id="comfyWorkflowDir" name="comfyWorkflowDir" th:value="${comfyWorkflowDir}"
+                   maxlength="255" placeholder="api_workflows">
+        </div>
+        <p class="hint">
+            A folder in ComfyUI's user folder (<code>ComfyUI/user/default/</code> in most installations) holding
+            workflows exported with <i>File &rarr; Export (API)</i>. Its subfolders are listed too.
+        </p>
+
+        <div class="field">
+            <label for="defaultWorkflow">Default workflow for the image viewer</label>
+            <select id="defaultWorkflow" name="defaultWorkflow" data-comfyui-workflow-select>
+                <option value="" th:selected="${defaultWorkflow == ''}">None - show pages as stored</option>
+                <option th:each="w : ${comfyListing.workflows()}" th:if="${w.valid()}" th:value="${w.name()}"
+                        th:text="${w.name()}" th:selected="${w.name() == defaultWorkflow}">workflow</option>
+                <option th:if="${defaultWorkflowMissing}" th:value="${defaultWorkflow}"
+                        th:text="${defaultWorkflow + ' (not available right now)'}" selected>missing</option>
+            </select>
+        </div>
+
+        <!-- app.js rebuilds this block once a ComfyUI it is starting answers; the two must stay the same shape. -->
+        <div class="workflow-check" data-comfyui-workflow-check>
+            <p class="hint" th:if="${comfyListing.problem() != null}" th:text="${comfyListing.problem()}">problem</p>
+            <details class="workflow-details" th:unless="${#lists.isEmpty(comfyListing.workflows())}"
+                     th:with="ready=${comfyListing.workflows().?[valid()].size()}, broken=${comfyListing.workflows().size() - ready}"
+                     th:classappend="${broken > 0 ? 'has-problems' : ''}">
+                <summary th:text="'Workflows: ' + ${ready} + ' ready' + (${broken > 0} ? ', ' + ${broken} + ' cannot run' : '')">Workflows</summary>
+                <ul class="workflow-list">
+                    <li th:each="w : ${comfyListing.workflows()}" th:classappend="${w.valid() ? 'ok' : 'bad'}">
+                        <span class="workflow-name" th:text="${w.name()}">name</span>
+                        <span class="workflow-state" th:text="${w.valid() ? 'Ready' : w.problem()}">state</span>
+                    </li>
+                </ul>
+            </details>
+        </div>
+
+        <label class="checkbox big">
+            <input type="checkbox" name="comfyAutostart" th:checked="${comfyAutostart}">
+            <span>Start ComfyUI when the app starts</span>
+        </label>
+        <div class="field">
+            <label for="comfyStartScript">Start script</label>
+            <input type="text" id="comfyStartScript" name="comfyStartScript" th:value="${comfyStartScript}"
+                   th:maxlength="${maxPathLength}" placeholder="e.g. C:\ComfyUI_windows_portable\run_for_hentie.bat">
+        </div>
+        <p class="hint">
+            The script in your ComfyUI installation that starts it - a <code>.bat</code> on Windows, a shell script on Linux.
+            It is not run when something already answers at the address. ComfyUI started is stopped when the app exits.
+        </p>
+
+        <h2 class="section-title">Temporary files</h2>
+        <p class="hint">
+            Leave a folder blank to choose automatically: on Linux a RAM disk is used when one is found with
+            enough free space - for download staging only when the download is compressed - and otherwise a
+            folder inside the data folder. The app keeps its files in a folder of its own inside the folder you
+            choose (<code th:text="${libraryFolder}">hentie-…</code>, holding <code>staging</code>,
+            <code>work</code>, <code>transcoded</code> and <code>comfyui</code>) and never touches anything else
+            there, so one folder can serve all four. Files already in a folder are not moved when you change it.
+            On Windows, pointing the two caches at a RAM disk keeps the largest files the app writes off your SSD.
+        </p>
+        <p class="hint">
+            RAM disk: <span th:text="${ramDisk != null ? ramDisk : 'none found (detected on Linux only)'}">none</span>
+        </p>
+
+        <th:block th:each="f : ${scratchFolders}">
+            <div class="field">
+                <label th:for="${f.area().formField}" th:text="${f.area().displayName}">Folder</label>
+                <input type="text" th:id="${f.area().formField}" th:name="${f.area().formField}"
+                       th:value="${f.value()}" th:maxlength="${maxPathLength}" placeholder="Automatic">
+            </div>
+            <p class="hint">In use: <span th:each="line, s : ${f.inUse()}"><br th:unless="${s.first}"><code
+                    class="path" th:text="${line}">path</code></span></p>
+        </th:block>
+
+        <div class="edit-actions">
+            <button type="submit" class="btn btn-accent">Save settings</button>
+        </div>
+    </form>
+
+    <!-- The URLs come from here rather than being spelled out in app.js, so they follow the app's context path. -->
+    <section class="comfy-status" id="comfyui-status"
+             th:attr="data-state=${comfyStatus.state()}, data-status-url=@{/comfyui/status},
+                      data-workflows-url=@{/comfyui/workflows}, data-cache-size-url=@{/comfyui/cache/size}">
+        <h2 class="section-title">ComfyUI status</h2>
+        <div th:if="${comfyuiMessage}" class="alert ok" role="status" th:text="${comfyuiMessage}">message</div>
+        <!-- Filled by app.js: the line asks ComfyUI, which must not hold up the rest of the page. -->
+        <p data-comfyui-summary>Asking ComfyUI...</p>
+        <p class="hint" data-comfyui-message th:text="${comfyStatus.message()}"
+           th:hidden="${comfyStatus.message() == null}">message</p>
+        <div class="btn-row">
+            <form method="post" th:action="@{/comfyui/start}">
+                <button type="submit" class="btn btn-sm">Start ComfyUI</button>
+            </form>
+            <form method="post" th:action="@{/comfyui/stop}">
+                <button type="submit" class="btn btn-sm" data-comfyui-stop
+                        th:disabled="${comfyStatus.pid() == null}">Stop ComfyUI</button>
+            </form>
+        </div>
+        <p class="hint">Start uses the saved start script - save the settings above first.</p>
+        <details class="comfy-console" th:hidden="${#lists.isEmpty(comfyStatus.console())}" data-comfyui-console-box>
+            <summary>ComfyUI output (last lines)</summary>
+            <pre data-comfyui-console th:text="${comfyConsole}">output</pre>
+        </details>
+
+        <p class="hint">
+            Processed pages are kept in <code class="path" th:text="${comfyCacheDir}">folder</code>
+            (<span data-comfyui-cache-size>...</span>), so a page is only processed once per workflow.
+            Clear it when a result is wrong in a way the app cannot see - a model file replaced under the same name.
+        </p>
+        <form method="post" th:action="@{/comfyui/cache/clear}" class="confirm-delete"
+              data-confirm="Delete every processed page? They are made again when viewed.">
+            <button type="submit" class="btn btn-sm">Clear processed pages</button>
+        </form>
+    </section>
+
+    <section class="danger-zone" id="change-password">
+        <h2 class="section-title" th:text="${hasPassword ? 'Change password' : 'Set a password'}">Change password</h2>
+        <p class="hint" th:unless="${hasPassword}">No password has been set yet, so login cannot be required.</p>
+        <form class="edit-form" method="post" th:action="@{/settings/password}">
+            <div class="field">
+                <label for="password">New password<span class="req" aria-hidden="true">*</span></label>
+                <input type="password" id="password" name="password" autocomplete="new-password" maxlength="72"
+                       required>
+            </div>
+            <div class="field">
+                <label for="passwordRepeat">Repeat new password<span class="req" aria-hidden="true">*</span></label>
+                <input type="password" id="passwordRepeat" name="passwordRepeat" autocomplete="new-password"
+                       maxlength="72" data-repeat-of="password" required>
+            </div>
+            <div class="edit-actions">
+                <button type="submit" class="btn btn-accent"
+                        th:text="${hasPassword ? 'Change password' : 'Set password'}">Change password</button>
+            </div>
+        </form>
+    </section>
+
+    <section class="danger-zone" id="shut-down">
+        <h2 class="section-title">Shut down</h2>
+        <p class="hint">
+            Stops the app for everyone using it. Pages still loading get up to a minute to finish, and a download
+            still running a few seconds; one that does not finish runs again the next time the app starts.
+            Pressing Ctrl+C in the app's console window does the same. Closing that window also stops the app,
+            but Windows then gives it only a few seconds.
+        </p>
+        <form method="post" th:action="@{/settings/shutdown}" class="confirm-delete"
+              data-confirm="Shut down HenTie? It stays off until it is started again on its computer.">
+            <button type="submit" class="btn btn-danger">Shut down HenTie</button>
+        </form>
+    </section>
+</main>
+
+<script th:src="@{/js/app.js}"></script>
+</body>
+</html>

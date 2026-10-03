@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head('Metadata rules')}"></head>
+<body>
+<nav th:replace="~{fragments/layout :: nav}"></nav>
+
+<main class="container">
+    <div class="edit-head">
+        <h1><span th:text="${type.displayName}">Tags</span> rules</h1>
+        <div class="btn-row">
+            <a class="btn btn-ghost" th:href="@{'/manage#' + ${type.key}}">Back to Manage</a>
+        </div>
+    </div>
+
+    <p class="hint">
+        Deleting, merging or renaming an item only changes the chapters and series that exist at that
+        moment - the same name comes back with the next download. These are the decisions kept for next
+        time: a rule drops the name it names, or replaces it with another item. Remove a rule to let the
+        name be used again. Names are matched ignoring capitalisation, which is why they are listed in
+        lower case.
+    </p>
+
+    <div class="manage-tabs">
+        <a th:each="t : ${types}" th:href="@{/manage/rules(type=${t.key})}"
+           th:classappend="${t == type} ? 'active' : ''" th:text="${t.displayName}">Tags</a>
+    </div>
+
+    <section class="manage-section">
+        <h2 class="section-title">
+            <span th:text="${rules.totalElements}">0</span> rule(s)
+        </h2>
+
+        <p class="empty" th:if="${rules.totalElements == 0}">
+            No rules yet. One is recorded whenever you delete, merge or rename a
+            <span th:text="${type.displayName}">Tags</span> item with "Add rule" checked.
+        </p>
+
+        <ul class="rule-list" th:unless="${rules.totalElements == 0}">
+            <li class="rule-item" th:each="rule : ${rules.content}">
+                <span class="rule-name" th:text="${rule.sourceName}">old-name</span>
+                <span class="rule-effect" th:if="${rule.blocking()}">is removed from anything that brings it in</span>
+                <span class="rule-effect" th:unless="${rule.blocking()}">
+                    → <span th:text="${rule.targetName}">new-name</span>
+                </span>
+                <form method="post" th:action="@{/manage/rules/remove}" class="inline-form confirm-delete"
+                      data-confirm="Remove this rule? The name will be allowed again from the next download on.">
+                    <input type="hidden" name="type" th:value="${type.key}">
+                    <input type="hidden" name="id" th:value="${rule.id}">
+                    <input type="hidden" name="page" th:value="${rules.number}">
+                    <button type="submit" class="btn btn-danger">Remove</button>
+                </form>
+            </li>
+        </ul>
+
+        <nav class="pagination" th:if="${rules.totalPages > 1}">
+            <a th:if="${!rules.first}" class="bar-btn" title="Previous page"
+               th:href="@{/manage/rules(type=${type.key},page=${rules.number - 1})}">&lsaquo;</a>
+            <span th:text="${rules.number + 1} + ' / ' + ${rules.totalPages}">1 / 1</span>
+            <a th:if="${!rules.last}" class="bar-btn" title="Next page"
+               th:href="@{/manage/rules(type=${type.key},page=${rules.number + 1})}">&rsaquo;</a>
+        </nav>
+    </section>
+</main>
+
+<script th:src="@{/js/app.js}"></script>
+</body>
+</html>

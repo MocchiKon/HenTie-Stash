@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Runs without an installed Java: the exe finds jre\ beside it. Only the Windows image tools. -->
+<assembly xmlns="http://maven.apache.org/ASSEMBLY/2.2.0"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://maven.apache.org/ASSEMBLY/2.2.0 https://maven.apache.org/xsd/assembly-2.2.0.xsd">
+	<id>windows</id>
+	<formats>
+		<format>zip</format>
+	</formats>
+	<baseDirectory>HenTie</baseDirectory>
+	<files>
+		<file>
+			<source>${project.build.directory}/${project.build.finalName}.exe</source>
+		</file>
+	</files>
+	<fileSets>
+		<fileSet>
+			<directory>${project.build.directory}/jre</directory>
+			<outputDirectory>jre</outputDirectory>
+		</fileSet>
+		<fileSet>
+			<directory>${project.basedir}/bin/win</directory>
+			<outputDirectory>bin/win</outputDirectory>
+		</fileSet>
+	</fileSets>
+</assembly>

@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head('Download queue')}"></head>
+<body>
+<nav th:replace="~{fragments/layout :: nav}"></nav>
+
+<main class="container">
+    <div class="edit-head">
+        <h1>Download queue</h1>
+        <div class="btn-row">
+            <a class="btn" th:href="@{/chapter/download}">Add links</a>
+            <a class="btn btn-ghost" th:href="@{/manage}">Back to Manage</a>
+        </div>
+    </div>
+
+    <div th:if="${enqueued != null}" class="alert" th:classappend="${enqueued.queued() > 0} ? 'ok' : 'error'">
+        <span th:if="${enqueued.accepted() > 0}">
+            Queued <span th:text="${enqueued.accepted()}">0</span> link(s).
+        </span>
+        <span th:if="${enqueued.requeued() > 0}">
+            Re-queued <span th:text="${enqueued.requeued()}">0</span> previously failed link(s).
+        </span>
+        <span th:if="${enqueued.alreadyQueued() > 0}">
+            <span th:text="${enqueued.alreadyQueued()}">0</span> link(s) were already waiting.
+        </span>
+        <span th:if="${enqueued.rejected() > 0}">
+            Ignored <span th:text="${enqueued.rejected()}">0</span> link(s) no data source recognizes.
+        </span>
+        <span th:if="${enqueued.queued() == 0 and enqueued.rejected() == 0}">Nothing to queue.</span>
+    </div>
+    <div th:if="${favourites != null}" class="alert" th:classappend="${favourites.isStopped()} ? 'error' : 'ok'"
+         th:text="${favourites.summary()}">Listed 3 nhentai favourite(s): queued 3.</div>
+    <div th:if="${redownloadQueued != null}" class="alert ok">
+        Queued a full-quality re-download of <a th:href="@{/chapter/{id}(id=${redownloadQueued})}"
+            th:text="'chapter ' + ${redownloadQueued}">chapter 1</a>. Its compressed pages are replaced once the
+        originals have arrived.
+    </div>
+    <div th:if="${retriedCount != null}" class="alert ok">
+        <span th:text="${retriedCount}">0</span> failed item(s) put back in the queue<span
+            th:if="${retriedIgnoringImageErrors}">, keeping whatever pages download</span>.
+    </div>
+    <div th:if="${clearedCount != null}" class="alert ok">
+        <span th:text="${clearedCount}">0</span> failed item(s) removed.
+    </div>
+
+    <!-- data-active drives the page's own refresh in app.js: only while there is something to watch. -->
+    <section class="manage-section" id="download-queue"
+             th:attr="data-active=${progress.isActive() and !progress.paused()} ? 'true' : 'false'">
+        <h2 class="section-title">Progress</h2>
+
+        <!-- Failures count too: total() is done + pending only, so it alone would call the queue empty above
+             a Failed list. -->
+        <p class="hint" th:if="${progress.total() == 0 and progress.failed() == 0}">
+            The queue is empty. Anything you queue is downloaded in the background — you can close this
+            page and come back to it.
+        </p>
+        <p class="hint" th:if="${progress.total() == 0 and progress.failed() > 0}">
+            Nothing is waiting to download. The failed item(s) below are all that is left — retry or
+            remove them.
+        </p>
+
+        <div th:if="${progress.total() > 0}">
+            <p class="queue-progress">
+                <span class="badge"
+                      th:text="'[' + ${progress.done()} + '/' + ${progress.total()} + ']'">[0/0]</span>
+                <span th:text="${progress.pending()} + ' waiting'">0 waiting</span>
+                <span th:if="${progress.paused()}" class="queue-paused">· paused</span>
+            </p>
+            <div class="queue-bar" role="progressbar"
+                 th:attr="aria-valuenow=${progress.done()},aria-valuemin='0',aria-valuemax=${progress.total()}">
+                <span th:style="'width:' + ${progress.total() > 0 ? (progress.done() * 100 / progress.total()) : 0} + '%'"></span>
+            </div>
+        </div>
+
+        <p th:if="${progress.currentLink() != null}" class="queue-current">
+            <span class="queue-link" th:text="${progress.currentLink()}">mock:1</span>
+            <span class="hint" th:text="'— ' + ${progress.currentPhase()}">— Downloading images</span>
+        </p>
+
+        <form method="post" th:action="@{/chapter/queue/pause}" class="inline-form">
+            <input type="hidden" name="paused" th:value="${progress.paused()} ? 'false' : 'true'">
+            <button type="submit" class="btn" th:text="${progress.paused()} ? 'Resume downloads' : 'Pause downloads'">
+                Pause downloads
+            </button>
+        </form>
+        <p class="hint" th:if="${progress.paused()}">
+            Paused. The item that was already running finishes; nothing new starts until you resume.
+        </p>
+    </section>
+
+    <section class="manage-section" th:unless="${#lists.isEmpty(pending)}">
+        <h2 class="section-title">
+            Waiting (<span th:text="${progress.pending()}">0</span>)
+        </h2>
+        <ul class="queue-list">
+            <li class="queue-item" th:each="item : ${pending}">
+                <span class="queue-link" th:text="${item.link}">mock:1212</span>
+                <span class="hint" th:if="${item.attempts > 0}"
+                      th:text="${item.attempts} + ' failed attempt(s) so far'">1 failed attempt(s) so far</span>
+                <span class="hint" th:if="${item.replacePages}">re-downloading in full quality</span>
+                <span class="hint" th:if="${item.ignoreImageErrors}">ignoring image errors</span>
+                <span class="hint" th:if="${item.avoidDuplicateTitles}">avoiding duplicated titles</span>
+                <!-- containsKey: a mode deleted while queued has no name, and would print "compressing: null". -->
+                <span class="hint" th:if="${compressionModeNames.containsKey(item.compressionMode)
+                            and !#strings.equals(item.compressionMode, 'NONE')}"
+                      th:text="'compressing: ' + ${compressionModeNames.get(item.compressionMode)}">compressing: Lossless</span>
+                <div class="queue-actions">
+                    <form method="post" th:action="@{'/chapter/queue/' + ${item.id} + '/remove'}" class="inline-form">
+                        <button type="submit" class="btn btn-danger">Remove</button>
+                    </form>
+                </div>
+            </li>
+        </ul>
+        <p class="hint" th:if="${progress.pending() > listLimit}">
+            Showing the first <span th:text="${listLimit}">200</span> of
+            <span th:text="${progress.pending()}">0</span>.
+        </p>
+    </section>
+
+    <section class="manage-section" th:unless="${#lists.isEmpty(failed)}">
+        <h2 class="section-title">
+            Failed (<span th:text="${progress.failed()}">0</span>)
+        </h2>
+        <p class="hint">
+            These gave up after several attempts and are out of the worker's way. Retrying starts them from
+            the beginning; pages already downloaded are kept and not fetched again, so only what is missing
+            is fetched.
+            <strong>Ignoring image errors</strong> keeps whatever pages do download instead of failing on
+            the first one the source cannot produce — for a gallery that is genuinely missing a page. The
+            chapter then counts as finished, gap and all, so queueing the link again will not go back for
+            it: delete the chapter's images if you want the whole gallery fetched afresh.
+            A link queued <strong>avoiding duplicated titles</strong> keeps that check when retried; its own
+            <strong>Retry allowing duplicate title</strong> button drops it, for a chapter you want anyway.
+        </p>
+        <div class="btn-row">
+            <form method="post" th:action="@{/chapter/queue/retry-failed}" class="inline-form">
+                <input type="hidden" name="ignoreImageErrors" value="false">
+                <button type="submit" class="btn">Retry all failed</button>
+            </form>
+            <form method="post" th:action="@{/chapter/queue/retry-failed}" class="inline-form">
+                <input type="hidden" name="ignoreImageErrors" value="true">
+                <button type="submit" class="btn">Retry all ignoring image errors</button>
+            </form>
+            <form method="post" th:action="@{/chapter/queue/clear-failed}"
+                  class="inline-form confirm-delete"
+                  data-confirm="Remove every failed item from the queue? They will not be downloaded.">
+                <button type="submit" class="btn btn-danger">Delete all failed</button>
+            </form>
+        </div>
+        <ul class="queue-list">
+            <li class="queue-item failed" th:each="item : ${failed}">
+                <span class="queue-link" th:text="${item.link}">mock:1212</span>
+                <a class="hint" th:if="${item.chapterId != null}" th:href="@{'/chapter/' + ${item.chapterId}}"
+                   th:text="'chapter ' + ${item.chapterId}">chapter 1</a>
+                <span class="hint" th:if="${item.replacePages}">re-downloading in full quality</span>
+                <span class="hint" th:if="${item.avoidDuplicateTitles}">avoiding duplicated titles</span>
+                <span class="queue-error" th:text="${item.error}">Something went wrong</span>
+                <div class="queue-actions">
+                    <form method="post" th:action="@{'/chapter/queue/' + ${item.id} + '/retry'}" class="inline-form">
+                        <input type="hidden" name="ignoreImageErrors" value="false">
+                        <button type="submit" class="btn">Retry</button>
+                    </form>
+                    <form method="post" th:action="@{'/chapter/queue/' + ${item.id} + '/retry'}" class="inline-form">
+                        <input type="hidden" name="ignoreImageErrors" value="true">
+                        <button type="submit" class="btn" title="Keep whatever pages download">
+                            Retry ignoring image errors
+                        </button>
+                    </form>
+                    <!-- The Retry buttons above keep the check, so only this one can get past the refusal. -->
+                    <form method="post" th:action="@{'/chapter/queue/' + ${item.id} + '/retry'}" class="inline-form"
+                          th:if="${item.avoidDuplicateTitles}">
+                        <input type="hidden" name="allowDuplicateTitle" value="true">
+                        <button type="submit" class="btn" title="Download it even if another source has a chapter with this title">
+                            Retry allowing duplicate title
+                        </button>
+                    </form>
+                    <form method="post" th:action="@{'/chapter/queue/' + ${item.id} + '/remove'}" class="inline-form">
+                        <button type="submit" class="btn btn-danger">Remove</button>
+                    </form>
+                </div>
+            </li>
+        </ul>
+        <p class="hint" th:if="${progress.failed() > listLimit}">
+            Showing the first <span th:text="${listLimit}">200</span> of
+            <span th:text="${progress.failed()}">0</span>.
+        </p>
+    </section>
+</main>
+
+<script th:src="@{/js/app.js}"></script>
+</body>
+</html>

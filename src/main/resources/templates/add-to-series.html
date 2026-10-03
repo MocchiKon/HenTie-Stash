@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head('Add to series')}"></head>
+<body>
+<nav th:replace="~{fragments/layout :: nav}"></nav>
+
+<main class="container">
+    <div class="edit-head">
+        <h1>Add to series</h1>
+        <a class="btn" th:href="@{/chapter/{id}/edit(id=${chapter.id})}">Back</a>
+    </div>
+    <p class="hint">Linking chapter: <strong th:text="${chapter.titleFull}">title</strong></p>
+
+    <section class="pages">
+        <h2 class="section-title">Top matches</h2>
+        <div class="match-list">
+            <div class="match" th:each="m : ${matches}">
+                <a class="match-thumb" th:href="@{/series/{id}(id=${m.seriesId})}">
+                    <img th:src="${m.thumbnailUrl}" th:alt="${m.titleFull}" loading="lazy">
+                </a>
+                <div class="match-info">
+                    <a class="match-title" th:href="@{/series/{id}(id=${m.seriesId})}" th:text="${m.titleFull}">title</a>
+                    <p class="match-meta">
+                        <span th:text="${m.chapterCount} + ' chapter(s)'">0</span> ·
+                        <span th:text="${m.sharedArtists} + ' shared artist(s)'">0</span> ·
+                        <span th:text="'title ' + ${#numbers.formatDecimal(m.titleSimilarity, 1, 2)}">0</span> ·
+                        <span th:text="'match ' + ${#numbers.formatPercent(m.score, 1, 0)}">0%</span>
+                    </p>
+                    <form method="post" th:action="@{/chapter/{id}/add-to-series/link(id=${chapter.id})}">
+                        <input type="hidden" name="seriesId" th:value="${m.seriesId}">
+                        <button type="submit" class="btn btn-accent btn-sm">Link to this series</button>
+                    </form>
+                </div>
+            </div>
+            <p th:if="${#lists.isEmpty(matches)}" class="empty">No close matches found.</p>
+        </div>
+    </section>
+
+    <section class="pages">
+        <h2 class="section-title">Search for a series by name</h2>
+        <form method="get" th:action="@{/chapter/{id}/add-to-series(id=${chapter.id})}" class="inline-form">
+            <input type="search" name="q" th:value="${query}" placeholder="Series name…" required>
+            <button type="submit" class="btn btn-accent">Search</button>
+        </form>
+
+        <div class="match-list" th:if="${searchResults != null}">
+            <div class="match" th:each="m : ${searchResults}">
+                <a class="match-thumb" th:href="@{/series/{id}(id=${m.seriesId})}">
+                    <img th:src="${m.thumbnailUrl}" th:alt="${m.titleFull}" loading="lazy">
+                </a>
+                <div class="match-info">
+                    <a class="match-title" th:href="@{/series/{id}(id=${m.seriesId})}" th:text="${m.titleFull}">title</a>
+                    <p class="match-meta"><span th:text="${m.chapterCount} + ' chapter(s)'">0</span></p>
+                    <form method="post" th:action="@{/chapter/{id}/add-to-series/link(id=${chapter.id})}">
+                        <input type="hidden" name="seriesId" th:value="${m.seriesId}">
+                        <button type="submit" class="btn btn-accent btn-sm">Link to this series</button>
+                    </form>
+                </div>
+            </div>
+            <p th:if="${#lists.isEmpty(searchResults)}" class="empty">
+                No series match “<span th:text="${query}">q</span>”.
+            </p>
+        </div>
+    </section>
+
+    <section class="pages">
+        <h2 class="section-title">Link by series id</h2>
+        <form method="post" th:action="@{/chapter/{id}/add-to-series/link(id=${chapter.id})}" class="inline-form">
+            <input type="number" name="seriesId" min="1" placeholder="series id" required>
+            <button type="submit" class="btn btn-accent">Link</button>
+        </form>
+    </section>
+
+    <section class="pages">
+        <h2 class="section-title">Create a new series</h2>
+        <p class="hint">Start a brand-new series pre-filled from this chapter (it will be linked automatically).</p>
+        <a class="btn btn-accent" th:href="@{/series/new(fromChapter=${chapter.id})}">Create series from this chapter</a>
+    </section>
+</main>
+
+<script th:src="@{/js/app.js}"></script>
+</body>
+</html>

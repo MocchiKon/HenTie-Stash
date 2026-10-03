@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head('Download chapters')}"></head>
+<body>
+<nav th:replace="~{fragments/layout :: nav}"></nav>
+
+<main class="container">
+    <div class="edit-head">
+        <h1>Download chapters from links</h1>
+        <div class="btn-row">
+            <a class="btn" th:href="@{/chapter/queue}">View download queue</a>
+            <a class="btn btn-ghost" th:href="@{/manage}">Back to Manage</a>
+        </div>
+    </div>
+
+    <div th:if="${favouritesError}" class="alert error" role="alert" th:text="${favouritesError}">error</div>
+
+    <form class="edit-form" method="post" th:action="@{/chapter/download}">
+        <div class="field">
+            <label>Links</label>
+            <textarea name="links" class="link-input" autofocus
+                      placeholder="Paste one link per line, e.g.&#10;https://nhentai.net/g/123456/&#10;nhentai:123457"></textarea>
+            <p class="hint">
+                One link per line — hundreds are fine. Each is downloaded in the background, one at a
+                time; you can carry on using the app while that happens.
+            </p>
+            <p class="hint">
+                Sources currently available:
+                <span th:each="source, it : ${sources}"><code
+                        th:text="${source} + ':&lt;id&gt;'">mock:&lt;id&gt;</code><span
+                        th:if="${!it.last}">, </span></span>
+            </p>
+        </div>
+        <div class="field">
+            <label>Image Compression</label>
+            <select name="compressionMode" class="compression-mode-select"
+                    data-custom-href="/compression-modes/new">
+                <option th:each="m : ${compressionModes}" th:value="${m.key}" th:text="${m.label}"
+                        th:attr="data-custom=${m.custom}"
+                        th:selected="${m.key == compressionMode}">mode</option>
+            </select>
+            <p class="hint">
+                Starts at the default mode from Settings. Applies to the images of the chapters queued by
+                this form, and is remembered on each queued link — so changing it afterwards does not affect
+                what is already waiting. Pages are
+                downscaled and re-encoded as they download, and an image is kept as it is whenever the
+                saving does not clear the mode's thresholds.
+            </p>
+        </div>
+        <div class="field">
+            <label class="checkbox big">
+                <input type="checkbox" name="avoidDuplicateTitles" value="true">
+                <span>Avoid duplicated titles from other sources</span>
+            </label>
+            <p class="hint">
+                A new chapter whose full title is exactly that of a chapter from a different source (or of
+                one added without a link) is not downloaded; it lands in the queue's Failed list naming the
+                chapter it matched. Chapters from the same source are never compared. Remembered on each
+                queued link — to let one through anyway, use its "Retry allowing duplicate title" button in
+                the queue, or paste it again with this unticked.
+            </p>
+        </div>
+        <div class="edit-actions">
+            <button type="submit" class="btn btn-accent">Queue downloads</button>
+        </div>
+
+        <!-- In the same form, so the favourites take the Image Compression and duplicate-title choices above.
+             Only this button is long-running: queueing pasted links is quick. -->
+        <section class="favourites" th:unless="${#lists.isEmpty(favouritesSources)}">
+            <h2 class="section-title">Download all favourites</h2>
+            <div class="field">
+                <label for="favouritesSource">Site</label>
+                <div class="favourites-row">
+                    <!-- Not-ready sources stay selectable: a select whose options are all disabled shows nothing.
+                         The server refuses them, saying why. -->
+                    <select id="favouritesSource" name="source">
+                        <option th:each="s : ${favouritesSources}" th:value="${s.source()}"
+                                th:text="${s.ready()} ? ${s.source()} : ${s.source()} + ' (needs its API key)'">nhentai</option>
+                    </select>
+                    <button type="submit" class="btn long-running" th:formaction="@{/chapter/download/favourites}"
+                            th:disabled="${!favouritesReady}"
+                            data-busy-note="Listing your favourites&#8230; the site allows only a few pages of the list a minute, so a long list takes minutes. Its galleries are queued as they are found and start downloading meanwhile. You can keep using the app in another tab.">
+                        Download all favourites
+                    </button>
+                </div>
+                <p class="hint">
+                    Queues every gallery in your favourites on that site that is not in the library yet, with the
+                    Image Compression mode and the duplicate-title choice above. A gallery downloaded before and
+                    deleted since is left out; paste its link to download it again.
+                </p>
+                <p class="hint" th:unless="${favouritesReady}">
+                    The favourites list belongs to the owner of an API key: set the site's key in
+                    <a th:href="@{/settings}">Settings</a> first.
+                </p>
+            </div>
+        </section>
+    </form>
+</main>
+
+<script th:src="@{/js/app.js}"></script>
+</body>
+</html>

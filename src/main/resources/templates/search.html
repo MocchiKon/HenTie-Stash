@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head('Search')}"></head>
+<body>
+<nav th:replace="~{fragments/layout :: nav}"></nav>
+
+<main class="container">
+    <h1>Search</h1>
+
+    <!-- Flash from "Delete series and all linked chapters", which redirects here. -->
+    <p class="hint" th:if="${chaptersDeleted != null}">
+        Series deleted, along with <span th:text="${chaptersDeleted}">0</span> chapter(s) and their images.
+    </p>
+    <form class="search-form" method="get" th:action="@{/search/results}" id="search-form"
+          th:classappend="${criteria.series} ? 'is-series' : 'is-chapter'">
+
+        <div class="type-toggle">
+            <label>
+                <input type="radio" name="type" value="CHAPTER" th:checked="${!criteria.series}">
+                <span>Chapters</span>
+            </label>
+            <label>
+                <input type="radio" name="type" value="SERIES" th:checked="${criteria.series}">
+                <span>Series</span>
+            </label>
+        </div>
+
+        <div class="field">
+            <label>Title</label>
+            <input type="text" name="title" th:value="${criteria.title}" placeholder="Title or native title...">
+        </div>
+
+        <div th:replace="~{fragments/components :: searchTokenField('Tags','tag','tagIds','excludedTagIds',${selected.tags},${selected.excludedTags})}"></div>
+        <div th:replace="~{fragments/components :: searchTokenField('Artists','artist','artistIds','excludedArtistIds',${selected.artists},${selected.excludedArtists})}"></div>
+        <div th:replace="~{fragments/components :: searchTokenField('Characters','character','characterIds','excludedCharacterIds',${selected.characters},${selected.excludedCharacters})}"></div>
+        <div th:replace="~{fragments/components :: searchTokenField('Parodies','parody','parodyIds','excludedParodyIds',${selected.parodies},${selected.excludedParodies})}"></div>
+        <div th:replace="~{fragments/components :: searchTokenField('Groups','group','groupIds','excludedGroupIds',${selected.groups},${selected.excludedGroups})}"></div>
+        <div th:replace="~{fragments/components :: searchTokenField('Categories','category','categoryIds','excludedCategoryIds',${selected.categories},${selected.excludedCategories})}"></div>
+        <div th:replace="~{fragments/components :: tokenField('Languages','language','languages','label',${selectedLanguages})}"></div>
+
+        <div class="field">
+            <label>Minimum rating</label>
+            <div th:replace="~{fragments/components :: starSelect('minScore', ${criteria.minScore})}"></div>
+        </div>
+
+        <div class="field-row">
+            <div class="field">
+                <label>Min pages</label>
+                <input type="number" name="minPages" min="0" step="1" th:value="${criteria.minPages}" placeholder="e.g. 10">
+            </div>
+            <div class="field">
+                <label>Max pages</label>
+                <input type="number" name="maxPages" min="0" step="1" th:value="${criteria.maxPages}" placeholder="e.g. 200">
+            </div>
+        </div>
+
+        <div class="field">
+            <label>Status</label>
+            <div class="checkbox-row">
+                <label class="checkbox" th:each="s : ${statuses}">
+                    <input type="checkbox" name="statuses" th:value="${s.name()}"
+                           th:checked="${criteria.statuses.contains(s)}">
+                    <span th:text="${s.displayName}">Status</span>
+                </label>
+            </div>
+        </div>
+
+        <div class="field-row">
+            <div class="field">
+                <label><span class="when-chapter">Uploaded from</span><span class="when-series">Created from</span></label>
+                <input type="date" name="uploadFrom" th:value="${criteria.uploadFrom}">
+            </div>
+            <div class="field">
+                <label><span class="when-chapter">Uploaded to</span><span class="when-series">Created to</span></label>
+                <input type="date" name="uploadTo" th:value="${criteria.uploadTo}">
+            </div>
+        </div>
+
+        <!-- Chapter-only filter -->
+        <div class="field gallery-only">
+            <label>Gallery ID</label>
+            <input type="text" name="galleryId" th:value="${criteria.galleryId}" placeholder="Gallery id…">
+        </div>
+
+        <div class="field-row">
+            <div class="field">
+                <label>Sort by</label>
+                <select name="sortBy">
+                    <option value="DATE" th:selected="${criteria.sortBy != null and criteria.sortBy.name() == 'DATE'}">Date added</option>
+                    <option value="SCORE" th:selected="${criteria.sortBy != null and criteria.sortBy.name() == 'SCORE'}">Score</option>
+                    <option value="PAGE_NUM" th:selected="${criteria.sortBy != null and criteria.sortBy.name() == 'PAGE_NUM'}">Page count</option>
+                    <option value="DISK_SIZE" th:selected="${criteria.sortBy != null and criteria.sortBy.name() == 'DISK_SIZE'}">Disk size</option>
+                </select>
+            </div>
+            <div class="field">
+                <label>Order</label>
+                <select name="sortDir">
+                    <option value="DESC" th:selected="${criteria.sortDir == null or criteria.sortDir.name() == 'DESC'}">Descending</option>
+                    <option value="ASC" th:selected="${criteria.sortDir != null and criteria.sortDir.name() == 'ASC'}">Ascending</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="search-actions">
+            <button type="submit" class="btn btn-accent">Search</button>
+            <a th:href="@{/search(type=${criteria.type})}" class="btn btn-ghost">Reset form</a>
+        </div>
+    </form>
+</main>
+
+<script th:src="@{/js/tokenized-input.js}"></script>
+<script th:src="@{/js/app.js}"></script>
+</body>
+</html>

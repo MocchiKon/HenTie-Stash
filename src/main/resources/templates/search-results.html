@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head(${criteria.series} ? 'Search results (Series)' : 'Search results (Chapters)')}"></head>
+<body>
+<nav th:replace="~{fragments/layout :: nav}"></nav>
+
+<main class="container">
+    <div class="results-head">
+        <h1 th:text="${criteria.series} ? 'Search results (Series)' : 'Search results (Chapters)'">Search results</h1>
+        <div class="results-actions">
+            <a class="btn btn-ghost" th:href="'/search?' + ${baseQuery}">Refine search</a>
+            <a class="btn btn-accent" th:href="@{/search}">New search</a>
+        </div>
+    </div>
+
+    <p class="hint" th:if="${bulkDeleted != null}" th:text="${bulkDeleted}">Deleted.</p>
+
+    <!-- A row of its own: a delete button next to Refine / New search is one mis-tap away. -->
+    <div class="results-bulk btn-row" th:unless="${results.content.isEmpty()}"
+         th:with="kind=${criteria.series} ? 'series' : 'chapter'">
+        <button type="button" class="btn btn-ghost" data-review-start>Start review</button>
+        <form method="post" class="bulk-delete long-running"
+              th:action="'/search/results/delete-page?' + ${baseQuery} + '&page=' + ${results.number}"
+              th:attr="data-scope='page',data-kind=${kind},data-count-url='/search/results/delete-count/page?type=' + ${criteria.type}">
+            <button type="submit" class="btn btn-danger">Delete this page</button>
+        </form>
+        <!-- Not for an unfiltered search: "all matching" would be the whole library. -->
+        <form method="post" class="bulk-delete long-running" th:if="${criteria.hasFilter()}"
+              th:action="'/search/results/delete-all?' + ${baseQuery}"
+              th:attr="data-scope='all',data-kind=${kind},data-count-url='/search/results/delete-count?' + ${baseQuery}">
+            <button type="submit" class="btn btn-danger">Delete all matching</button>
+        </form>
+    </div>
+
+    <p class="results-count" th:text="${results.totalElements} + ' result(s)'">0 results</p>
+    <div th:replace="~{fragments/components :: cardGrid(${results.content})}"></div>
+    <div th:replace="~{fragments/components :: pagination(${results}, ${baseQuery})}"></div>
+</main>
+
+<script th:src="@{/js/app.js}"></script>
+</body>
+</html>

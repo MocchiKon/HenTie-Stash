@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<body>
+
+<!-- The caption expands over the cards below rather than growing the card, so rows never shift. -->
+<div th:fragment="cardGrid(cards)" class="card-grid">
+    <a class="card" th:each="card : ${cards}" th:href="${card.href}" th:attr="data-id=${card.id}">
+        <div class="card-thumb">
+            <img th:src="${card.thumbnailUrl}" th:alt="${card.caption}" loading="lazy">
+        </div>
+        <div class="card-caption"><span class="cap-text" th:text="${card.caption}" th:title="${card.caption}">Title</span></div>
+    </a>
+    <p th:if="${#lists.isEmpty(cards)}" class="empty">Nothing found.</p>
+</div>
+
+<!-- Review mode's action bar. The server keeps no review state; the list lives in the browser (app.js).
+     Hidden until app.js finds this page in that list, so a bookmarked review URL shows no dead buttons. -->
+<div th:fragment="reviewBar(basePath, markable, deleteAction, deleteConfirm)" th:if="${review}"
+     class="review-bar" data-review-bar hidden>
+    <span class="review-progress" data-review-progress>Review</span>
+    <div class="btn-row">
+        <form th:if="${markable}" method="post" th:action="${basePath + '/mark-reviewed'}" class="review-action">
+            <button type="submit" class="btn btn-accent">Mark as reviewed</button>
+        </form>
+        <form method="post" th:action="${deleteAction}" class="review-action review-delete confirm-delete"
+              th:attr="data-confirm=${deleteConfirm}">
+            <button type="submit" class="btn btn-danger">Delete</button>
+        </form>
+        <button type="button" class="btn btn-ghost" data-review-skip>Skip</button>
+        <button type="button" class="btn btn-ghost" data-review-exit>Exit review</button>
+    </div>
+</div>
+
+<div th:fragment="chipGroups(groups)" class="detail-groups">
+    <div class="chip-group" th:each="group : ${groups}" th:unless="${group.empty}">
+        <span class="chip-group-title">
+            <span th:text="${group.title}">Tags</span>
+            <span class="derived" th:if="${group.derived}" title="Derived from chapters">(from chapters)</span>
+        </span>
+        <span class="chips">
+            <a class="chip" th:each="chip : ${group.chips}" th:href="${chip.href}">
+                <span th:text="${chip.label}">label</span>
+                <span class="chip-count" th:if="${chip.count != null}" th:text="'· ' + ${chip.count}">· 3</span>
+            </a>
+        </span>
+    </div>
+</div>
+
+<!-- baseQuery is the query string without the page. The "X / Y" label opens a jump-to-page popup (app.js). -->
+<nav th:fragment="pagination(page, baseQuery)" class="pagination" th:if="${page.totalPages > 1}"
+     th:attr="data-base-query=${baseQuery},data-total-pages=${page.totalPages}">
+    <a th:if="${!page.first}" th:href="'/search/results?' + ${baseQuery} + '&page=' + ${page.number - 1}"
+       class="bar-btn" title="Previous page">&lsaquo;</a>
+    <span class="page-jump-wrap">
+        <button type="button" class="page-jump-btn"
+                th:text="${page.number + 1} + ' / ' + ${page.totalPages}"
+                title="Click to jump to a page">1 / 1</button>
+        <div class="page-jump-popup" hidden>
+            <input type="number" class="page-jump-input" min="1" th:max="${page.totalPages}"
+                   aria-label="Go to page" placeholder="Page #">
+            <button type="button" class="bar-btn page-jump-go">Go</button>
+        </div>
+    </span>
+    <a th:if="${!page.last}" th:href="'/search/results?' + ${baseQuery} + '&page=' + ${page.number + 1}"
+       class="bar-btn" title="Next page">&rsaquo;</a>
+</nav>
+
+<!-- Tokenized autocomplete input. options = pre-selected OptionDto list (may be null). -->
+<div th:fragment="tokenField(label, type, name, valueField, options)" class="field">
+    <div class="token-head">
+        <label th:text="${label}">Label</label>
+        <button type="button" class="token-clear" th:attr="aria-label='Clear all ' + ${label}">Clear all</button>
+    </div>
+    <div class="token-field" th:attr="data-type=${type},data-name=${name},data-value-field=${valueField}">
+        <div class="tokens">
+            <span class="token" th:each="opt : ${options}">
+                <span class="token-label" th:text="${opt.label}">label</span>
+                <button type="button" class="token-remove" aria-label="Remove">×</button>
+                <input type="hidden" th:name="${name}"
+                       th:value="${valueField == 'label'} ? ${opt.label} : ${opt.id}">
+            </span>
+        </div>
+        <input type="text" class="token-input" autocomplete="off" th:placeholder="'Add ' + ${label} + '…'">
+        <div class="token-dropdown" hidden></div>
+    </div>
+</div>
+
+<!-- The search form's metadata token field: each token is an include (+) or exclude (−) filter, and
+     clicking moves its hidden input between name and excludedName (tokenized-input.js). Not a tokenField
+     flag, because on the edit forms "exclude" means nothing. -->
+<div th:fragment="searchTokenField(label, type, name, excludedName, included, excluded)" class="field">
+    <div class="token-head">
+        <label th:text="${label}">Label</label>
+        <button type="button" class="token-clear" th:attr="aria-label='Clear all ' + ${label}">Clear all</button>
+    </div>
+    <div class="token-field" th:attr="data-type=${type},data-name=${name},data-excluded-name=${excludedName},data-value-field='id'">
+        <div class="tokens">
+            <th:block th:each="opt : ${included}"><span th:replace="~{fragments/components :: searchToken(${opt}, ${name}, false)}"></span></th:block>
+            <th:block th:each="opt : ${excluded}"><span th:replace="~{fragments/components :: searchToken(${opt}, ${excludedName}, true)}"></span></th:block>
+        </div>
+        <input type="text" class="token-input" autocomplete="off" th:placeholder="'Add ' + ${label} + '…'">
+        <div class="token-dropdown" hidden></div>
+    </div>
+</div>
+
+<!-- One searchTokenField token. tokenized-input.js builds the same markup for a token added client-side. -->
+<span th:fragment="searchToken(opt, inputName, isExcluded)" class="token token-toggleable"
+      th:classappend="${isExcluded} ? 'is-excluded'">
+    <button type="button" class="token-toggle"
+            th:title="${isExcluded} ? 'Excluded - click to include' : 'Included - click to exclude'">
+        <span class="token-mode" aria-hidden="true" th:text="${isExcluded} ? '−' : '+'">+</span>
+        <span class="token-label" th:text="${opt.label}">label</span>
+    </button>
+    <button type="button" class="token-remove" aria-label="Remove">×</button>
+    <input type="hidden" th:name="${inputName}" th:value="${opt.id}">
+</span>
+
+<!-- Option values are the stored 1-10 score; only the labels show 0.5-5 stars. -->
+<select th:fragment="starSelect(name, value)" th:name="${name}" class="star-select">
+    <option value="" th:selected="${value == null}">Any</option>
+    <option value="1" th:selected="${value == 1}">0.5 ★</option>
+    <option value="2" th:selected="${value == 2}">1 ★</option>
+    <option value="3" th:selected="${value == 3}">1.5 ★</option>
+    <option value="4" th:selected="${value == 4}">2 ★</option>
+    <option value="5" th:selected="${value == 5}">2.5 ★</option>
+    <option value="6" th:selected="${value == 6}">3 ★</option>
+    <option value="7" th:selected="${value == 7}">3.5 ★</option>
+    <option value="8" th:selected="${value == 8}">4 ★</option>
+    <option value="9" th:selected="${value == 9}">4.5 ★</option>
+    <option value="10" th:selected="${value == 10}">5 ★</option>
+</select>
+
+<!-- A row is its checkbox's label, so a tap anywhere ticks it. The other series' size is shown because
+     linking moves the chapter, and app.js asks first when that empties (and so deletes) a series.
+     `scored` adds the ranking numbers, which a name search lacks. -->
+<div th:fragment="chapterCandidates(items, scored)" class="match-list">
+    <label class="match match-pick" th:each="m : ${items}">
+        <input type="checkbox" name="chapterIds" th:value="${m.chapterId}"
+               th:data-series-id="${m.seriesId}"
+               th:data-series-chapters="${m.seriesId != null ? m.seriesChapterCount : null}">
+        <span class="match-thumb"><img th:src="${m.thumbnailUrl}" th:alt="${m.titleFull}" loading="lazy"></span>
+        <span class="match-info">
+            <a class="match-title" th:href="@{/chapter/{id}(id=${m.chapterId})}" th:text="${m.titleFull}">title</a>
+            <span class="match-meta">
+                <span th:text="${m.language}">English</span> ·
+                <span th:text="${m.pageCount} + ' page(s)'">0 page(s)</span> ·
+                <span th:if="${m.seriesId == null}">in no series</span>
+                <span th:if="${m.seriesId != null}">in <a th:href="@{/series/{id}(id=${m.seriesId})}"
+                        th:text="${m.seriesTitle}">series</a>
+                    (<span th:text="${m.seriesChapterCount} + ' chapter(s)'">1 chapter(s)</span>)</span>
+            </span>
+            <span class="match-meta" th:if="${scored}">
+                <span th:text="${m.sharedArtists} + ' shared artist(s)'">0</span> ·
+                <span th:text="'title ' + ${#numbers.formatDecimal(m.titleSimilarity, 1, 2)}">0</span> ·
+                <span th:text="'match ' + ${#numbers.formatPercent(m.score, 1, 0)}">0%</span>
+            </span>
+        </span>
+    </label>
+</div>
+
+<!-- The chapters a division made and where matching put them. -->
+<ul th:fragment="dividedParts(parts)" class="divided-list">
+    <li th:each="p : ${parts}">
+        <a th:href="@{/chapter/{id}(id=${p.chapterId})}" th:text="${p.titleFull}">title</a>
+        <span th:text="'· ' + ${p.pageCount} + ' page(s) ·'">· 3 page(s) ·</span>
+        <span th:if="${p.seriesId == null}">in no series</span>
+        <span th:if="${p.seriesId != null}">in <a th:href="@{/series/{id}(id=${p.seriesId})}"
+                th:text="${p.seriesTitle}">series</a></span>
+    </li>
+</ul>
+
+<!-- The actions above a Link chapters list: its own "Select all" (app.js) and the submit of the form it is in. -->
+<div th:fragment="linkChaptersActions" class="link-actions">
+    <label class="checkbox"><input type="checkbox" data-select-all> <span>Select all</span></label>
+    <button type="submit" class="btn btn-accent">Link selected</button>
+</div>
+
+</body>
+</html>

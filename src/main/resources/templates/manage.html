@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head('Manage')}"></head>
+<body>
+<nav th:replace="~{fragments/layout :: nav}"></nav>
+
+<main class="container">
+    <h1>Manage</h1>
+
+    <section class="manage-section">
+        <h2 class="section-title">Chapters</h2>
+        <div class="edit-actions">
+            <a class="btn btn-accent" th:href="@{/chapter/download}">Download</a>
+            <a class="btn" th:href="@{/chapter/new}">Add manually</a>
+            <a class="btn" th:href="@{/chapter/queue}">View download queue</a>
+        </div>
+    </section>
+
+    <section class="manage-section">
+        <h2 class="section-title">Image Compression</h2>
+        <p class="hint">
+            Your own downscaling and re-encoding modes, offered in the Image Compression dropdowns
+            beside the built-in ones. Which mode is actually used is chosen in Settings for uploads and
+            on the Download page for each paste, which starts at the Settings mode.
+        </p>
+        <div class="edit-actions">
+            <a class="btn btn-accent" th:href="@{/compression-modes}">Image Compression modes</a>
+        </div>
+    </section>
+
+    <h2 class="section-title" id="section-title">Metadata</h2>
+
+    <!-- A refused action redirects to the heading above, so this message is in view. -->
+    <div class="form-errors" id="refusal" th:if="${refusal != null}">
+        <p th:text="${refusal}">That name cannot be used.</p>
+    </div>
+
+    <div class="manage-tabs">
+        <a th:each="type : ${types}" th:href="'#' + ${type.key}" th:text="${type.displayName}">Tags</a>
+    </div>
+
+    <section class="manage-section" th:each="type : ${types}" th:id="${type.key}">
+        <h2 class="section-title" th:text="${type.displayName}">Tags</h2>
+
+        <form method="post" th:action="@{/manage/add}" class="inline-form">
+            <input type="hidden" name="type" th:value="${type.key}">
+            <input type="text" name="name" th:placeholder="'New ' + ${type.displayName}" required>
+            <button type="submit" class="btn btn-accent">Add</button>
+        </form>
+
+        <!-- One checkbox for merge, rename and delete (not Add, which records no rule). A checkbox belongs to
+             one form, so each form carries a hidden createRule that app.js keeps in step; one per row
+             would push each row's button onto its own line. -->
+        <label class="checkbox rule-toggle" th:attr="data-rule-toggle=${type.key}">
+            <input type="checkbox" checked>
+            Add rule
+            <span class="hint"> remember the deletes/merges/renames below, so a later download
+                cannot bring the value back</span>
+        </label>
+
+        <form method="post" th:action="@{/manage/merge}" class="merge-form confirm-delete long-running blocks-writes"
+              data-confirm="Merge these? The source will be deleted and its links moved to the target.">
+            <input type="hidden" name="type" th:value="${type.key}">
+            <div class="token-field single" th:attr="data-type=${type.key},data-name='sourceId',data-value-field='id',data-max='1'">
+                <div class="tokens"></div>
+                <input type="text" class="token-input" autocomplete="off" placeholder="Source (removed)…">
+                <div class="token-dropdown" hidden></div>
+            </div>
+            <span class="merge-arrow">→</span>
+            <div class="token-field single" th:attr="data-type=${type.key},data-name='targetId',data-value-field='id',data-max='1'">
+                <div class="tokens"></div>
+                <input type="text" class="token-input" autocomplete="off" placeholder="Target (kept)…">
+                <div class="token-dropdown" hidden></div>
+            </div>
+            <input type="hidden" name="createRule" value="true">
+            <button type="submit" class="btn btn-danger">Merge</button>
+        </form>
+
+        <input type="search" class="list-filter" placeholder="Filter…"
+               th:attr="data-target='list-' + ${type.key},data-type=${type.key},data-limit=${recentLimit}">
+        <p class="manage-recent-hint">
+            Showing the <span th:text="${recentLimit}">3</span> most recent.
+        </p>
+        <ul class="manage-list" th:id="'list-' + ${type.key}">
+            <li th:each="opt : ${items.get(type)}" class="manage-item">
+                <form method="post" th:action="@{/manage/rename}" class="inline-form rename-form">
+                    <input type="hidden" name="type" th:value="${type.key}">
+                    <input type="hidden" name="id" th:value="${opt.id}">
+                    <input type="text" name="name" th:value="${opt.label}" class="rename-input">
+                    <input type="hidden" name="createRule" value="true">
+                    <button type="submit" class="btn">Rename</button>
+                </form>
+                <form method="post" th:action="@{/manage/remove}" class="inline-form confirm-delete long-running blocks-writes">
+                    <input type="hidden" name="type" th:value="${type.key}">
+                    <input type="hidden" name="id" th:value="${opt.id}">
+                    <input type="hidden" name="createRule" value="true">
+                    <button type="submit" class="btn btn-danger">Delete</button>
+                </form>
+            </li>
+            <li th:if="${#lists.isEmpty(items.get(type))}" class="empty">None yet.</li>
+        </ul>
+
+        <!-- No count on the button: it would cost a query per metadata kind on every load. -->
+        <div class="manage-rules-link">
+            <a class="btn" th:href="@{/manage/rules(type=${type.key})}">Manage current rules</a>
+        </div>
+    </section>
+
+    <section class="manage-section" id="maintenance">
+        <h2 class="section-title">Library maintenance</h2>
+        <p class="hint">
+            Rescans every chapter's images and updates the stored page count and disk size (and the
+            series totals). Run this after images were added outside the app, otherwise
+            sorting by page count or disk size has nothing to order by.
+            May take a while for a large library.
+        </p>
+        <form method="post" th:action="@{/manage/resync-stats}" class="inline-form long-running">
+            <button type="submit" class="btn btn-accent">Recalculate page counts &amp; sizes</button>
+        </form>
+        <p class="hint" th:if="${statsRepaired != null}">
+            <span th:text="${statsRepaired}">0</span> chapter(s) updated.
+        </p>
+        <div class="maintenance-action">
+            <p class="hint">
+                Rebuilds the title search index from the current chapters and series. Run this when title
+                search misses titles that are clearly there - for example after rows were loaded by
+                another tool, or the database file was restored from a backup.
+                May take a while for a large library, and it is done in one go: a change saved in another
+                tab meanwhile waits for it.
+            </p>
+            <form method="post" th:action="@{/manage/rebuild-title-index}" class="inline-form long-running blocks-writes">
+                <button type="submit" class="btn btn-accent">Rebuild title search index</button>
+            </form>
+            <p class="hint" th:if="${titleIndexRebuilt != null}">Title search index rebuilt.</p>
+        </div>
+        <div class="maintenance-action">
+            <p class="hint">
+                Rewrites every tag, artist, character, parody, group and category name in lower case, which is the
+                one spelling they are stored in. Run this for a library whose names were added before that
+                was the case, or right after the one-time import from the old database. Two spellings of
+                one name (<code>Big Sister</code> and <code>big sister</code>) are merged into a single
+                item, so the chapters and series carrying either end up on the same one.
+            </p>
+            <form method="post" th:action="@{/manage/fold-metadata-names}" class="inline-form long-running">
+                <button type="submit" class="btn btn-accent">Rewrite metadata names in lower case</button>
+            </form>
+            <p class="hint" th:if="${foldResult != null}">
+                <span th:text="${foldResult.renamed()}">0</span> name(s) rewritten,
+                <span th:text="${foldResult.merged()}">0</span> merged into an existing item.
+                <span th:if="${foldResult.blocked() > 0}">
+                    <span th:text="${foldResult.blocked()}">0</span> left as they were because a rule rules
+                    the lower-case name out — see "Manage current rules" for that section.
+                </span>
+            </p>
+        </div>
+        <div class="maintenance-action">
+            <p class="hint">
+                Puts every chapter that does not belong to a series into one, by matching its artist and
+                title against the existing series - the same thing that happens automatically when a
+                chapter is added. Chapters that are already in a series are left untouched, and a chapter
+                that matches nothing gets a series of its own.
+                May take a long while for a large library — it works through all of them in one go. You can
+                open the app in another tab meanwhile and keep browsing or editing as normal.
+            </p>
+            <form method="post" th:action="@{/manage/match-chapters}" class="inline-form long-running">
+                <button type="submit" class="btn btn-accent">Match chapters</button>
+            </form>
+            <p class="hint" th:if="${matchResult != null}">
+                <span th:text="${matchResult.matched}">0</span> chapter(s) matched:
+                <span th:text="${matchResult.linked}">0</span> linked to an existing series,
+                <span th:text="${matchResult.created}">0</span> new series created.
+            </p>
+        </div>
+        <div class="maintenance-action">
+            <p class="hint">
+                Downscales and re-encodes every chapter's images with the Image Compression mode chosen in
+                Settings, which is currently
+                <strong th:text="${compressionModeName}">None</strong>.
+                May take a very long time for a large library — it works through all of them in one go. You
+                can open the app in another tab meanwhile and keep browsing or editing as normal.
+            </p>
+            <form method="post" th:action="@{/manage/compress-images}" class="inline-form long-running">
+                <button type="submit" class="btn btn-accent">Compress images</button>
+            </form>
+            <p class="hint" th:if="${compressResult != null}" th:text="${compressResult}">Done.</p>
+        </div>
+    </section>
+</main>
+
+<script th:src="@{/js/tokenized-input.js}"></script>
+<script th:src="@{/js/app.js}"></script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head('Shutting down')}"></head>
+<body>
+<!-- No navigation bar: none of its links would load once the app has stopped. -->
+<main class="container narrow">
+    <h1>HenTie is shutting down</h1>
+    <p>
+        Pages still loading get up to a minute to finish. A download still running gets a few seconds; if it
+        does not finish, it runs again the next time HenTie starts.
+    </p>
+    <p class="hint">Start HenTie again on its computer, the same way you started it before.</p>
+</main>
+</body>
+</html>

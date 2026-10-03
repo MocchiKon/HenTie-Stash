@@ -1,0 +1,370 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+	<modelVersion>4.0.0</modelVersion>
+	<parent>
+		<groupId>org.springframework.boot</groupId>
+		<artifactId>spring-boot-starter-parent</artifactId>
+		<version>4.1.0</version>
+		<relativePath/> <!-- lookup parent from repository -->
+	</parent>
+
+	<groupId>io.github.mocchikon</groupId>
+	<artifactId>HenTie</artifactId>
+	<version>0.0.1-SNAPSHOT</version>
+	<name>HenTie</name>
+
+	<properties>
+		<java.version>21</java.version>
+		<mapstruct.version>1.6.3</mapstruct.version>
+		<lombok-mapstruct-binding.version>0.2.0</lombok-mapstruct-binding.version>
+		<commons-text.version>1.13.0</commons-text.version>
+		<launch4j-plugin.version>2.5.3</launch4j-plugin.version>
+		<!-- Renders the exe icon from the logo at build time (src/tools/IconGen.java); not in the app. -->
+		<jsvg.version>2.2.0</jsvg.version>
+		<!-- The bundled runtime's modules: what jdeps finds in the fat jar, plus the ones only loaded at
+		     runtime (TLS elliptic curves, extra charsets, zip file system, management extensions). -->
+		<!-- The Windows release zip needs the exe and runtime, which only the windows-exe profile builds. -->
+		<release.skipWindowsZip>true</release.skipWindowsZip>
+		<jre.modules>java.base,java.compiler,java.desktop,java.instrument,java.management,java.naming,java.net.http,java.prefs,java.rmi,java.scripting,java.security.jgss,java.sql,java.sql.rowset,jdk.charsets,jdk.crypto.ec,jdk.jfr,jdk.management,jdk.unsupported,jdk.zipfs</jre.modules>
+	</properties>
+
+	<dependencies>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-data-jpa</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-security</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-thymeleaf</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-webmvc</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-validation</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-cache</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.thymeleaf.extras</groupId>
+			<artifactId>thymeleaf-extras-springsecurity6</artifactId>
+		</dependency>
+
+		<dependency>
+			<groupId>com.github.ben-manes.caffeine</groupId>
+			<artifactId>caffeine</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.apache.commons</groupId>
+			<artifactId>commons-lang3</artifactId>
+		</dependency>
+		<!-- For the data sources in scrapper/: the Boot 4 web starter brings no JSON library. -->
+		<dependency>
+			<groupId>com.fasterxml.jackson.core</groupId>
+			<artifactId>jackson-databind</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.apache.commons</groupId>
+			<artifactId>commons-text</artifactId>
+			<version>${commons-text.version}</version>
+		</dependency>
+
+		<dependency>
+			<groupId>org.mapstruct</groupId>
+			<artifactId>mapstruct</artifactId>
+			<version>${mapstruct.version}</version>
+		</dependency>
+
+		<!-- Flyway owns all DDL; SQLite support ships inside flyway-core. -->
+		<dependency>
+			<groupId>org.flywaydb</groupId>
+			<artifactId>flyway-core</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<!-- Boot 4 splits auto-configuration per technology: flyway-core alone would never run. -->
+			<artifactId>spring-boot-flyway</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.xerial</groupId>
+			<artifactId>sqlite-jdbc</artifactId>
+			<scope>runtime</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.hibernate.orm</groupId>
+			<artifactId>hibernate-community-dialects</artifactId>
+			<scope>runtime</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.projectlombok</groupId>
+			<artifactId>lombok</artifactId>
+			<optional>true</optional>
+		</dependency>
+
+        <!-- Test dependencies -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-data-jpa-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-security-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-thymeleaf-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-webmvc-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+	</dependencies>
+
+	<build>
+		<finalName>HenTie</finalName>
+		<plugins>
+			<plugin>
+				<groupId>org.springframework.boot</groupId>
+				<artifactId>spring-boot-maven-plugin</artifactId>
+				<configuration>
+					<excludes>
+						<exclude>
+							<groupId>org.projectlombok</groupId>
+							<artifactId>lombok</artifactId>
+						</exclude>
+					</excludes>
+				</configuration>
+			</plugin>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-compiler-plugin</artifactId>
+				<configuration>
+					<annotationProcessorPaths>
+						<path>
+							<groupId>org.projectlombok</groupId>
+							<artifactId>lombok</artifactId>
+						</path>
+						<path>
+							<groupId>org.mapstruct</groupId>
+							<artifactId>mapstruct-processor</artifactId>
+							<version>${mapstruct.version}</version>
+						</path>
+						<path>
+							<groupId>org.projectlombok</groupId>
+							<artifactId>lombok-mapstruct-binding</artifactId>
+							<version>${lombok-mapstruct-binding.version}</version>
+						</path>
+					</annotationProcessorPaths>
+				</configuration>
+			</plugin>
+			<plugin>
+				<!-- *IT runs in the plain test phase: most of the coverage is there. -->
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-surefire-plugin</artifactId>
+				<configuration>
+					<includes>
+						<include>**/Test*.java</include>
+						<include>**/*Test.java</include>
+						<include>**/*Tests.java</include>
+						<include>**/*TestCase.java</include>
+						<include>**/*IT.java</include>
+					</includes>
+				</configuration>
+			</plugin>
+		</plugins>
+	</build>
+
+	<profiles>
+		<!-- End-to-end tests (*E2E) against the real sites: ./mvnw test -Pe2e runs them and nothing else. Out of the
+		     default build, which must pass offline and never touch a real site. -->
+		<profile>
+			<id>e2e</id>
+			<build>
+				<plugins>
+					<plugin>
+						<groupId>org.apache.maven.plugins</groupId>
+						<artifactId>maven-surefire-plugin</artifactId>
+						<configuration>
+							<includes combine.self="override">
+								<include>**/*E2E.java</include>
+							</includes>
+						</configuration>
+					</plugin>
+				</plugins>
+			</build>
+		</profile>
+		<!-- Wraps the fat jar into HenTie.exe on Windows; the jar is always built. -->
+		<profile>
+			<id>windows-exe</id>
+			<activation>
+				<os>
+					<family>windows</family>
+				</os>
+			</activation>
+			<properties>
+				<release.skipWindowsZip>false</release.skipWindowsZip>
+			</properties>
+			<build>
+				<plugins>
+					<plugin>
+						<!-- A private runtime in target/jre, so the exe runs on a PC without Java, and the exe's
+						     icon. Declared before Launch4j: all run in the package phase, in POM order. jlink
+						     refuses an existing output folder, hence the delete. -->
+						<groupId>org.apache.maven.plugins</groupId>
+						<artifactId>maven-antrun-plugin</artifactId>
+						<dependencies>
+							<dependency>
+								<groupId>com.github.weisj</groupId>
+								<artifactId>jsvg</artifactId>
+								<version>${jsvg.version}</version>
+							</dependency>
+						</dependencies>
+						<executions>
+							<execution>
+								<id>build-jre</id>
+								<phase>package</phase>
+								<goals>
+									<goal>run</goal>
+								</goals>
+								<configuration>
+									<target>
+										<delete dir="${project.build.directory}/jre"/>
+										<exec executable="${java.home}/bin/jlink" failonerror="true">
+											<arg value="--add-modules"/>
+											<arg value="${jre.modules}"/>
+											<arg value="--output"/>
+											<arg value="${project.build.directory}/jre"/>
+											<arg value="--strip-debug"/>
+											<arg value="--no-man-pages"/>
+											<arg value="--no-header-files"/>
+											<arg value="--compress=zip-6"/>
+										</exec>
+									</target>
+								</configuration>
+							</execution>
+							<execution>
+								<!-- Run as a single source file, with the renderer from this plugin's classpath. -->
+								<id>build-icon</id>
+								<phase>package</phase>
+								<goals>
+									<goal>run</goal>
+								</goals>
+								<configuration>
+									<target>
+										<java sourcefile="${project.basedir}/src/tools/IconGen.java" fork="true"
+										      failonerror="true" jvm="${java.home}/bin/java"
+										      classpathref="maven.plugin.classpath">
+											<jvmarg value="-Djava.awt.headless=true"/>
+											<arg file="${project.basedir}/src/main/resources/static/images/logo.svg"/>
+											<arg file="${project.build.directory}/${project.build.finalName}.ico"/>
+										</java>
+									</target>
+								</configuration>
+							</execution>
+						</executions>
+					</plugin>
+					<plugin>
+						<groupId>com.akathist.maven.plugins.launch4j</groupId>
+						<artifactId>launch4j-maven-plugin</artifactId>
+						<version>${launch4j-plugin.version}</version>
+						<executions>
+							<execution>
+								<id>build-exe</id>
+								<phase>package</phase>
+								<goals>
+									<goal>launch4j</goal>
+								</goals>
+								<configuration>
+									<!-- A console shows the log, and Ctrl+C in it stops the app gracefully. -->
+									<headerType>console</headerType>
+									<jar>${project.build.directory}/${project.build.finalName}.jar</jar>
+									<outfile>${project.build.directory}/${project.build.finalName}.exe</outfile>
+									<dontWrapJar>false</dontWrapJar>
+									<errTitle>HenTie</errTitle>
+									<!-- Built from the logo by the build-icon execution above. -->
+									<icon>${project.build.directory}/${project.build.finalName}.ico</icon>
+									<jre>
+										<!-- Relative to the exe: the jre folder ships beside it. Without it, an installed
+										     Java of at least minVersion is used. -->
+										<path>jre</path>
+										<minVersion>21</minVersion>
+										<requiresJdk>false</requiresJdk>
+									</jre>
+									<versionInfo>
+										<fileVersion>1.0.0.0</fileVersion>
+										<txtFileVersion>1.0.0</txtFileVersion>
+										<fileDescription>HenTie comics browser</fileDescription>
+										<copyright>HenTie</copyright>
+										<productVersion>1.0.0.0</productVersion>
+										<txtProductVersion>1.0.0</txtProductVersion>
+										<productName>HenTie</productName>
+										<internalName>HenTie</internalName>
+										<originalFilename>HenTie.exe</originalFilename>
+									</versionInfo>
+								</configuration>
+							</execution>
+						</executions>
+					</plugin>
+				</plugins>
+			</build>
+		</profile>
+
+		<!-- Release zips: ./mvnw package -PpackageForRelease. Declared after windows-exe, so in the package
+		     phase it runs after the exe and runtime are built. -->
+		<profile>
+			<id>packageForRelease</id>
+			<build>
+				<plugins>
+					<plugin>
+						<groupId>org.apache.maven.plugins</groupId>
+						<artifactId>maven-assembly-plugin</artifactId>
+						<configuration>
+							<appendAssemblyId>true</appendAssemblyId>
+						</configuration>
+						<executions>
+							<execution>
+								<id>zip-all-platforms</id>
+								<phase>package</phase>
+								<goals>
+									<goal>single</goal>
+								</goals>
+								<configuration>
+									<descriptors>
+										<descriptor>src/assembly/all-platforms.xml</descriptor>
+									</descriptors>
+								</configuration>
+							</execution>
+							<execution>
+								<id>zip-windows</id>
+								<phase>package</phase>
+								<goals>
+									<goal>single</goal>
+								</goals>
+								<configuration>
+									<skipAssembly>${release.skipWindowsZip}</skipAssembly>
+									<descriptors>
+										<descriptor>src/assembly/windows.xml</descriptor>
+									</descriptors>
+								</configuration>
+							</execution>
+						</executions>
+					</plugin>
+				</plugins>
+			</build>
+		</profile>
+	</profiles>
+
+</project>

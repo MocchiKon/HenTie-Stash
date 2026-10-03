@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head(${vm.chapter.titleFull})}"></head>
+<body>
+<nav th:replace="~{fragments/layout :: nav}"></nav>
+
+<main class="container">
+    <!-- Creating a chapter with images lands here, so a skipped compression must be reported here too. -->
+    <p class="hint" th:if="${compressed != null}" th:text="${compressed}">Compressed.</p>
+    <div th:if="${redownloadError}" class="alert error" role="alert" th:text="${redownloadError}">error</div>
+    <div th:if="${divided != null}" class="alert ok" role="status">
+        <span th:text="'Divided: this chapter keeps its first part, and ' + ${#lists.size(divided)} + ' new chapter(s) hold the rest:'">Divided</span>
+        <ul th:replace="~{fragments/components :: dividedParts(${divided})}"></ul>
+    </div>
+    <div th:replace="~{fragments/components :: reviewBar(${'/chapter/' + vm.chapter.id}, ${vm.chapter.status != null and vm.chapter.status.name() == 'NEW'}, ${'/chapter/' + vm.chapter.id + '/delete'}, 'Delete this chapter and its page images on disk? This cannot be undone.')}"></div>
+    <section class="detail-block">
+        <div class="detail-thumb">
+            <img th:src="${vm.thumbnailUrl}" th:alt="${vm.chapter.titleFull}" loading="lazy">
+        </div>
+        <div class="detail-info">
+            <div class="detail-head">
+                <!-- No whitespace between the spans: a source newline would render as a space in the title. -->
+                <h1 th:with="tp=${vm.titleParts}"><span th:if="${!tp.prefix().isEmpty()}" class="title-decoration" th:text="${tp.prefix()}"></span><span th:text="${tp.match()}">Title</span><span th:if="${!tp.suffix().isEmpty()}" class="title-decoration" th:text="${tp.suffix()}"></span></h1>
+            </div>
+
+            <p class="detail-sub">
+                <span th:if="${vm.chapter.nativeTitle}" th:text="${vm.chapter.nativeTitle}">Native</span>
+            </p>
+
+            <div class="detail-meta">
+                <span th:if="${vm.statusDisplay}" class="badge" th:text="${vm.statusDisplay}">Status</span>
+                <span th:if="${vm.chapter.score != null}" class="badge stars" th:text="'★ ' + ${vm.chapter.score / 2.0} + ' / 5'">★</span>
+                <span class="badge" th:text="${vm.pageCount} + ' page(s)'">0 pages</span>
+                <span th:if="${vm.pageCount > 0}" class="badge" th:text="${vm.diskSizeDisplay}">0 B</span>
+                <span th:if="${compressedWith != null}" class="badge"
+                      title="Pages of this chapter were re-encoded with this Image Compression mode"
+                      th:text="'Compressed: ' + ${compressedWith}">Compressed</span>
+                <!-- A download this app started and never finished; queueing the link again completes it. -->
+                <span th:if="${vm.downloadIncomplete}" class="badge incomplete"
+                      title="A download of this chapter was interrupted - queue its link again to finish it">Incomplete download</span>
+                <span th:if="${vm.chapter.uploadDate}" class="meta-date" th:text="${vm.chapter.uploadDate}">date</span>
+                <!-- noreferrer: the source has no business learning this app's address on the LAN. -->
+                <a th:if="${sourcePageLink != null}" class="meta-gallery" th:href="${sourcePageLink}"
+                   target="_blank" rel="noopener noreferrer" title="Open this gallery on its source's website"
+                   th:text="'#' + ${vm.chapter.galleryId}">#id</a>
+                <span th:if="${vm.chapter.galleryId != null and sourcePageLink == null}" class="meta-gallery"
+                      th:text="'#' + ${vm.chapter.galleryId}">#id</span>
+            </div>
+
+            <div th:replace="~{fragments/components :: chipGroups(${vm.detailGroups})}"></div>
+
+            <div class="detail-actions"
+                 th:with="lang=${vm.chapter.language == null ? '' : vm.chapter.language}">
+                <a class="btn btn-ghost" th:href="@{/chapter/{id}/edit(id=${vm.chapter.id})}">Edit</a>
+                <a class="btn btn-ghost" th:if="${vm.hasSeries()}"
+                   th:href="@{/series/{id}(id=${vm.seriesId})}">View all chapters</a>
+                <!-- Prev/Next wrap together. Rendered only when non-empty, or it would add a stray gap. -->
+                <div class="btn-pair" th:if="${vm.prevChapterId != null or vm.nextChapterId != null}">
+                    <a class="btn btn-ghost" th:if="${vm.prevChapterId != null}"
+                       th:href="@{/chapter/{id}(id=${vm.prevChapterId})}"
+                       th:title="${lang.isEmpty()} ? 'Previous chapter' : ('Go to previous chapter with the same language')">‹ Previous</a>
+                    <a class="btn btn-ghost" th:if="${vm.nextChapterId != null}"
+                       th:href="@{/chapter/{id}(id=${vm.nextChapterId})}"
+                       th:title="${lang.isEmpty()} ? 'Next chapter' : ('Go to next chapter with the same language')">Next ›</a>
+                </div>
+                <a class="btn btn-accent" th:unless="${vm.hasSeries()}"
+                   th:href="@{/chapter/{id}/add-to-series(id=${vm.chapter.id})}">Add to series</a>
+                <!-- Only for a compressed chapter from a source the app can fetch from; it lands on the queue. -->
+                <form th:if="${canRedownloadFullQuality}" class="inline-form" method="post"
+                      th:action="@{/chapter/{id}/redownload(id=${vm.chapter.id})}">
+                    <button type="submit" class="btn btn-ghost"
+                            title="Download this chapter's pages again from the source, uncompressed. The compressed pages are replaced only once the originals have arrived.">Re-download in full quality</button>
+                </form>
+            </div>
+        </div>
+    </section>
+
+    <section class="pages">
+        <h2 class="section-title" th:text="${vm.pageCount} + ' page(s)'">Pages</h2>
+        <!-- The real files, not page_num: that can be a stale 0 while the grid below still shows pages. -->
+        <p th:if="${#lists.isEmpty(vm.pageUrls)}" class="empty">
+            No images yet. Add images for chapter <span th:text="${vm.chapter.id}">id</span> via "Edit" or under
+            <code th:text="'data/' + ${vm.chapter.id} + '/'">data/id/</code>.
+        </p>
+        <div class="page-grid">
+            <a class="page-thumb" th:each="url, stat : ${vm.pageUrls}"
+               th:href="@{/chapter/{id}/view(id=${vm.chapter.id}, page=${stat.index + 1})}">
+                <img th:src="${url}" th:alt="'Page ' + ${stat.index + 1}" loading="lazy">
+            </a>
+        </div>
+    </section>
+</main>
+
+<script th:src="@{/js/app.js}"></script>
+</body>
+</html>

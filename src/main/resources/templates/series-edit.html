@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head(${creating} ? 'New series' : 'Edit series')}"></head>
+<body>
+<nav th:replace="~{fragments/layout :: nav}"></nav>
+
+<main class="container">
+    <div class="edit-head">
+        <h1 th:text="${creating} ? 'New series' : 'Edit series'">Edit series</h1>
+        <a th:if="${!creating}" class="btn btn-ghost" th:href="@{/series/{id}(id=${form.id})}">Back to series</a>
+    </div>
+
+    <p class="hint">Leave a field empty to derive it from the linked chapters.</p>
+
+    <form class="edit-form" id="series-form" method="post" th:object="${form}"
+          th:action="${creating} ? @{/series} : @{/series/{id}(id=${form.id})}">
+        <div class="form-errors" th:if="${#fields.hasGlobalErrors()}">
+            <p th:each="err : ${#fields.globalErrors()}" th:text="${err}">error</p>
+        </div>
+        <div class="field">
+            <label>Full title<span class="req" aria-hidden="true">*</span></label>
+            <input type="text" name="titleFull" th:value="${form.titleFull}" maxlength="255" required>
+            <span class="field-error" th:if="${#fields.hasErrors('titleFull')}" th:errors="*{titleFull}">error</span>
+        </div>
+        <div class="field-row">
+            <div class="field">
+                <label>Pretty title</label>
+                <input type="text" name="title" th:value="${form.title}" maxlength="255">
+                <span class="field-error" th:if="${#fields.hasErrors('title')}" th:errors="*{title}">error</span>
+            </div>
+            <div class="field">
+                <label>Native title</label>
+                <input type="text" name="nativeTitle" th:value="${form.nativeTitle}" maxlength="255">
+                <span class="field-error" th:if="${#fields.hasErrors('nativeTitle')}" th:errors="*{nativeTitle}">error</span>
+            </div>
+        </div>
+        <div class="field-row">
+            <div class="field">
+                <label>Status</label>
+                <select name="status" required>
+                    <option th:each="s : ${statuses}" th:value="${s.name()}" th:text="${s.displayName}"
+                            th:selected="${form.status == s}">Status</option>
+                </select>
+                <span class="field-error" th:if="${#fields.hasErrors('status')}" th:errors="*{status}">error</span>
+            </div>
+            <div class="field">
+                <label>Rating</label>
+                <div th:replace="~{fragments/components :: starSelect('score', ${form.score})}"></div>
+            </div>
+        </div>
+
+        <div th:replace="~{fragments/components :: tokenField('Tags','tag','tagIds','id',${selected.tags})}"></div>
+        <div th:replace="~{fragments/components :: tokenField('Artists','artist','artistIds','id',${selected.artists})}"></div>
+        <div th:replace="~{fragments/components :: tokenField('Characters','character','characterIds','id',${selected.characters})}"></div>
+        <div th:replace="~{fragments/components :: tokenField('Parodies','parody','parodyIds','id',${selected.parodies})}"></div>
+        <div th:replace="~{fragments/components :: tokenField('Groups','group','groupIds','id',${selected.groups})}"></div>
+        <div th:replace="~{fragments/components :: tokenField('Categories','category','categoryIds','id',${selected.categories})}"></div>
+
+        <!-- When creating from a chapter, carry the chapter ids so they get linked. -->
+        <th:block th:if="${creating}">
+            <input type="hidden" th:each="cid : ${form.chapterIds}" name="chapterIds" th:value="${cid}">
+        </th:block>
+
+        <div class="edit-actions">
+            <button type="submit" class="btn btn-accent" th:text="${creating} ? 'Create series' : 'Save changes'">Save</button>
+        </div>
+    </form>
+
+    <section th:if="${!creating}" class="pages">
+        <h2 class="section-title">Chapters</h2>
+
+        <form class="add-chapter-form" method="post" th:action="@{/series/{id}/chapters/add(id=${form.id})}">
+            <label>Add chapter by id</label>
+            <input type="number" name="chapterIds" min="1" placeholder="chapter id">
+            <button type="submit" class="btn btn-accent">Add</button>
+        </form>
+
+        <!-- Remove only unlinks the chapter. -->
+        <div class="card-grid" th:data-series-id="${form.id}">
+            <div class="edit-card" th:each="card : ${chapterCards}">
+                <div class="chapter-num-row" th:data-chapter-id="${card.id}">
+                    <label class="chapter-num-label">Ch #</label>
+                    <input class="chapter-num-input" type="number" step="any" min="0"
+                           form="series-form"
+                           th:name="'chapterNums[' + ${card.id} + ']'"
+                           th:value="${card.chapterNum}">
+                    <button type="button" class="btn btn-sm chapter-num-update">Update</button>
+                    <form method="post" th:action="@{/series/{id}/chapters/remove(id=${form.id})}" class="confirm-delete card-remove">
+                        <input type="hidden" name="chapterId" th:value="${card.id}">
+                        <button type="submit" class="btn btn-danger btn-sm" title="Unlink from series">Unlink</button>
+                    </form>
+                </div>
+                <a class="card" th:href="@{/chapter/{id}(id=${card.id})}">
+                    <div class="card-thumb">
+                        <img th:src="${card.thumbnailUrl}" th:alt="${card.titleFull}" loading="lazy">
+                    </div>
+                    <div class="card-caption"><span class="cap-text" th:text="${card.titleFull}" th:title="${card.titleFull}">title</span></div>
+                </a>
+            </div>
+            <p th:if="${#lists.isEmpty(chapterCards)}" class="empty">No chapters linked yet.</p>
+        </div>
+    </section>
+
+    <section th:if="${!creating}" class="danger-zone">
+        <h2 class="section-title">Danger zone</h2>
+        <p class="hint">
+            Deletes the grouping only: every chapter survives, unlinked, and stays in the library on
+            its own.
+        </p>
+        <form method="post" th:action="@{/series/{id}/delete(id=${form.id})}" class="confirm-delete"
+              data-confirm="Delete this series? Its chapters are kept - they are only unlinked.">
+            <button type="submit" class="btn btn-danger">Delete this series</button>
+        </form>
+        <!-- Deletes the chapters and images too, so it has its own button and confirmation. -->
+        <div class="danger-action">
+            <p class="hint">
+                Deletes the series <strong>and every chapter linked to it</strong> - the chapter rows,
+                their metadata links and their page images on disk. Nothing is recoverable afterwards.
+                May take a while for a series with many chapters.
+            </p>
+            <form method="post" th:action="@{/series/{id}/delete-with-chapters(id=${form.id})}"
+                  class="confirm-delete long-running blocks-writes"
+                  th:attr="data-confirm='Delete this series AND its ' + ${#lists.size(chapterCards)} + ' chapter(s), including their page images on disk? This cannot be undone.'">
+                <button type="submit" class="btn btn-danger">Delete series and all linked chapters</button>
+            </form>
+        </div>
+    </section>
+</main>
+
+<script th:src="@{/js/tokenized-input.js}"></script>
+<script th:src="@{/js/app.js}"></script>
+</body>
+</html>

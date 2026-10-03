@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head(${vm.series.titleFull})}"></head>
+<body>
+<nav th:replace="~{fragments/layout :: nav}"></nav>
+
+<main class="container">
+    <!-- Deletes with chapters: a series deleted alone would leave all its galleries behind. -->
+    <div th:replace="~{fragments/components :: reviewBar(${'/series/' + vm.series.id}, ${vm.series.status != null and vm.series.status.name() == 'NEW'}, ${'/series/' + vm.series.id + '/delete-with-chapters'}, ${'Delete this series AND its ' + vm.chapterCount + ' chapter(s), including their page images on disk? This cannot be undone.'})}"></div>
+    <section class="detail-block">
+        <div class="detail-thumb">
+            <img th:src="${vm.thumbnailUrl}" th:alt="${vm.series.titleFull}" loading="lazy">
+        </div>
+        <div class="detail-info">
+            <div class="detail-head">
+                <!-- No whitespace between the spans, as in the chapter view. -->
+                <h1 th:with="tp=${vm.titleParts}"><span th:if="${!tp.prefix().isEmpty()}" class="title-decoration" th:text="${tp.prefix()}"></span><span th:text="${tp.match()}">Series</span><span th:if="${!tp.suffix().isEmpty()}" class="title-decoration" th:text="${tp.suffix()}"></span></h1>
+            </div>
+
+            <p class="detail-sub">
+                <span th:if="${vm.series.nativeTitle}" th:text="${vm.series.nativeTitle}">Native</span>
+            </p>
+
+            <div class="detail-meta">
+                <span th:if="${vm.series.status != null}" class="badge" th:text="${vm.series.status.displayName}">Status</span>
+                <span class="badge" th:text="${vm.chapterCount} + ' chapter(s)'">0 chapters</span>
+                <span th:if="${vm.pageCount > 0}" class="badge" th:text="${vm.diskSizeDisplay}">0 B</span>
+                <span th:if="${vm.score != null}" class="badge stars"
+                      th:text="'★ ' + ${vm.score / 2.0} + ' / 5' + (${vm.scoreDerived} ? ' (avg)' : '')">★</span>
+                <span th:if="${vm.effectiveLanguage}" class="badge" th:text="${vm.effectiveLanguage}">lang</span>
+                <span th:if="${vm.createdDate}" class="meta-date" th:text="${vm.createdDate}">date</span>
+            </div>
+
+            <div th:replace="~{fragments/components :: chipGroups(${vm.detailGroups})}"></div>
+
+            <div class="detail-actions">
+                <a class="btn btn-ghost" th:href="@{/series/{id}/edit(id=${vm.series.id})}">Edit</a>
+                <a class="btn btn-ghost" th:href="@{/series/{id}/link-chapters(id=${vm.series.id})}">Link chapters</a>
+            </div>
+        </div>
+    </section>
+
+    <section class="pages">
+        <div class="lang-bar" th:if="${!#lists.isEmpty(vm.languages)}">
+            <form method="get" th:action="@{/series/{id}(id=${vm.series.id})}" class="lang-form">
+                <!-- Carried through, or picking a language mid-review would drop the review bar. -->
+                <input type="hidden" name="review" value="true" th:if="${review}">
+                <label>Language</label>
+                <select name="lang" onchange="this.form.submit()">
+                    <option value="" th:selected="${vm.selectedLanguage == null}">All</option>
+                    <option th:each="l : ${vm.languages}" th:value="${l}" th:text="${l}"
+                            th:selected="${l == vm.selectedLanguage}">lang</option>
+                </select>
+            </form>
+        </div>
+
+        <h2 class="section-title">Chapters</h2>
+        <div th:replace="~{fragments/components :: cardGrid(${vm.chapterCards})}"></div>
+    </section>
+</main>
+
+<script th:src="@{/js/app.js}"></script>
+</body>
+</html>
