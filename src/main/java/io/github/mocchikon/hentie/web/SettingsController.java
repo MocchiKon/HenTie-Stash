@@ -5,6 +5,8 @@ import io.github.mocchikon.hentie.dto.JxlDelivery;
 import io.github.mocchikon.hentie.dto.ScratchFolderView;
 import io.github.mocchikon.hentie.dto.TitleDisplayMode;
 import io.github.mocchikon.hentie.entity.ViewMode;
+import io.github.mocchikon.hentie.scrapper.gallerydl.GalleryDlOptions;
+import io.github.mocchikon.hentie.scrapper.gallerydl.GalleryDlTool;
 import io.github.mocchikon.hentie.service.AppShutdown;
 import io.github.mocchikon.hentie.service.ImageService;
 import io.github.mocchikon.hentie.service.SettingsService;
@@ -45,6 +47,7 @@ public class SettingsController
     private final ComfyResultCache comfyResultCache;
     private final AppShutdown appShutdown;
     private final WriteGate writeGate;
+    private final GalleryDlTool galleryDlTool;
 
     @GetMapping("/settings")
     public String index(Model model) throws InterruptedException
@@ -64,6 +67,10 @@ public class SettingsController
         model.addAttribute("compressionMode", settingsService.getImageCompressionMode());
         model.addAttribute("compressionModes", compressionModeService.options());
         model.addAttribute("systemImageTools", settingsService.isSystemImageToolsEnabled());
+        model.addAttribute("systemGalleryDl", settingsService.isSystemGalleryDlEnabled());
+        model.addAttribute("galleryDlDefaults", settingsService.getGalleryDlDefaults());
+        model.addAttribute("browserGroups", GalleryDlOptions.BROWSER_GROUPS);
+        model.addAttribute("galleryDlStatus", galleryDlTool.status());
         model.addAttribute("jxlDelivery", settingsService.getJxlDelivery());
         model.addAttribute("jxlDeliveries", JxlDelivery.values());
         model.addAttribute("scratchFolders", scratchFolders());
@@ -141,6 +148,7 @@ public class SettingsController
                                defaultValue = "" + SettingsService.DEFAULT_MATCH_THRESHOLD) int matchThreshold,
                        @RequestParam(name = "compressionMode", required = false) String compressionMode,
                        @RequestParam(name = "systemImageTools", defaultValue = "false") boolean systemImageTools,
+                       @RequestParam(name = "systemGalleryDl", defaultValue = "false") boolean systemGalleryDl,
                        @RequestParam(name = "jxlDelivery", defaultValue = "AUTO") JxlDelivery jxlDelivery,
                        @RequestParam(name = "comfyAutostart", defaultValue = "false") boolean comfyAutostart,
                        @RequestParam Map<String, String> params,
@@ -162,10 +170,12 @@ public class SettingsController
         settingsService.setImageCompressionMode(compressionModeService.storableKey(compressionMode));
         settingsService.setSystemImageToolsEnabled(systemImageTools);
         settingsService.setJxlDelivery(jxlDelivery);
+        Optional<String> galleryDlRefusal = saveGalleryDl(params, systemGalleryDl);
         List<String> comfyRefusals = saveComfyUi(params, comfyAutostart);
         Optional<String> refusal = saveScratchFolders(params);
-        if (loginRefusal.isPresent() || refusal.isPresent() || !comfyRefusals.isEmpty())
+        if (loginRefusal.isPresent() || refusal.isPresent() || !comfyRefusals.isEmpty() || galleryDlRefusal.isPresent())
         {
+            galleryDlRefusal.ifPresent(reason -> redirect.addFlashAttribute("galleryDlError", reason));
             // Not "?saved": a green "Settings saved." above a refusal reads as if the refused value took effect.
             loginRefusal.ifPresent(reason -> redirect.addFlashAttribute("loginError", reason));
             refusal.ifPresent(reason -> redirect.addFlashAttribute("storageError", reason));
@@ -177,6 +187,39 @@ public class SettingsController
             return "redirect:/settings";
         }
         return "redirect:/settings?saved";
+    }
+
+    /**
+     * A delay gallery-dl cannot read keeps the old one, with a reason; the rest is saved. Missing fields (a POST
+     * without this section) keep their values.
+     *
+     * @return why the delay was not changed
+     */
+    private Optional<String> saveGalleryDl(Map<String, String> params, boolean system)
+    {
+        // The delay field is always posted with the section; an unticked checkbox is not posted at all.
+        if (!params.containsKey("galleryDlDelay"))
+        {
+            return Optional.empty();
+        }
+        if (system != settingsService.isSystemGalleryDlEnabled())
+        {
+            settingsService.setSystemGalleryDlEnabled(system);
+            galleryDlTool.refreshVersionAsync();
+        }
+        GalleryDlOptions before = settingsService.getGalleryDlDefaults();
+        Optional<String> delay = GalleryDlOptions.normalizedDelay(params.get("galleryDlDelay"));
+        settingsService.setGalleryDlDefaults(new GalleryDlOptions(params.get("galleryDlCookiesBrowser"),
+                Boolean.parseBoolean(params.get("galleryDlOriginals")), delay.orElse(before.delay())));
+        return delay.isPresent() ? Optional.empty() : Optional.of("The other settings were saved, but "
+                + ChapterController.delayProblem(params.get("galleryDlDelay")) + " The default delay was not changed.");
+    }
+
+    @PostMapping("/settings/gallery-dl/update")
+    public String updateGalleryDl(RedirectAttributes redirect)
+    {
+        redirect.addFlashAttribute("galleryDlUpdate", galleryDlTool.update());
+        return "redirect:/settings#gallery-dl-status";
     }
 
     /**

@@ -265,6 +265,13 @@ public class DownloadWorker
             sleep(appProperties.getDownload().getRetryBackoffMillis());
             return;
         }
+        if (RetryLaterException.isIn(failure))
+        {
+            log.info("Download of {} has to wait ({}); it runs again without counting an attempt", item.getLink(),
+                    failure.getMessage());
+            sleep(appProperties.getDownload().getRetryBackoffMillis());
+            return;
+        }
         boolean permanent = failure instanceof PermanentDownloadException
                 || failure instanceof GalleryNotFoundException;
         String message = failure.getMessage() == null ? failure.toString() : failure.getMessage();

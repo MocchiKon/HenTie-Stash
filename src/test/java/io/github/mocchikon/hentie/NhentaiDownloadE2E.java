@@ -80,7 +80,7 @@ class NhentaiDownloadE2E
     void shouldSaveTheMetadataAndDownloadEveryPageWhenDownloadingARealGallery() throws IOException
     {
         // GIVEN
-        assertThat(queueService.enqueue(List.of(LINK), BuiltInCompressionMode.NONE.getKey(), false).accepted())
+        assertThat(queueService.enqueue(List.of(LINK), TestDownloads.choices(BuiltInCompressionMode.NONE.getKey(), false)).accepted())
                 .isEqualTo(1);
         Integer chapterId = null;
         try

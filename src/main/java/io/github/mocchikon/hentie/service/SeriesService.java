@@ -568,7 +568,11 @@ public class SeriesService
     {
         if (override != null && !override.isEmpty())
         {
+            Set<String> covered = type == MetadataType.TAG
+                    ? MetadataService.plainTagsCoveredBy(override.stream().map(Metadata::getName).toList())
+                    : Set.of();
             List<ChipDto> chips = override.stream()
+                    .filter(m -> !covered.contains(m.getName()))
                     .map(m -> new ChipDto(m.getName(),
                             ChapterService.href(SearchType.SERIES, type.getSearchParam(), String.valueOf(m.getId())), null))
                     .toList();
@@ -577,16 +581,29 @@ public class SeriesService
 
         Map<Integer, Long> counts = new LinkedHashMap<>();
         Map<Integer, String> names = new HashMap<>();
+        // Per plain tag, the chapters carrying a version of it as well.
+        Map<Integer, Long> covered = new HashMap<>();
         for (Chapter chapter : chapters)
         {
-            for (Metadata item : extractor.apply(chapter))
+            List<? extends Metadata> items = extractor.apply(chapter);
+            Set<String> coveredHere = type == MetadataType.TAG
+                    ? MetadataService.plainTagsCoveredBy(items.stream().map(Metadata::getName).toList())
+                    : Set.of();
+            for (Metadata item : items)
             {
                 counts.merge(item.getId(), 1L, Long::sum);
                 names.putIfAbsent(item.getId(), item.getName());
+                if (coveredHere.contains(item.getName()))
+                {
+                    covered.merge(item.getId(), 1L, Long::sum);
+                }
             }
         }
 
+        // A plain tag's chip is left out only when each of its chapters carries a version of it too; otherwise it
+        // counts chapters no version shows (from a source without gender, such as nhentai).
         List<ChipDto> chips = counts.entrySet().stream()
+                .filter(e -> !e.getValue().equals(covered.get(e.getKey())))
                 .sorted(Comparator.<Map.Entry<Integer, Long>>comparingLong(Map.Entry::getValue).reversed()
                         .thenComparing(e -> names.get(e.getKey()), String.CASE_INSENSITIVE_ORDER))
                 .map(e -> new ChipDto(names.get(e.getKey()),

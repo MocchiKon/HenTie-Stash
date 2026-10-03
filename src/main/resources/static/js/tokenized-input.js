@@ -15,6 +15,8 @@
 
     function setupField(field) {
         var type = field.getAttribute("data-type");
+        // The Manage page offers only what its actions take (no tag versions), so it names its own endpoint.
+        var source = field.getAttribute("data-source") || "/api/autocomplete/" + encodeURIComponent(type);
         var name = field.getAttribute("data-name");
         var valueField = field.getAttribute("data-value-field") || "id";
         var max = parseInt(field.getAttribute("data-max") || "0", 10); // 0 = unlimited
@@ -145,7 +147,7 @@
 
         var fetchOptions = debounce(function () {
             var q = input.value.trim();
-            fetch("/api/autocomplete/" + encodeURIComponent(type) + "?q=" + encodeURIComponent(q))
+            fetch(source + (source.indexOf("?") < 0 ? "?" : "&") + "q=" + encodeURIComponent(q))
                 .then(function (r) { return r.ok ? r.json() : []; })
                 .then(renderOptions)
                 .catch(function () { closeDropdown(); });

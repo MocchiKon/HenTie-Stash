@@ -1,9 +1,7 @@
 package io.github.mocchikon.hentie.scrapper.nhentai;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import io.github.mocchikon.hentie.scrapper.FavouritesSource;
-import io.github.mocchikon.hentie.scrapper.GalleryData;
-import io.github.mocchikon.hentie.scrapper.GalleryNotFoundException;
+import io.github.mocchikon.hentie.scrapper.*;
 import io.github.mocchikon.hentie.service.LanguageService;
 import io.github.mocchikon.hentie.service.SettingsService;
 import jakarta.annotation.PreDestroy;
@@ -15,8 +13,9 @@ import java.io.UncheckedIOException;
 import java.net.URI;
 import java.util.*;
 import java.util.concurrent.ThreadLocalRandom;
-import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+
+import static io.github.mocchikon.hentie.scrapper.JsonFields.text;
 
 /**
  * nhentai.net, through its API v2 ({@code https://nhentai.net/api/v2/docs}).
@@ -29,7 +28,7 @@ import java.util.regex.Pattern;
  * keeps asking for such paths is banned for longer.
  */
 @Component
-public class NhentaiDownloader implements FavouritesSource
+public class NhentaiDownloader implements FavouritesSource, PageDownloader
 {
     static final String PREFIX = "nhentai";
 
@@ -85,6 +84,12 @@ public class NhentaiDownloader implements FavouritesSource
     }
 
     @Override
+    public String linkExample()
+    {
+        return "https://nhentai.net/g/123456/";
+    }
+
+    @Override
     public String pageLinkTemplate()
     {
         return link(RESOURCE_ID);
@@ -92,20 +97,7 @@ public class NhentaiDownloader implements FavouritesSource
 
     private static String idIn(String link)
     {
-        if (link == null)
-        {
-            return null;
-        }
-        String trimmed = link.strip();
-        for (Pattern pattern : List.of(PREFIXED_ID, GALLERY_URL))
-        {
-            Matcher matcher = pattern.matcher(trimmed);
-            if (matcher.matches())
-            {
-                return matcher.group(1);
-            }
-        }
-        return null;
+        return DataDownloader.matchLink(link, PREFIXED_ID, GALLERY_URL).map(m -> m.group(1)).orElse(null);
     }
 
     // ---- a gallery ---------------------------------------------------------
@@ -288,12 +280,5 @@ public class NhentaiDownloader implements FavouritesSource
             }
         }
         return new FavouritesPage(ids, Math.max(0, body.path("num_pages").asInt(0)));
-    }
-
-    /** Null for a missing, non-text or blank value. */
-    private static String text(JsonNode node, String field)
-    {
-        JsonNode value = node.path(field);
-        return value.isTextual() ? StringUtils.stripToNull(value.textValue()) : null;
     }
 }

@@ -55,11 +55,8 @@ public class FavouritesDownloadService
                 .toList();
     }
 
-    /**
-     * @param compressionMode      as on the paste form; an invalid one becomes None
-     * @param avoidDuplicateTitles as on the paste form
-     */
-    public Outcome queueAll(String sourcePrefix, String compressionMode, boolean avoidDuplicateTitles)
+    /** @param choices as on the paste form; an invalid compression mode becomes None */
+    public Outcome queueAll(String sourcePrefix, DownloadChoices choices)
     {
         FavouritesSource source = registry.favouritesSource(sourcePrefix).orElse(null);
         if (source == null)
@@ -82,7 +79,7 @@ public class FavouritesDownloadService
         {
             // Its writes wait for the library as long as they must, like a sweep's: the user watches a spinner.
             return writeGate.background("listing your " + name + " favourites",
-                    () -> walk(source, compressionMode, avoidDuplicateTitles));
+                    () -> walk(source, choices));
         }
         finally
         {
@@ -90,7 +87,7 @@ public class FavouritesDownloadService
         }
     }
 
-    private Outcome walk(FavouritesSource source, String compressionMode, boolean avoidDuplicateTitles)
+    private Outcome walk(FavouritesSource source, DownloadChoices choices)
     {
         String name = source.sourcePrefix();
         var tally = new Tally(name);
@@ -114,7 +111,7 @@ public class FavouritesDownloadService
                 break;
             }
             pageCount = listed.pageCount();
-            queuePage(source, listed.resourceIds(), compressionMode, avoidDuplicateTitles, tally);
+            queuePage(source, listed.resourceIds(), choices, tally);
             // Each page, so downloads start while the rest is listed.
             worker.kick();
         }
@@ -127,8 +124,7 @@ public class FavouritesDownloadService
     }
 
     /** One short transaction for the page's queue rows, so a request in another tab waits for one page at most. */
-    private void queuePage(FavouritesSource source, List<String> resourceIds, String compressionMode,
-                           boolean avoidDuplicateTitles, Tally tally)
+    private void queuePage(FavouritesSource source, List<String> resourceIds, DownloadChoices choices, Tally tally)
     {
         var linksByGalleryId = new LinkedHashMap<String, String>();
         resourceIds.forEach(id -> linksByGalleryId.put(source.galleryId(id), source.link(id)));
@@ -153,7 +149,7 @@ public class FavouritesDownloadService
         tally.listed += linksByGalleryId.size();
         if (!links.isEmpty())
         {
-            tally.enqueued = tally.enqueued.plus(queueService.enqueue(links, compressionMode, avoidDuplicateTitles));
+            tally.enqueued = tally.enqueued.plus(queueService.enqueue(links, choices));
         }
     }
 

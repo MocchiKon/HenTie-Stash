@@ -1,10 +1,12 @@
 package io.github.mocchikon.hentie.web;
 
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-
+import io.github.mocchikon.hentie.config.WriteGate;
+import io.github.mocchikon.hentie.dto.MetadataType;
+import io.github.mocchikon.hentie.dto.OptionDto;
+import io.github.mocchikon.hentie.service.*;
+import io.github.mocchikon.hentie.service.compress.ImageCompressionService;
+import io.github.mocchikon.hentie.service.compress.ImageCompressionSweep;
+import io.github.mocchikon.hentie.service.match.ChapterMatchingSweep;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -13,23 +15,19 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
-import io.github.mocchikon.hentie.config.WriteGate;
-import io.github.mocchikon.hentie.dto.MetadataType;
-import io.github.mocchikon.hentie.dto.OptionDto;
-import io.github.mocchikon.hentie.service.ImageStatsService;
-import io.github.mocchikon.hentie.service.MetadataNameFolder;
-import io.github.mocchikon.hentie.service.MetadataRuleService;
-import io.github.mocchikon.hentie.service.MetadataService;
-import io.github.mocchikon.hentie.service.TitleSearchIndex;
-import io.github.mocchikon.hentie.service.compress.ImageCompressionService;
-import io.github.mocchikon.hentie.service.compress.ImageCompressionSweep;
-import io.github.mocchikon.hentie.service.match.ChapterMatchingSweep;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 
 @Controller
 public class ManageController
 {
     /** A type can hold thousands of items, so the page shows only the most recent and searches the rest. */
     private static final int RECENT_LIMIT = 3;
+
+    /** As many as the search form's autocomplete offers. */
+    private static final int OPTIONS_LIMIT = 10;
 
     /** A refused action redirects here, so the message saying why is in view. */
     private static final String REFUSAL_ANCHOR = "section-title";
@@ -101,6 +99,14 @@ public class ManageController
     public List<OptionDto> items(@RequestParam String type, @RequestParam(required = false) String q)
     {
         return metadataService.recent(MetadataType.fromKey(type), q, RECENT_LIMIT);
+    }
+
+    /** The Manage page's pickers: what its actions take, so a tag's {@code ♀}/{@code ♂} versions are not offered. */
+    @GetMapping("/manage/options")
+    @ResponseBody
+    public List<OptionDto> options(@RequestParam String type, @RequestParam(required = false) String q)
+    {
+        return metadataService.autocompleteManaged(MetadataType.fromKey(type), q, OPTIONS_LIMIT);
     }
 
     /**
@@ -204,6 +210,14 @@ public class ManageController
         return redirect(t);
     }
 
+    /** One transaction moving every link of both versions, so it waits like a merge. */
+    @PostMapping("/manage/remove-gender")
+    public String removeGender(@RequestParam Integer id, @RequestParam(defaultValue = "false") boolean createRule)
+    {
+        writeGate.background("removing the gender from a tag", () -> metadataService.removeGender(id, createRule));
+        return redirect(MetadataType.TAG);
+    }
+
     /**
      * Otherwise the item would silently not appear, or the unique index would throw a 500. The message names
      * the metadata kind because it is shown at the top of the page, not inside the section.
@@ -224,6 +238,9 @@ public class ManageController
             case MetadataService.NameTaken taken ->
                     "%s: \"%s\" cannot be used: another item already has that name. Use Merge if you meant to combine the two."
                             .formatted(kind, taken.name());
+            case MetadataService.GenderedName gendered ->
+                    "%s: \"%s\" cannot be used: a tag is renamed without \u2640 or \u2642, and its \u2640 and \u2642 versions take the new name with their own symbol."
+                            .formatted(kind, gendered.name());
         };
         redirectAttributes.addFlashAttribute("refusal", message);
     }

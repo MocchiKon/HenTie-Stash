@@ -1,5 +1,21 @@
 package io.github.mocchikon.hentie.service.comfy;
 
+import io.github.mocchikon.hentie.config.AppProperties;
+import io.github.mocchikon.hentie.config.LibraryBusyException;
+import io.github.mocchikon.hentie.config.WriteGate;
+import io.github.mocchikon.hentie.service.ProcessTrees;
+import io.github.mocchikon.hentie.service.SettingsService;
+import io.github.mocchikon.hentie.service.scratch.ScratchSpace;
+import jakarta.annotation.PreDestroy;
+import lombok.Getter;
+import lombok.RequiredArgsConstructor;
+import org.apache.commons.lang3.StringUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
+import org.springframework.stereotype.Service;
+
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -9,35 +25,10 @@ import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
-import java.time.Instant;
-import java.util.ArrayDeque;
-import java.util.ArrayList;
-import java.util.Deque;
-import java.util.List;
-import java.util.Locale;
-import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
+import java.util.*;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.regex.Pattern;
-
-import org.apache.commons.lang3.StringUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.boot.context.event.ApplicationReadyEvent;
-import org.springframework.context.event.EventListener;
-import org.springframework.stereotype.Service;
-
-import io.github.mocchikon.hentie.config.AppProperties;
-import io.github.mocchikon.hentie.config.LibraryBusyException;
-import io.github.mocchikon.hentie.config.WriteGate;
-import io.github.mocchikon.hentie.service.SettingsService;
-import io.github.mocchikon.hentie.service.scratch.ScratchSpace;
-import jakarta.annotation.PreDestroy;
-import lombok.Getter;
-import lombok.RequiredArgsConstructor;
 
 /**
  * Starts ComfyUI with the user's own start script, and stops only what it started.
@@ -590,7 +581,7 @@ public class ComfyUiLauncher
     /** Called with {@link #lock} held; {@link #persistLaunchRecord} writes it. */
     private void rememberLaunch(Process started)
     {
-        long startMillis = started.toHandle().info().startInstant().map(Instant::toEpochMilli).orElse(0L);
+        long startMillis = ProcessTrees.startMillis(started.toHandle());
         launchRecord = started.pid() + ":" + startMillis;
     }
 
@@ -667,16 +658,11 @@ public class ComfyUiLauncher
         {
             long pid = Long.parseLong(parts[0]);
             long startMillis = parts.length > 1 ? Long.parseLong(parts[1]) : 0;
-            if (startMillis > 0)
+            ProcessTrees.stillRunning(pid, startMillis).ifPresent(handle ->
             {
-                ProcessHandle.of(pid)
-                        .filter(handle -> handle.info().startInstant().map(Instant::toEpochMilli).orElse(-1L) == startMillis)
-                        .ifPresent(handle ->
-                        {
-                            log.info("Stopping the ComfyUI (pid {}) the app started before it was last closed", pid);
-                            killTree(handle);
-                        });
-            }
+                log.info("Stopping the ComfyUI (pid {}) the app started before it was last closed", pid);
+                killTree(handle);
+            });
         }
         catch (NumberFormatException e)
         {
@@ -702,25 +688,9 @@ public class ComfyUiLauncher
         persistLaunchRecord();
     }
 
-    /** Descendants are listed before anything is stopped: once a parent is gone, its children cannot be found. */
+    /** Asked to stop as a whole first, so ComfyUI can shut down cleanly. */
     static void killTree(ProcessHandle root)
     {
-        List<ProcessHandle> tree = new ArrayList<>(root.descendants().toList());
-        tree.add(root);
-        tree.forEach(ProcessHandle::destroy);
-        try
-        {
-            CompletableFuture.allOf(tree.stream().map(ProcessHandle::onExit).toArray(CompletableFuture[]::new))
-                    .get(STOP_GRACE.toMillis(), TimeUnit.MILLISECONDS);
-        }
-        catch (TimeoutException | ExecutionException e)
-        {
-            tree.stream().filter(ProcessHandle::isAlive).forEach(ProcessHandle::destroyForcibly);
-        }
-        catch (InterruptedException e)
-        {
-            tree.stream().filter(ProcessHandle::isAlive).forEach(ProcessHandle::destroyForcibly);
-            Thread.currentThread().interrupt();
-        }
+        ProcessTrees.killTree(root, false, STOP_GRACE);
     }
 }

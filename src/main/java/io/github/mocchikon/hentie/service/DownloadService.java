@@ -2,6 +2,7 @@ package io.github.mocchikon.hentie.service;
 
 import io.github.mocchikon.hentie.entity.Chapter;
 import io.github.mocchikon.hentie.scrapper.DataDownloaderRegistry;
+import io.github.mocchikon.hentie.service.download.DownloadChoices;
 import io.github.mocchikon.hentie.service.download.DownloadQueueService;
 import io.github.mocchikon.hentie.service.download.DownloadWorker;
 import lombok.RequiredArgsConstructor;
@@ -23,6 +24,7 @@ public class DownloadService
     private final DownloadQueueService queueService;
     private final DownloadWorker worker;
     private final DataDownloaderRegistry registry;
+    private final SettingsService settingsService;
 
     public List<String> parseLinks(String raw)
     {
@@ -38,18 +40,17 @@ public class DownloadService
     }
 
     /** Unrecognized links are reported back rather than queued to fail later. */
-    public DownloadQueueService.EnqueueResult queue(List<String> links, String compressionMode,
-                                                    boolean avoidDuplicateTitles)
+    public DownloadQueueService.EnqueueResult queue(List<String> links, DownloadChoices choices)
     {
         if (links.isEmpty())
         {
             return new DownloadQueueService.EnqueueResult(0, 0, 0, 0);
         }
-        DownloadQueueService.EnqueueResult result = queueService.enqueue(links, compressionMode, avoidDuplicateTitles);
-        log.info("Queued {} link(s) for download with Image Compression mode {}{} ({} new, {} retried, "
-                        + "{} already waiting, {} unsupported)", result.queued(), compressionMode,
-                avoidDuplicateTitles ? ", avoiding duplicated titles from other sources" : "",
-                result.accepted(), result.requeued(), result.alreadyQueued(), result.rejected());
+        DownloadQueueService.EnqueueResult result = queueService.enqueue(links, choices);
+        log.info("Queued {} link(s) for download with Image Compression mode {}{}, gallery-dl {} ({} new, {} retried, "
+                        + "{} already waiting, {} unsupported)", result.queued(), choices.compressionMode(),
+                choices.avoidDuplicateTitles() ? ", avoiding duplicated titles from other sources" : "",
+                choices.galleryDl(), result.accepted(), result.requeued(), result.alreadyQueued(), result.rejected());
         worker.kick();
         return result;
     }
@@ -78,7 +79,7 @@ public class DownloadService
         {
             return false;
         }
-        queueService.enqueueFullQuality(link.get(), chapter.getGalleryId());
+        queueService.enqueueFullQuality(link.get(), chapter.getGalleryId(), settingsService.getGalleryDlDefaults());
         log.info("Queued a full-quality re-download of chapter {} ({})", chapter.getId(), chapter.getGalleryId());
         worker.kick();
         return true;

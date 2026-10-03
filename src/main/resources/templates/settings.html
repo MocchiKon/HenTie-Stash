@@ -13,6 +13,7 @@
     <div th:if="${passwordError}" class="alert error" role="alert" th:text="${passwordError}">error</div>
     <div th:if="${storageError}" class="alert error" role="alert" th:text="${storageError}">error</div>
     <div th:if="${comfyuiError}" class="alert error" role="alert" th:text="${comfyuiError}">error</div>
+    <div th:if="${galleryDlError}" class="alert error" role="alert" th:text="${galleryDlError}">error</div>
 
     <form class="edit-form" method="post" th:action="@{/settings}">
         <label class="checkbox big">
@@ -96,6 +97,54 @@
             How similar a series has to be, by artist and title, before a chapter joins it instead of
             starting its own. Higher is stricter. Below about 70 a chapter can join a different work by
             the same artist, and below about 60 the artist stops mattering at all.
+        </p>
+
+        <h2 class="section-title" id="gallery-dl">Downloads with gallery-dl</h2>
+        <p class="hint">
+            hitomi and e-hentai/exhentai are downloaded by gallery-dl. Its status and updates are below the
+            Save button.
+        </p>
+
+        <label class="checkbox big">
+            <input type="checkbox" name="systemGalleryDl" th:checked="${systemGalleryDl}">
+            <span>Use the gallery-dl installed on this system</span>
+        </label>
+        <p class="hint">
+            When unchecked, the copy shipped with the app is used (there is none for macOS). Check this to use your
+            own <code>gallery-dl</code> from the system PATH instead.
+        </p>
+
+        <p class="hint">What the Download page starts at, and what a re-download in full quality uses:</p>
+        <div class="field">
+            <label for="galleryDlCookiesBrowser">Use cookies when downloading</label>
+            <select id="galleryDlCookiesBrowser" name="galleryDlCookiesBrowser" class="capped-select">
+                <option value="" th:selected="${galleryDlDefaults.cookiesBrowser() == null}">No cookies</option>
+                <optgroup th:each="group : ${browserGroups}" th:label="${group.label()}">
+                    <option th:each="browser : ${group.browsers()}" th:value="${browser}" th:text="${browser}"
+                            th:selected="${browser == galleryDlDefaults.cookiesBrowser()}">firefox</option>
+                </optgroup>
+            </select>
+        </div>
+        <p class="hint">
+            The browser gallery-dl reads your e-hentai/exhentai login from. Firefox works best: on Windows, Chrome,
+            Edge and Brave encrypt their cookies in a way gallery-dl cannot read.
+        </p>
+        <label class="checkbox big">
+            <input type="checkbox" name="galleryDlOriginals" value="true" th:checked="${galleryDlDefaults.originals()}">
+            <span>Download originals</span>
+        </label>
+        <p class="hint">
+            e-hentai/exhentai only. Originals need a logged-in account and use up its image limit far sooner (1 point
+            plus 1 per 0.1 MB of each file, against 1 per resampled page), and can cost GP.
+        </p>
+        <div class="field">
+            <label for="galleryDlDelay">Delay between image downloads (seconds)</label>
+            <input type="text" id="galleryDlDelay" name="galleryDlDelay" class="short-input" maxlength="20"
+                   th:value="${galleryDlDefaults.delay()}">
+        </div>
+        <p class="hint">
+            A number, or a range for a random wait, e.g. 0.4-0.65. Too low a value can get your IP temporarily
+            banned by e-hentai.
         </p>
 
         <h2 class="section-title">Image Compression</h2>
@@ -234,6 +283,32 @@
             <button type="submit" class="btn btn-accent">Save settings</button>
         </div>
     </form>
+
+    <section class="gallery-dl-status" id="gallery-dl-status">
+        <h2 class="section-title">gallery-dl status</h2>
+        <div th:if="${galleryDlUpdate != null}" class="alert" role="status"
+             th:classappend="${galleryDlUpdate.updated()} ? 'ok' : 'error'" th:text="${galleryDlUpdate.message()}">
+            message</div>
+        <p th:if="${galleryDlStatus.executable() != null}">
+            In use: <code class="path wrap-anywhere" th:text="${galleryDlStatus.executable().describe()}">gallery-dl</code>
+        </p>
+        <p th:if="${galleryDlStatus.version() != null}">Version <strong th:text="${galleryDlStatus.version()}">1.0</strong></p>
+        <p class="hint" th:if="${galleryDlStatus.checking()}">Checking its version&#8230; reload the page in a moment.</p>
+        <p class="hint" th:if="${galleryDlStatus.problem() != null}" th:text="${galleryDlStatus.problem()}">problem</p>
+        <form method="post" th:action="@{/settings/gallery-dl/update}" th:if="${galleryDlStatus.updatable()}"
+              class="long-running" data-busy-note="gallery-dl is downloading its latest version&#8230; this takes
+              a minute at most. You can keep using the app in another tab.">
+            <button type="submit" class="btn btn-sm">Update gallery-dl</button>
+        </form>
+        <p class="hint" th:if="${galleryDlStatus.updatable()}">
+            Sites change, and gallery-dl follows them with a new version every couple of weeks. Updating downloads
+            the latest one from gallery-dl's own site. A download in progress has to finish first.
+        </p>
+        <details th:if="${galleryDlUpdate != null and !#lists.isEmpty(galleryDlUpdate.output())}">
+            <summary>gallery-dl's output</summary>
+            <pre th:text="${#strings.listJoin(galleryDlUpdate.output(), '&#10;')}">output</pre>
+        </details>
+    </section>
 
     <!-- The URLs come from here rather than being spelled out in app.js, so they follow the app's context path. -->
     <section class="comfy-status" id="comfyui-status"

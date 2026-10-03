@@ -40,6 +40,43 @@ public class AppProperties
 
     private Writes writes = new Writes();
 
+    private GalleryDl galleryDl = new GalleryDl();
+
+    /** See {@code scrapper.gallerydl}. */
+    @Data
+    public static class GalleryDl
+    {
+        /**
+         * Next to the jar, one sub-folder per platform, like the image tools: {@code win/gallery-dl.exe},
+         * {@code linux/gallery-dl.bin}. Ignored when Settings says to use the gallery-dl installed on the system.
+         */
+        private String binDir = "./bin";
+
+        /**
+         * When set, the command gallery-dl is started with, in place of the bundled or system copy: for a gallery-dl
+         * run as a Python module ({@code python3,-m,gallery_dl}), and for the tests' fake.
+         */
+        private List<String> command = List.of();
+
+        /** The delay a Settings default starts at: gallery-dl's own for e-hentai (3-6 s) is far slower. */
+        private String defaultDelay = "0.4-0.65";
+
+        /**
+         * A run that prints nothing for this long is killed. Every HTTP request prints a line (gallery-dl runs
+         * verbose), so only a hung process stays silent this long.
+         */
+        private int idleTimeoutSeconds = 300;
+
+        /** A metadata run, whatever it prints. */
+        private int metadataTimeoutSeconds = 180;
+
+        /** {@code --version}: a one-file executable unpacks itself first, which takes a few seconds on Windows. */
+        private int versionTimeoutSeconds = 60;
+
+        /** {@code -U} downloads the new executable. */
+        private int updateTimeoutSeconds = 600;
+    }
+
     /** See {@code WriteGate}. */
     @Data
     public static class Writes

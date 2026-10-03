@@ -42,38 +42,55 @@
     <section class="manage-section" th:each="type : ${types}" th:id="${type.key}">
         <h2 class="section-title" th:text="${type.displayName}">Tags</h2>
 
+        <p class="hint" th:if="${type.name() == 'TAG'}">
+            Tags are listed without ♀ and ♂: renaming, merging or deleting one does the same to its ♀ and ♂
+            versions, and so does its rule. "Remove ♀/♂" merges both versions into the tag itself.
+        </p>
+
         <form method="post" th:action="@{/manage/add}" class="inline-form">
             <input type="hidden" name="type" th:value="${type.key}">
             <input type="text" name="name" th:placeholder="'New ' + ${type.displayName}" required>
             <button type="submit" class="btn btn-accent">Add</button>
         </form>
 
-        <!-- One checkbox for merge, rename and delete (not Add, which records no rule). A checkbox belongs to
-             one form, so each form carries a hidden createRule that app.js keeps in step; one per row
-             would push each row's button onto its own line. -->
+        <!-- One checkbox for merge, rename, delete and Remove ♀/♂ (not Add, which records no rule). A checkbox
+             belongs to one form, so each form carries a hidden createRule that app.js keeps in step; one per
+             row would push each row's button onto its own line. -->
         <label class="checkbox rule-toggle" th:attr="data-rule-toggle=${type.key}">
             <input type="checkbox" checked>
             Add rule
-            <span class="hint"> remember the deletes/merges/renames below, so a later download
-                cannot bring the value back</span>
+            <span class="hint"> remember the deletes/merges/renames<th:block th:if="${type.name() == 'TAG'}">
+                and gender removals</th:block> below, so a later download cannot bring the value back</span>
         </label>
 
         <form method="post" th:action="@{/manage/merge}" class="merge-form confirm-delete long-running blocks-writes"
               data-confirm="Merge these? The source will be deleted and its links moved to the target.">
             <input type="hidden" name="type" th:value="${type.key}">
-            <div class="token-field single" th:attr="data-type=${type.key},data-name='sourceId',data-value-field='id',data-max='1'">
+            <div class="token-field single" th:attr="data-type=${type.key},data-source=@{/manage/options(type=${type.key})},data-name='sourceId',data-value-field='id',data-max='1'">
                 <div class="tokens"></div>
                 <input type="text" class="token-input" autocomplete="off" placeholder="Source (removed)…">
                 <div class="token-dropdown" hidden></div>
             </div>
             <span class="merge-arrow">→</span>
-            <div class="token-field single" th:attr="data-type=${type.key},data-name='targetId',data-value-field='id',data-max='1'">
+            <div class="token-field single" th:attr="data-type=${type.key},data-source=@{/manage/options(type=${type.key})},data-name='targetId',data-value-field='id',data-max='1'">
                 <div class="tokens"></div>
                 <input type="text" class="token-input" autocomplete="off" placeholder="Target (kept)…">
                 <div class="token-dropdown" hidden></div>
             </div>
             <input type="hidden" name="createRule" value="true">
             <button type="submit" class="btn btn-danger">Merge</button>
+        </form>
+
+        <form th:if="${type.name() == 'TAG'}" method="post" th:action="@{/manage/remove-gender}"
+              class="merge-form confirm-delete long-running blocks-writes"
+              data-confirm="Remove ♀ and ♂ from this tag? Both versions are merged into it.">
+            <div class="token-field single" th:attr="data-type=${type.key},data-source=@{/manage/options(type=${type.key})},data-name='id',data-value-field='id',data-max='1'">
+                <div class="tokens"></div>
+                <input type="text" class="token-input" autocomplete="off" placeholder="Tag…">
+                <div class="token-dropdown" hidden></div>
+            </div>
+            <input type="hidden" name="createRule" value="true">
+            <button type="submit" class="btn btn-danger">Remove ♀/♂</button>
         </form>
 
         <input type="search" class="list-filter" placeholder="Filter…"
@@ -139,17 +156,20 @@
                 one spelling they are stored in. Run this for a library whose names were added before that
                 was the case, or right after the one-time import from the old database. Two spellings of
                 one name (<code>Big Sister</code> and <code>big sister</code>) are merged into a single
-                item, so the chapters and series carrying either end up on the same one.
+                item, so the chapters and series carrying either end up on the same one. Tags are also given
+                the spelling imports use: <code>female:halo</code> becomes <code>halo ♀</code>,
+                <code>male:halo</code> becomes <code>halo ♂</code>, and <code>mixed:</code>,
+                <code>other:</code>, <code>location:</code> and <code>temp:</code> are dropped.
             </p>
             <form method="post" th:action="@{/manage/fold-metadata-names}" class="inline-form long-running">
-                <button type="submit" class="btn btn-accent">Rewrite metadata names in lower case</button>
+                <button type="submit" class="btn btn-accent">Rewrite metadata names</button>
             </form>
             <p class="hint" th:if="${foldResult != null}">
                 <span th:text="${foldResult.renamed()}">0</span> name(s) rewritten,
                 <span th:text="${foldResult.merged()}">0</span> merged into an existing item.
                 <span th:if="${foldResult.blocked() > 0}">
                     <span th:text="${foldResult.blocked()}">0</span> left as they were because a rule rules
-                    the lower-case name out — see "Manage current rules" for that section.
+                    the rewritten name out — see "Manage current rules" for that section.
                 </span>
             </p>
         </div>

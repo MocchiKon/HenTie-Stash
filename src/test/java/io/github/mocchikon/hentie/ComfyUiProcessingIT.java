@@ -1,5 +1,26 @@
 package io.github.mocchikon.hentie;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import io.github.mocchikon.hentie.config.AppProperties;
+import io.github.mocchikon.hentie.dto.CompressionProfile;
+import io.github.mocchikon.hentie.entity.ImageEncoder;
+import io.github.mocchikon.hentie.service.ImageDirectory;
+import io.github.mocchikon.hentie.service.ImageService;
+import io.github.mocchikon.hentie.service.SettingsService;
+import io.github.mocchikon.hentie.service.comfy.ApiWorkflow;
+import io.github.mocchikon.hentie.service.comfy.ComfyResultCache;
+import io.github.mocchikon.hentie.service.comfy.PageProcessingService;
+import io.github.mocchikon.hentie.service.comfy.PageProcessingService.*;
+import io.github.mocchikon.hentie.service.comfy.WorkflowCatalog;
+import io.github.mocchikon.hentie.service.compress.ImageCompressor;
+import io.github.mocchikon.hentie.service.compress.ImageToolLocator;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assumptions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -11,35 +32,8 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.Assumptions;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-
-import io.github.mocchikon.hentie.config.AppProperties;
-import io.github.mocchikon.hentie.dto.CompressionProfile;
-import io.github.mocchikon.hentie.entity.ImageEncoder;
-import io.github.mocchikon.hentie.service.ImageDirectory;
-import io.github.mocchikon.hentie.service.ImageService;
-import io.github.mocchikon.hentie.service.SettingsService;
-import io.github.mocchikon.hentie.service.comfy.ApiWorkflow;
-import io.github.mocchikon.hentie.service.comfy.ComfyResultCache;
-import io.github.mocchikon.hentie.service.comfy.PageProcessingService;
-import io.github.mocchikon.hentie.service.comfy.PageProcessingService.Asker;
-import io.github.mocchikon.hentie.service.comfy.PageProcessingService.Failed;
-import io.github.mocchikon.hentie.service.comfy.PageProcessingService.Outcome;
-import io.github.mocchikon.hentie.service.comfy.PageProcessingService.Pending;
-import io.github.mocchikon.hentie.service.comfy.PageProcessingService.Problem;
-import io.github.mocchikon.hentie.service.comfy.PageProcessingService.Progress;
-import io.github.mocchikon.hentie.service.comfy.PageProcessingService.Ready;
-import io.github.mocchikon.hentie.service.comfy.WorkflowCatalog;
-import io.github.mocchikon.hentie.service.compress.ImageCompressor;
-import io.github.mocchikon.hentie.service.compress.ImageToolLocator;
-import com.fasterxml.jackson.databind.JsonNode;
-
-import static org.assertj.core.api.Assertions.*;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.fail;
 
 /** Against {@link FakeComfyUi}. No database rows: processing reads only the chapter's folder, as the viewer does. */
 @SpringBootTest
@@ -91,17 +85,26 @@ class ComfyUiProcessingIT
     }
 
     @AfterEach
-    void tearDown() throws IOException
+    void tearDown() throws Exception
     {
-        release.countDown();
-        appProperties.getComfyui().setJobTimeoutSeconds(originalJobTimeout);
-        comfy.close();
-        // Shared singletons: the next suite must find the defaults again.
-        settingsService.setComfyUiUrl("");
-        settingsService.setComfyUiWorkflowDir("");
-        catalog.invalidate();
-        imageService.evictDerived(CHAPTER);
-        ImageService.deleteRecursively(chapterDir);
+        try
+        {
+            // Before the fake goes: a page still wanted would otherwise run in the next test, against its fake.
+            processing.forgetAll();
+        }
+        finally
+        {
+            // Even when a page would not stop: left pointing at a closed fake, every later suite would fail too.
+            release.countDown();
+            appProperties.getComfyui().setJobTimeoutSeconds(originalJobTimeout);
+            comfy.close();
+            // Shared singletons: the next suite must find the defaults again.
+            settingsService.setComfyUiUrl("");
+            settingsService.setComfyUiWorkflowDir("");
+            catalog.invalidate();
+            imageService.evictDerived(CHAPTER);
+            ImageService.deleteRecursively(chapterDir);
+        }
     }
 
     // ---- the workflow list -------------------------------------------------

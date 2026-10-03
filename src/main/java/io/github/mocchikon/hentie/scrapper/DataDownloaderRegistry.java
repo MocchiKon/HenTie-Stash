@@ -79,6 +79,15 @@ public class DataDownloaderRegistry
         return downloaders.stream().filter(downloader -> downloader.accepts(trimmedLink)).findFirst();
     }
 
+    /** Prefix to an example link, sorted by prefix, for the Download page. */
+    public Map<String, String> linkExamples()
+    {
+        var examples = new LinkedHashMap<String, String>();
+        downloaders.stream().sorted(Comparator.comparing(DataDownloader::sourcePrefix))
+                .forEach(downloader -> examples.put(downloader.sourcePrefix(), downloader.linkExample()));
+        return examples;
+    }
+
     public List<String> sourcePrefixes()
     {
         return downloaders.stream().map(DataDownloader::sourcePrefix).sorted().toList();

@@ -1,5 +1,6 @@
 package io.github.mocchikon.hentie.web;
 
+import io.github.mocchikon.hentie.TestDownloads;
 import io.github.mocchikon.hentie.dto.BuiltInCompressionMode;
 import io.github.mocchikon.hentie.dto.ChapterForm;
 import io.github.mocchikon.hentie.dto.ChapterViewModel;
@@ -582,9 +583,7 @@ class ChapterControllerIT
     void shouldRetryOneFailedQueueItemInTheLenientModeFromTheQueuePage() throws Exception
     {
         // GIVEN a failed queue row.
-        var item = new DownloadQueueItem();
-        item.setLink("mock:8003");
-        item.setGalleryId("mock:8003");
+        var item = TestDownloads.queueItem("mock:8003", "mock:8003");
         item.setError("page 2 could not be downloaded");
         item.setAttempts(3);
         int id = downloadQueueRepository.save(item).getId();
@@ -613,16 +612,12 @@ class ChapterControllerIT
     void shouldOfferRetryAllowingDuplicateTitleOnlyOnAFailedRowCarryingTheFlag() throws Exception
     {
         // GIVEN two failed rows, one queued avoiding duplicated titles.
-        var flagged = new DownloadQueueItem();
-        flagged.setLink("mock:8005");
-        flagged.setGalleryId("mock:8005");
+        var flagged = TestDownloads.queueItem("mock:8005", "mock:8005");
         flagged.setError("Chapter 1 (from other:1) already has the title");
         flagged.setAttempts(1);
         flagged.setAvoidDuplicateTitles(true);
         int flaggedId = downloadQueueRepository.save(flagged).getId();
-        var plain = new DownloadQueueItem();
-        plain.setLink("mock:8006");
-        plain.setGalleryId("mock:8006");
+        var plain = TestDownloads.queueItem("mock:8006", "mock:8006");
         plain.setError("page 2 could not be downloaded");
         plain.setAttempts(3);
         int plainId = downloadQueueRepository.save(plain).getId();

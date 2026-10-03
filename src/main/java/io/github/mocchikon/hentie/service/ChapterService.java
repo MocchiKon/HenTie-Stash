@@ -498,9 +498,16 @@ public class ChapterService
         {
             return;
         }
+        Set<String> covered = type == MetadataType.TAG
+                ? MetadataService.plainTagsCoveredBy(items.stream().map(Metadata::getName).toList())
+                : Set.of();
         List<ChipDto> chips = new ArrayList<>();
         for (Metadata item : items)
         {
+            if (covered.contains(item.getName()))
+            {
+                continue;
+            }
             chips.add(new ChipDto(item.getName(),
                     href(SearchType.CHAPTER, type.getSearchParam(), String.valueOf(item.getId())), null));
         }

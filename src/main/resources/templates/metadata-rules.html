@@ -19,6 +19,11 @@
         name be used again. Names are matched ignoring capitalisation, which is why they are listed in
         lower case.
     </p>
+    <p class="hint" th:if="${type.name() == 'TAG'}">
+        A tag's rule covers its ♀ and ♂ versions too: a removed tag takes them along, and one replaced with
+        another tag brings in that tag's versions instead. A rule on a ♀ or ♂ name itself comes from
+        "Remove ♀/♂".
+    </p>
 
     <div class="manage-tabs">
         <a th:each="t : ${types}" th:href="@{/manage/rules(type=${t.key})}"

@@ -1,6 +1,8 @@
 package io.github.mocchikon.hentie.service;
 
+import io.github.mocchikon.hentie.TestDownloads;
 import io.github.mocchikon.hentie.scrapper.DataDownloaderRegistry;
+import io.github.mocchikon.hentie.service.download.DownloadChoices;
 import io.github.mocchikon.hentie.service.download.DownloadQueueService;
 import io.github.mocchikon.hentie.service.download.DownloadWorker;
 import org.junit.jupiter.api.Test;
@@ -9,7 +11,8 @@ import org.mockito.ArgumentCaptor;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 class DownloadServiceTest
@@ -17,7 +20,8 @@ class DownloadServiceTest
     private final DownloadQueueService queueService = mock(DownloadQueueService.class);
     private final DownloadWorker worker = mock(DownloadWorker.class);
     private final DataDownloaderRegistry registry = mock(DataDownloaderRegistry.class);
-    private final DownloadService service = new DownloadService(queueService, worker, registry);
+    private final SettingsService settingsService = mock(SettingsService.class);
+    private final DownloadService service = new DownloadService(queueService, worker, registry, settingsService);
 
     @Test
     void shouldReturnEmptyWhenInputIsNull()
@@ -85,7 +89,7 @@ class DownloadServiceTest
     void shouldNotTouchTheQueueWhenThereIsNothingToQueue()
     {
         // WHEN
-        var result = service.queue(List.of(), "NONE", false);
+        var result = service.queue(List.of(), TestDownloads.choices("NONE", false));
 
         // THEN
         assertThat(result.queued()).isZero();
@@ -97,17 +101,16 @@ class DownloadServiceTest
     void shouldQueueTheLinksAndWakeTheWorker()
     {
         // GIVEN
-        when(queueService.enqueue(any(), any(), anyBoolean())).thenReturn(new DownloadQueueService.EnqueueResult(2, 1, 0, 1));
+        when(queueService.enqueue(any(), any())).thenReturn(new DownloadQueueService.EnqueueResult(2, 1, 0, 1));
+        DownloadChoices choices = TestDownloads.choices("LOSSLESS", true);
 
         // WHEN
-        var result = service.queue(List.of("mock:1", "mock:2", "mock:3", "junk"), "LOSSLESS", true);
+        var result = service.queue(List.of("mock:1", "mock:2", "mock:3", "junk"), choices);
 
         // THEN the links go to the queue verbatim, with the paste form's choices
         final var captor = ArgumentCaptor.forClass(List.class);
-        final var modeCaptor = ArgumentCaptor.forClass(String.class);
-        verify(queueService).enqueue(captor.capture(), modeCaptor.capture(), eq(true));
+        verify(queueService).enqueue(captor.capture(), eq(choices));
         assertThat(captor.getValue()).containsExactly("mock:1", "mock:2", "mock:3", "junk");
-        assertThat(modeCaptor.getValue()).isEqualTo("LOSSLESS");
         // ...the worker is woken rather than left to its idle poll...
         verify(worker).kick();
         // ...and unsupported links are counted too.

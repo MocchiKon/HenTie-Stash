@@ -238,6 +238,30 @@ class MetadataNameFolderIT
                 .isEqualTo("fold-all-artist");
     }
 
+    @Test
+    void shouldMergeANamespacedTagIntoItsCanonicalSpelling()
+    {
+        // GIVEN a tag stored with e-hentai's namespace and the same tag in its canonical spelling.
+        Tag canonical = tag("fold-halo \u2640");
+        Tag namespaced = tag("female:fold-halo");
+        Tag dropped = tag("other:fold-full color");
+        Chapter onNamespaced = chapterWith(namespaced);
+        Chapter onDropped = chapterWith(dropped);
+        em.flush();
+        em.clear();
+
+        // WHEN the names are rewritten.
+        folder.fold(MetadataType.TAG);
+        em.flush();
+        em.clear();
+
+        // THEN the namespaced row is merged into the canonical one, and the other loses its namespace.
+        assertThat(tagRepository.findById(namespaced.getId())).isEmpty();
+        assertThat(chapterTagLink(onNamespaced.getId(), canonical.getId())).isEqualTo(1);
+        assertThat(tagRepository.findById(dropped.getId()).orElseThrow().getName()).isEqualTo("fold-full color");
+        assertThat(chapterTagLink(onDropped.getId(), dropped.getId())).isEqualTo(1);
+    }
+
     private int chapterTagLink(int chapterId, int tagId)
     {
         return jdbc.queryForObject("select count(*) from chapter_tags where chapter_id=? and tag_id=?",

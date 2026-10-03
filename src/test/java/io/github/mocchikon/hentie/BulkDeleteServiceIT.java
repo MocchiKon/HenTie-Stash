@@ -1,12 +1,17 @@
 package io.github.mocchikon.hentie;
 
-import java.io.IOException;
-import java.io.UncheckedIOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.List;
-import java.util.Objects;
-
+import io.github.mocchikon.hentie.config.CacheConfig;
+import io.github.mocchikon.hentie.dto.ChapterForm;
+import io.github.mocchikon.hentie.dto.SearchCriteria;
+import io.github.mocchikon.hentie.dto.SearchType;
+import io.github.mocchikon.hentie.dto.SeriesForm;
+import io.github.mocchikon.hentie.entity.Status;
+import io.github.mocchikon.hentie.repository.ChapterRepository;
+import io.github.mocchikon.hentie.repository.DownloadQueueRepository;
+import io.github.mocchikon.hentie.repository.SeriesRepository;
+import io.github.mocchikon.hentie.service.*;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -14,26 +19,14 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.cache.CacheManager;
 import org.springframework.transaction.annotation.Transactional;
 
-import io.github.mocchikon.hentie.config.CacheConfig;
-import io.github.mocchikon.hentie.dto.ChapterForm;
-import io.github.mocchikon.hentie.dto.SearchCriteria;
-import io.github.mocchikon.hentie.dto.SearchType;
-import io.github.mocchikon.hentie.dto.SeriesForm;
-import io.github.mocchikon.hentie.entity.DownloadQueueItem;
-import io.github.mocchikon.hentie.entity.Status;
-import io.github.mocchikon.hentie.repository.ChapterRepository;
-import io.github.mocchikon.hentie.repository.DownloadQueueRepository;
-import io.github.mocchikon.hentie.repository.SeriesRepository;
-import io.github.mocchikon.hentie.service.BulkDeleteService;
-import io.github.mocchikon.hentie.service.ChapterService;
-import io.github.mocchikon.hentie.service.DeletedCount;
-import io.github.mocchikon.hentie.service.ImageDirectory;
-import io.github.mocchikon.hentie.service.SearchService;
-import io.github.mocchikon.hentie.service.SeriesService;
-import jakarta.persistence.EntityManager;
-import jakarta.persistence.PersistenceContext;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
+import java.util.Objects;
 
-import static org.assertj.core.api.Assertions.*;
+import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Search-page bulk deletes and their confirmation counts; a series always goes with its chapters. The
@@ -265,9 +258,7 @@ class BulkDeleteServiceIT
 
     private void queued(String galleryId, String error)
     {
-        var item = new DownloadQueueItem();
-        item.setLink("link:" + galleryId);
-        item.setGalleryId(galleryId);
+        var item = TestDownloads.queueItem("link:" + galleryId, galleryId);
         item.setError(error);
         queueRepository.save(item);
     }

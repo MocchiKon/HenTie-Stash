@@ -301,6 +301,8 @@ class MetadataServiceIT
     }
 
     // --- recent() behaviour ---
+    // A needle that expects an exact list is unique to this suite: the web suites commit tags such as
+    // "mweb-add-tag", which a needle like "tag" would find too.
 
     @Test
     void shouldReturnNewestFirstWhenRecentHasNoQuery()
@@ -338,34 +340,34 @@ class MetadataServiceIT
     {
         // GIVEN
         // Reverse alphabetical order, to prove insertion order is not used.
-        tag("tag-c");
-        tag("tag-a");
-        tag("tag-b");
+        tag("recent-sort-c");
+        tag("recent-sort-a");
+        tag("recent-sort-b");
         em.flush();
 
         // WHEN
-        var results = metadataService.recent(MetadataType.TAG, "tag", 10);
+        var results = metadataService.recent(MetadataType.TAG, "recent-sort", 10);
 
         // THEN
         assertThat(results).extracting("label")
-                .containsExactly("tag-a", "tag-b", "tag-c");
+                .containsExactly("recent-sort-a", "recent-sort-b", "recent-sort-c");
     }
 
     @Test
     void shouldFloatExactMatchFirstWhenRecentHasQuery()
     {
         // GIVEN
-        tag("tag");
-        tag("tag extended");
-        tag("another tag");
+        tag("recent-exact");
+        tag("recent-exact extended");
+        tag("another recent-exact");
         em.flush();
 
         // WHEN
-        var results = metadataService.recent(MetadataType.TAG, "tag", 10);
+        var results = metadataService.recent(MetadataType.TAG, "recent-exact", 10);
 
         // THEN
         assertThat(results).extracting("label")
-                .containsExactly("tag", "another tag", "tag extended");
+                .containsExactly("recent-exact", "another recent-exact", "recent-exact extended");
     }
 
     @Test
@@ -732,5 +734,60 @@ class MetadataServiceIT
         return jdbc.queryForObject(
                 "select count(*) from series_effective_tags where series_id=? and tag_id=?",
                 Integer.class, seriesId, tagId);
+    }
+
+    // --- canonical tag names -----------------------------------------------------------------
+
+    @Test
+    void shouldStoreImportedTagsInTheirCanonicalSpelling()
+    {
+        // GIVEN a tag already stored in its canonical spelling.
+        Tag existing = tag("canon-halo \u2640");
+
+        // WHEN an import names it with e-hentai's namespace, alongside namespaces that add nothing.
+        List<Integer> ids = metadataService.resolveOrCreate(MetadataType.TAG,
+                List.of("female:Canon-Halo", "other:canon full color", "male:canon-halo", "mixed:canon-group"));
+        em.flush();
+        em.clear();
+
+        // THEN the namespaced name joins the stored row, and the rest are stored without their namespace (a
+        // gendered tag with its plain one beside it).
+        assertThat(ids).hasSize(5).startsWith(existing.getId());
+        assertThat(ids.subList(1, 5)).extracting(id -> tagRepository.findById(id).orElseThrow().getName())
+                .containsExactly("canon-halo", "canon full color", "canon-halo \u2642", "canon-group");
+    }
+
+    @Test
+    void shouldCanonicalizeATagAddedOrRenamedByHand()
+    {
+        // GIVEN a tag to rename.
+        Tag subject = tag("canon-rename-me");
+
+        // WHEN one tag is added and the other renamed with namespaces (a plain tag keeps a plain name).
+        metadataService.add(MetadataType.TAG, "female:canon-added");
+        var refusal = metadataService.rename(MetadataType.TAG, subject.getId(), "other:canon-renamed", false);
+        em.flush();
+        em.clear();
+
+        // THEN both are stored in the canonical spelling.
+        assertThat(refusal).isEmpty();
+        assertThat(tagRepository.findAll()).extracting(Tag::getName)
+                .contains("canon-added \u2640", "canon-renamed")
+                .doesNotContain("female:canon-added", "other:canon-renamed");
+    }
+
+    @Test
+    void shouldRefuseARenameWhoseCanonicalNameAnotherItemHas()
+    {
+        // GIVEN a tag holding a canonical name, and another tag.
+        tag("canon-taken");
+        Tag subject = tag("canon-taken-subject");
+
+        // WHEN the second is renamed to the namespaced spelling of the first.
+        var refusal = metadataService.rename(MetadataType.TAG, subject.getId(), "mixed:canon-taken", false);
+
+        // THEN it is refused, naming the canonical name.
+        assertThat(refusal).containsInstanceOf(MetadataService.NameTaken.class);
+        assertThat(refusal.orElseThrow().name()).isEqualTo("canon-taken");
     }
 }

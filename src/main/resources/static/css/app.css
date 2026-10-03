@@ -231,6 +231,18 @@ input[type=file]::file-selector-button:hover { border-color: var(--accent); }
 .favourites-row { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
 .favourites-row select { width: auto; flex: 0 1 auto; min-width: 0; max-width: min(100%, 20rem); }
 .favourites .hint a { font-weight: 600; text-decoration: underline; }
+/* The gallery-dl choices on the Download page; min-width 0, or a fieldset sizes to its widest child. */
+.gallery-dl-options {
+    border: 1px solid var(--border); border-radius: var(--radius);
+    padding: .5rem 1rem 0; margin: 0 0 1rem; min-width: 0;
+}
+.gallery-dl-options legend { font-weight: 600; padding: 0 .35rem; }
+.source-examples { margin: .25rem 0 .75rem; padding-left: 1.25rem; }
+.wrap-anywhere { overflow-wrap: anywhere; word-break: break-word; }
+/* Qualified past the base input[type=text] (0,1,1). */
+.field select.capped-select { max-width: min(100%, 20rem); }
+.field input.short-input { max-width: min(100%, 12rem); }
+.field input.invalid { border-color: var(--danger); }
 .checkbox-row { display: flex; flex-wrap: wrap; gap: 1rem; }
 .checkbox { display: inline-flex; align-items: center; gap: .4rem; font-weight: 500; }
 .checkbox.big { display: flex; gap: .5rem; font-size: 1.05rem; }

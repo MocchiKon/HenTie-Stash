@@ -1,16 +1,21 @@
 package io.github.mocchikon.hentie.scrapper;
 
-import java.io.IOException;
-import java.net.URI;
+import java.util.Optional;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
- * <b>Adding a source means adding one class implementing this interface</b>; nothing else is registered.
+ * <b>Adding a source means adding one class implementing this interface</b>, through one of the ways pages
+ * are fetched: {@link PageDownloader} (one page at a time) or
+ * {@link io.github.mocchikon.hentie.scrapper.gallerydl.GalleryDlDownloader} (gallery-dl fetches many pages
+ * into a folder). Nothing else is registered.
  *
  * <p>Each source parses its own links, because link shapes have nothing in common. {@link #accepts} and
- * {@link #resourceId} must agree: whatever one accepts, the other must be able to name.
+ * {@link #resourceId} must agree: whatever one accepts, the other must be able to name. Neither may go over
+ * the network: they run when a link is pasted.
  *
- * <p><b>A downloader never touches the database or the filesystem</b>, so a new source cannot invent its
- * own storage rules; {@code service.download} decides what to store.
+ * <p><b>A downloader never touches the database, and the filesystem only in a folder the pipeline hands it</b>,
+ * so a new source cannot invent its own storage rules; {@code service.download} decides what to store.
  */
 public interface DataDownloader
 {
@@ -43,6 +48,34 @@ public interface DataDownloader
         return null;
     }
 
+    /**
+     * The first of {@code patterns} that matches the whole stripped link; empty for none. One way to read a link,
+     * so every source trims and tries its shapes alike.
+     */
+    static Optional<Matcher> matchLink(String link, Pattern... patterns)
+    {
+        if (link == null)
+        {
+            return Optional.empty();
+        }
+        String trimmed = link.strip();
+        for (Pattern pattern : patterns)
+        {
+            Matcher matcher = pattern.matcher(trimmed);
+            if (matcher.matches())
+            {
+                return Optional.of(matcher);
+            }
+        }
+        return Optional.empty();
+    }
+
+    /** What a link looks like, for the Download page; the prefixed form when nothing better is known. */
+    default String linkExample()
+    {
+        return sourcePrefix() + ":<id>";
+    }
+
     /** Namespaced, so two sources both numbering from 1 never collide on the unique {@code chapter.gallery_id}. Never override. */
     default String galleryId(String resourceId)
     {
@@ -56,12 +89,4 @@ public interface DataDownloader
      * @throws java.io.UncheckedIOException on a transient fetch failure (retried)
      */
     GalleryData downloadGalleryInfo(String id);
-
-    /**
-     * One try: the pipeline fetches a failed page again ({@code app.download.page-retries}), the same for every
-     * source. A source waits on its own only when its site asks it to slow down.
-     *
-     * @throws IOException on any failure, including an answer that is no image
-     */
-    byte[] downloadPage(URI url) throws IOException;
 }

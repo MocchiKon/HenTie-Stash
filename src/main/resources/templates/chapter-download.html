@@ -18,17 +18,21 @@
     <form class="edit-form" method="post" th:action="@{/chapter/download}">
         <div class="field">
             <label>Links</label>
-            <textarea name="links" class="link-input" autofocus
+            <textarea name="links" class="link-input" autofocus th:text="${links}"
                       placeholder="Paste one link per line, e.g.&#10;https://nhentai.net/g/123456/&#10;nhentai:123457"></textarea>
             <p class="hint">
                 One link per line — hundreds are fine. Each is downloaded in the background, one at a
                 time; you can carry on using the app while that happens.
             </p>
+            <p class="hint">Sources currently available, with the kind of link each takes:</p>
+            <ul class="hint source-examples">
+                <li th:each="example : ${linkExamples}"><strong th:text="${example.key}">mock</strong>:
+                    <code class="wrap-anywhere" th:text="${example.value}">mock:&lt;id&gt;</code></li>
+            </ul>
             <p class="hint">
-                Sources currently available:
-                <span th:each="source, it : ${sources}"><code
-                        th:text="${source} + ':&lt;id&gt;'">mock:&lt;id&gt;</code><span
-                        th:if="${!it.last}">, </span></span>
+                For e-hentai/exhentai paste the gallery link (<code>/g/&lt;gid&gt;/&lt;token&gt;/</code>), not a
+                page's (<code>/s/…</code>); for chaika the archive link (<code>/archive/&lt;id&gt;/</code>), not the
+                gallery's.
             </p>
         </div>
         <div class="field">
@@ -49,7 +53,7 @@
         </div>
         <div class="field">
             <label class="checkbox big">
-                <input type="checkbox" name="avoidDuplicateTitles" value="true">
+                <input type="checkbox" name="avoidDuplicateTitles" value="true" th:checked="${avoidDuplicateTitles}">
                 <span>Avoid duplicated titles from other sources</span>
             </label>
             <p class="hint">
@@ -60,6 +64,57 @@
                 the queue, or paste it again with this unticked.
             </p>
         </div>
+        <fieldset class="gallery-dl-options">
+            <legend>gallery-dl (hitomi, e-hentai/exhentai)</legend>
+            <p class="hint">
+                These sources are downloaded by gallery-dl. nhentai and chaika ignore these choices. They start at
+                the defaults from Settings and are remembered on each queued link.
+            </p>
+            <div class="field">
+                <label for="cookiesBrowser">Use cookies when downloading</label>
+                <select id="cookiesBrowser" name="cookiesBrowser" class="capped-select">
+                    <option value="" th:selected="${cookiesBrowser == ''}">No cookies</option>
+                    <optgroup th:each="group : ${browserGroups}" th:label="${group.label()}">
+                        <option th:each="browser : ${group.browsers()}" th:value="${browser}" th:text="${browser}"
+                                th:selected="${browser == cookiesBrowser}">firefox</option>
+                    </optgroup>
+                </select>
+                <p class="hint">
+                    gallery-dl reads the cookies of the browser you are logged in with
+                    (<code>--cookies-from-browser</code>). For e-hentai/exhentai only: hitomi needs no login. With
+                    cookies, e-hentai galleries are downloaded from exhentai.org, or from e-hentai.org if your
+                    account has no ExHentai access. Firefox works best: on Windows, Chrome, Edge and Brave encrypt
+                    their cookies in a way gallery-dl cannot read.
+                </p>
+            </div>
+            <div class="field">
+                <label class="checkbox big">
+                    <input type="checkbox" name="downloadOriginals" value="true" th:checked="${downloadOriginals}">
+                    <span>Download originals</span>
+                </label>
+                <p class="hint">
+                    e-hentai/exhentai only; hitomi never serves the originals. Unticked: the resampled image (usually
+                    1280 px wide, or your account's "Image Size" setting), 1 point of your image limit per page.
+                    Ticked: the original file. It needs cookies of a logged-in account (without them the resampled
+                    image is used), costs 1 point plus 1 per 0.1 MB of the file (a 3 MB page costs 31), and can cost
+                    GP. The limit then runs out much sooner, and downloads fail with "Image limit exceeded" until it
+                    recovers or you reset it on e-hentai.
+                </p>
+            </div>
+            <div class="field">
+                <label for="requestDelay">Delay between image downloads (seconds)</label>
+                <input type="text" id="requestDelay" name="requestDelay" class="short-input" maxlength="20"
+                       th:value="${requestDelay}" th:classappend="${delayError != null} ? 'invalid'"
+                       th:attr="aria-invalid=${delayError != null},aria-describedby=${delayError != null} ? 'requestDelayError'">
+                <p id="requestDelayError" class="field-error" th:if="${delayError}" th:text="${delayError}">error</p>
+                <p class="hint">
+                    A number, or a range for a random wait, e.g. 0.4-0.65. e-hentai/exhentai: the wait before each
+                    request for an image page (<code>--sleep-request</code>; it replaces gallery-dl's own 3-6
+                    seconds). hitomi: the wait before each image download (<code>--sleep</code>). Too low a value
+                    can get your IP temporarily banned (e-hentai bans for "excessive pageloads").
+                </p>
+            </div>
+        </fieldset>
         <div class="edit-actions">
             <button type="submit" class="btn btn-accent">Queue downloads</button>
         </div>
@@ -85,7 +140,7 @@
                 </div>
                 <p class="hint">
                     Queues every gallery in your favourites on that site that is not in the library yet, with the
-                    Image Compression mode and the duplicate-title choice above. A gallery downloaded before and
+                    choices above. A gallery downloaded before and
                     deleted since is left out; paste its link to download it again.
                 </p>
                 <p class="hint" th:unless="${favouritesReady}">

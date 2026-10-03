@@ -303,7 +303,7 @@ class FullQualityRedownloadIT
     {
         // GIVEN a re-download queued for a gallery no chapter holds.
         writeGallery("8405", 1);
-        queueService.enqueueFullQuality("mock:8405", "mock:8405");
+        queueService.enqueueFullQuality("mock:8405", "mock:8405", TestDownloads.PLAIN_GALLERY_DL);
 
         // WHEN
         assertThat(worker.processNext()).isTrue();
@@ -321,14 +321,14 @@ class FullQualityRedownloadIT
     void shouldTurnTheGallerysExistingRowIntoAnUncompressedStrictRedownload()
     {
         // GIVEN a row for the gallery that failed under a compressing, lenient, title-checking paste.
-        queueService.enqueue(List.of("mock:8406"), LOSSLESS, true);
+        queueService.enqueue(List.of("mock:8406"), TestDownloads.choices(LOSSLESS, true));
         DownloadQueueItem row = queueRepository.findByLink("mock:8406").orElseThrow();
         queueService.recordFailure(row, "boom", null, true, 3);
         queueService.retry(row.getId(), true, false);
         queueService.recordFailure(row, "boom again", null, true, 3);
 
         // WHEN a full-quality re-download is queued for it.
-        queueService.enqueueFullQuality("mock:8406", "mock:8406");
+        queueService.enqueueFullQuality("mock:8406", "mock:8406", TestDownloads.PLAIN_GALLERY_DL);
 
         // THEN it is that same row, pending again, with every choice reset.
         assertThat(queueRepository.findAll()).filteredOn(item -> "mock:8406".equals(item.getGalleryId())).hasSize(1);
@@ -348,11 +348,11 @@ class FullQualityRedownloadIT
     void shouldKeepARowTurnedIntoARedownloadWhileItsAttemptWasRunning()
     {
         // GIVEN the row an ordinary attempt was started from, and a re-download queued meanwhile.
-        queueService.enqueue(List.of("mock:8410"), BuiltInCompressionMode.NONE.getKey(), false);
+        queueService.enqueue(List.of("mock:8410"), TestDownloads.choices(BuiltInCompressionMode.NONE.getKey(), false));
         em.flush();
         DownloadQueueItem attempted = queueRepository.findByLink("mock:8410").orElseThrow();
         em.detach(attempted);
-        queueService.enqueueFullQuality("mock:8410", "mock:8410");
+        queueService.enqueueFullQuality("mock:8410", "mock:8410", TestDownloads.PLAIN_GALLERY_DL);
 
         // WHEN + THEN - the attempt failing records nothing on the row...
         assertThat(queueService.recordFailure(attempted, "boom", null, true, 3))
@@ -372,11 +372,11 @@ class FullQualityRedownloadIT
     void shouldKeepARowWhoseChoicesAPasteChangedWhileItsAttemptWasRunning()
     {
         // GIVEN the row an uncompressed attempt was started from, re-pasted meanwhile with a compressing mode.
-        queueService.enqueue(List.of("mock:8413"), BuiltInCompressionMode.NONE.getKey(), false);
+        queueService.enqueue(List.of("mock:8413"), TestDownloads.choices(BuiltInCompressionMode.NONE.getKey(), false));
         em.flush();
         DownloadQueueItem attempted = queueRepository.findByLink("mock:8413").orElseThrow();
         em.detach(attempted);
-        queueService.enqueue(List.of("mock:8413"), LOSSLESS, false);
+        queueService.enqueue(List.of("mock:8413"), TestDownloads.choices(LOSSLESS, false));
 
         // WHEN + THEN - neither the failure nor the success of that attempt touches the row...
         assertThat(queueService.recordFailure(attempted, "boom", null, false, 3))
@@ -390,7 +390,7 @@ class FullQualityRedownloadIT
 
         // ...while re-pasting the very same choices leaves an attempt of them free to finish the row.
         em.detach(row);
-        queueService.enqueue(List.of("mock:8413"), LOSSLESS, false);
+        queueService.enqueue(List.of("mock:8413"), TestDownloads.choices(LOSSLESS, false));
         assertThat(queueService.complete(row)).isTrue();
         em.flush();
         em.clear();
@@ -401,10 +401,10 @@ class FullQualityRedownloadIT
     void shouldTurnAWaitingRedownloadBackIntoAnOrdinaryDownloadWhenTheLinkIsPasted()
     {
         // GIVEN
-        queueService.enqueueFullQuality("mock:8407", "mock:8407");
+        queueService.enqueueFullQuality("mock:8407", "mock:8407", TestDownloads.PLAIN_GALLERY_DL);
 
         // WHEN
-        var result = queueService.enqueue(List.of("mock:8407"), BuiltInCompressionMode.NONE.getKey(), false);
+        var result = queueService.enqueue(List.of("mock:8407"), TestDownloads.choices(BuiltInCompressionMode.NONE.getKey(), false));
 
         // THEN
         assertThat(result.alreadyQueued()).isEqualTo(1);
@@ -447,7 +447,7 @@ class FullQualityRedownloadIT
     private int downloadedAndCompressed(String id, int pages) throws IOException
     {
         writeGallery(id, pages);
-        queueService.enqueue(List.of("mock:" + id), BuiltInCompressionMode.NONE.getKey(), false);
+        queueService.enqueue(List.of("mock:" + id), TestDownloads.choices(BuiltInCompressionMode.NONE.getKey(), false));
         assertThat(worker.processNext()).isTrue();
         int chapterId = chapterRepository.findByGalleryId("mock:" + id).orElseThrow().getId();
         createdChapterId = chapterId;

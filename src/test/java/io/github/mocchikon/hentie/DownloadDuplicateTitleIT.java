@@ -79,7 +79,7 @@ class DownloadDuplicateTitleIT
     {
         // GIVEN a chapter from another source holding the title, and the link queued with the box ticked.
         int holder = chapter(TITLE, "other:1");
-        queueService.enqueue(List.of("mock:9500"), NO_COMPRESSION, true);
+        queueService.enqueue(List.of("mock:9500"), TestDownloads.choices(NO_COMPRESSION, true));
 
         // WHEN the worker takes it - once, since a refusal is permanent.
         assertThat(worker.processNext()).isTrue();
@@ -102,7 +102,7 @@ class DownloadDuplicateTitleIT
     {
         // GIVEN
         int holder = chapter(TITLE, null);
-        queueService.enqueue(List.of("mock:9500"), NO_COMPRESSION, true);
+        queueService.enqueue(List.of("mock:9500"), TestDownloads.choices(NO_COMPRESSION, true));
 
         // WHEN
         worker.processNext();
@@ -120,7 +120,7 @@ class DownloadDuplicateTitleIT
     {
         // GIVEN
         chapter(TITLE, "mockx:1");
-        queueService.enqueue(List.of("mock:9500"), NO_COMPRESSION, true);
+        queueService.enqueue(List.of("mock:9500"), TestDownloads.choices(NO_COMPRESSION, true));
 
         // WHEN
         worker.processNext();
@@ -137,7 +137,7 @@ class DownloadDuplicateTitleIT
     {
         // GIVEN a chapter from the mock source itself holding the title.
         chapter(TITLE, "mock:9599");
-        queueService.enqueue(List.of("mock:9500"), NO_COMPRESSION, true);
+        queueService.enqueue(List.of("mock:9500"), TestDownloads.choices(NO_COMPRESSION, true));
         Integer chapterId = null;
         try
         {
@@ -159,7 +159,7 @@ class DownloadDuplicateTitleIT
     {
         // GIVEN
         chapter(TITLE, "other:1");
-        queueService.enqueue(List.of("mock:9500"), NO_COMPRESSION, false);
+        queueService.enqueue(List.of("mock:9500"), TestDownloads.choices(NO_COMPRESSION, false));
         Integer chapterId = null;
         try
         {
@@ -181,7 +181,7 @@ class DownloadDuplicateTitleIT
     {
         // GIVEN
         chapter(TITLE.toLowerCase(), "other:1");
-        queueService.enqueue(List.of("mock:9500"), NO_COMPRESSION, true);
+        queueService.enqueue(List.of("mock:9500"), TestDownloads.choices(NO_COMPRESSION, true));
         Integer chapterId = null;
         try
         {
@@ -207,7 +207,7 @@ class DownloadDuplicateTitleIT
         int chapterId = importService.importChapter(link.downloader().downloadGalleryInfo(link.resourceId()),
                 link.galleryId());
         chapter(TITLE, "other:1");
-        queueService.enqueue(List.of("mock:9500"), NO_COMPRESSION, true);
+        queueService.enqueue(List.of("mock:9500"), TestDownloads.choices(NO_COMPRESSION, true));
         try
         {
             // WHEN
@@ -230,7 +230,7 @@ class DownloadDuplicateTitleIT
     {
         // GIVEN a link refused as a duplicate.
         chapter(TITLE, "other:1");
-        queueService.enqueue(List.of("mock:9500"), NO_COMPRESSION, true);
+        queueService.enqueue(List.of("mock:9500"), TestDownloads.choices(NO_COMPRESSION, true));
         worker.processNext();
         em.flush();
         DownloadQueueItem item = queueRepository.findByLink("mock:9500").orElseThrow();
@@ -252,7 +252,7 @@ class DownloadDuplicateTitleIT
             assertThat(queueRepository.findById(item.getId()).orElseThrow().isAvoidDuplicateTitles()).isTrue();
 
             // WHEN it is pasted again with the box cleared.
-            assertThat(queueService.enqueue(List.of("mock:9500"), NO_COMPRESSION, false).alreadyQueued())
+            assertThat(queueService.enqueue(List.of("mock:9500"), TestDownloads.choices(NO_COMPRESSION, false)).alreadyQueued())
                     .isEqualTo(1);
             em.flush();
             em.clear();
@@ -275,7 +275,7 @@ class DownloadDuplicateTitleIT
     {
         // GIVEN a link refused as a duplicate.
         chapter(TITLE, "other:1");
-        queueService.enqueue(List.of("mock:9500"), NO_COMPRESSION, true);
+        queueService.enqueue(List.of("mock:9500"), TestDownloads.choices(NO_COMPRESSION, true));
         worker.processNext();
         em.flush();
         DownloadQueueItem item = queueRepository.findByLink("mock:9500").orElseThrow();
@@ -312,7 +312,7 @@ class DownloadDuplicateTitleIT
     void shouldStoreThePastedChoiceOnNewAndRevivedRows()
     {
         // GIVEN + WHEN a new row with the box ticked.
-        queueService.enqueue(List.of("mock:9501"), NO_COMPRESSION, true);
+        queueService.enqueue(List.of("mock:9501"), TestDownloads.choices(NO_COMPRESSION, true));
         em.flush();
         DownloadQueueItem item = queueRepository.findByLink("mock:9501").orElseThrow();
         assertThat(item.isAvoidDuplicateTitles()).isTrue();
@@ -320,7 +320,7 @@ class DownloadDuplicateTitleIT
         worker.processNext();
         em.flush();
         assertThat(queueRepository.findById(item.getId()).orElseThrow().getError()).isNotNull();
-        var result = queueService.enqueue(List.of("mock:9501"), NO_COMPRESSION, false);
+        var result = queueService.enqueue(List.of("mock:9501"), TestDownloads.choices(NO_COMPRESSION, false));
         em.flush();
         em.clear();
 

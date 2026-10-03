@@ -59,16 +59,18 @@ live under `app.data-dir`, served at `/data/**`. `mock_server/` stands in for a 
   `application.properties`, not `@Value("${…:default}")`, not a constant. The test profile's
   `application.properties` **replaces** the main one, so a default kept only in the main file would be
   0/false/null in every test. An install overrides a value by setting it.
-- Exceptions: `app.download.mock-dir` belongs to `MockDataDownloader` and `app.download.nhentai.*` to
-  `NhentaiProperties` (a source owns its config), and the built-in compression modes live in
-  `image-compression-modes.properties` (see "Image compression").
+- Exceptions: `app.download.mock-dir` belongs to `MockDataDownloader`, and `app.download.nhentai.*`,
+  `app.download.ehentai.*` and `app.download.chaika.*` to their sources' `*Properties` (a source owns its
+  config), and the built-in compression modes live in `image-compression-modes.properties` (see "Image
+  compression").
 
 ## Package layout (`io.github.mocchikon.hentie`)
 `entity/` JPA entities, ORDINAL enums, `entity/link/` read-only search projections · `repository/` +
 `repository/spec/` search predicates · `service/` business logic, with `match/` (chapter→series matching),
 `download/` (download pipeline), `compress/` (downscaling + re-encoding), `comfy/` (ComfyUI in the image
 viewer), `scratch/` (temporary image files) · `scrapper/` data sources (a real one in its own package,
-`scrapper/nhentai/`) · `dto/` view models, forms, search
+`scrapper/nhentai/`, `ehentai/`, `hitomi/`, `chaika/`; `scrapper/gallerydl/` runs gallery-dl for the sources
+that use it) · `dto/` view models, forms, search
 criteria · `mapper/` MapStruct · `web/` controllers · `security/` · `config/` · `resources/db/migration/`
 Flyway history.
 
@@ -397,11 +399,20 @@ Normalization, scoring and seeks are documented in `TitleKey`, `MatchScore`, `Se
 
 ## Chapter downloading (`scrapper/` + `service/download`)
 Turns pasted links into chapters with images. **`scrapper/` knows how to fetch, `service/download`
-decides what to keep** — a `DataDownloader` never touches the database or filesystem.
-- **A new source is one class.** `DataDownloaderRegistry` asks every bean whether it `accepts(link)`; two
-  sources sharing a prefix fail at startup.
+decides what to keep** — a `DataDownloader` never touches the database, and the filesystem only in a folder
+the pipeline hands it (gallery-dl's run folder, see "gallery-dl").
+- **A new source is one class**, of one of two kinds: a **`PageDownloader`** fetches one page at a time from
+  the addresses `GalleryData.pageUrls` lists (nhentai, chaika, mock), and the pipeline owns the loop, the
+  retries and the staging; a **`GalleryDlDownloader`** has gallery-dl fetch many pages into a folder
+  (hitomi, e-hentai) and gives `GalleryData.pageCount` instead. `ChapterDownloadService` switches on the kind.
+  `DataDownloaderRegistry` asks every bean whether it `accepts(link)`; two sources sharing a prefix fail at
+  startup.
 - **Each source parses its own links** (`mock:<id>` is a folder, a real source is a URL). `accepts` and
-  `resourceId` must agree.
+  `resourceId` must agree, and **neither goes over the network**: a link whose id needs a request to find
+  (an e-hentai page link, a chaika gallery link) is refused at enqueue, and the Download page says which
+  link to paste.
+- **A page's file extension comes from the source** (`PageDownloader.pageExtension`, the address's own by
+  default): a chaika page address names the archive, not the page.
 - **The chapter page links a gallery id to the source's website through `pageLinkTemplate`**, not `link`:
   `link` is what the pipeline fetches from (`mock:<id>` is no web page). A source without a website returns
   null. Only an id `linkFor` accepts gets a link, so a hand-edited id never points somewhere odd.
@@ -505,6 +516,92 @@ it by also implementing **`FavouritesSource`**; the Download page lists those.
 - A refusal (no API key, no such source, already listing) returns to the Download page, since nothing was
   queued. Anything else goes to the queue page, saying what was listed, queued and left out, and where the
   listing stopped if a page failed; what was queued before that stays queued.
+
+### gallery-dl (`scrapper/gallerydl`)
+hitomi's pages and e-hentai's are fetched by gallery-dl (<https://codeberg.org/mikf/gallery-dl>; the GitHub
+mirror no longer has these extractors and its releases carry no binaries). It knows each site's image
+servers, fallbacks and limits, and follows the sites when they change, which a hand-written source would have
+to repeat. **`GalleryDlTool` is the only class that starts it; `GalleryDl` is how a source uses it.**
+- **Bundled in `bin/` (`win/gallery-dl.exe`, `linux/gallery-dl.bin`) or from `PATH`** (Settings, its own toggle,
+  not the image tools'); `app.gallery-dl.command` replaces both (a Python module, the tests' fake). No macOS
+  build exists, so macOS is `PATH` only. Settings shows the version (checked in the background, never waited
+  for: a one-file executable takes seconds to start on Windows) and updates the bundled copy with its own
+  `-U`; **an update and a run exclude each other** (a read/write lock; an update is refused while a download
+  runs and waits for a version check, a run is refused while an update runs). The worker retries a download
+  refused that way without counting an attempt, like a lock error.
+- **Every run gets `--config-ignore`**: a user's gallery-dl configuration could set an archive that skips
+  files, post-processors, other file names or credentials. Everything a run needs is on its command line,
+  and every value there comes from a whitelist or a validated id — the URL is built by the source, never
+  taken from the pasted text. **`-v`**, because it prints a line per HTTP request: the only sign of life during
+  e-hentai's walk through the pages before the first wanted one, so the **idle timeout**
+  (`app.gallery-dl.idle-timeout-seconds`) can be short and still never stop a working run.
+- **Metadata is one `-j --range 1` run** (JSON on stdout: the Directory message, with `count`), never per page.
+  `-j` always exits 0 and reports an error as `[-1, {error, message}]`.
+- **Pages are one run** with `--range` for exactly the missing pages (`1-3,7`), into **a run folder inside the
+  chapter's staging folder** (`-D`, `-f {num}.{extension}`). gallery-dl writes `.part` files and prints a
+  file's path only once it is whole; each printed page is **moved** into staging (a rename) and handed to
+  compression at once. The run folder is per run, so a gallery-dl left running by a killed app writes only
+  where nothing reads; discarding staging removes it.
+- **Failures are read from the exit status bits and gallery-dl's words** (`GalleryDl.classify`), the only
+  things it reports, words first: a ban and a refused account share a bit. A failed page is no failure of the
+  run (gallery-dl goes on); the pipeline sees it as missing. An error the extractor logs ends the run there, so it
+  fails the attempt, never skips pages; so does a status without an error line (a kill). **Exit bit 128 (a failed write) is never a page to
+  skip**, in lenient mode either. Permanent kinds (not found, refused, ban, image limit, no GP, unsupported, not
+  runnable — including Windows' missing Visual C++ runtime) fail the item at once.
+- **Nothing it starts outlives its run.** A one-file executable is a bootloader with the real program as its
+  child, so a stop kills the **children first** (the bootloader then exits and removes what it unpacked).
+  Its temp folder is the app's own (`<data>/.gallery-dl`, via `TMP`/`TMPDIR`); each run records pid + start
+  time there, and the next start kills a recorded run **only if the start time matches**, then empties the
+  folder. A graceful stop kills running runs.
+- **The Download page's choices** (`GalleryDlOptions`): cookies (`--cookies-from-browser <browser>`), originals
+  and the delay, on the queue row like the compression mode (re-paste replaces, retry keeps; a full-quality
+  re-download takes Settings' defaults). The form starts at Settings' defaults every visit; an unreadable delay
+  is shown on the form with the links kept, never replaced. **The delay maps per source**: e-hentai gets
+  `--sleep-request` (each image needs one page/API request there, which its ban counts), hitomi `--sleep`
+  (its extractor makes one request per gallery, so a request delay would never fall between images).
+
+### The e-hentai source (`scrapper/ehentai`)
+e-hentai.org and exhentai.org are **one source**: a gallery has the same gid and token on both, so a link from
+either is `ehentai:<gid>/<token>`. The token is in the id because nothing can be fetched without it.
+- **Metadata from the JSON API** (`EhentaiApi`, `gdata` with `namespace=1`), one gallery a request, paced at
+  1.25 s (the API's documentation: "4-5 sequential requests usually okay before having to wait for ~5
+  seconds"; evenly spaced, never more than 4 in any 5 s). No cookies: metadata needs none. Titles carry HTML
+  entities. **A gallery without a `language:` tag is Japanese** (e-hentai's convention, `EhTags`, shared with
+  chaika); `cosplayer:` counts as an artist, `reclass:` is dropped, and tag namespaces are left for
+  `MetadataService.canonical`.
+- **Pages through gallery-dl, on the domain the cookies decide**, not the pasted one: with cookies
+  exhentai.org (it also has what e-hentai hides), falling back **once** to e-hentai.org when exhentai refuses
+  the account; without them e-hentai.org. `link()` is always e-hentai.org.
+- **A ban or a used-up image limit starts a cooldown** (`app.download.ehentai.cooldown-minutes`, in memory):
+  every e-hentai item then fails at once, saying until when, without asking the API or starting gallery-dl —
+  requests during an IP ban can extend it. Other sources keep running.
+- Without the Multi-Page Viewer gallery-dl walks image pages from 1 even under `--range`, one paced API request
+  per page before the first wanted one (no image download). Partial runs are rare (a `PENDING` resume), so it
+  is accepted.
+
+### The hitomi source (`scrapper/hitomi`)
+Entirely through gallery-dl: hitomi computes image addresses from a script that changes every few hours.
+`link()` is `/galleries/<id>.html`. **hitomi serves no originals** (webp/avif only, `-o format=webp`), so
+"Download originals" means nothing here; no login, so **no cookies are read** (reading a browser's store can
+fail, for nothing). Its type maps to the categories the other sources use (`artistcg` → `artist cg`); an
+`anime` gallery is a video and refused. gallery-dl already formats its tags (`Big Breasts ♀`). **A gallery
+without a language is Japanese**, as on e-hentai (game CGs and image sets often have none; the import would refuse
+them for good).
+
+### The chaika source (`scrapper/chaika`)
+panda.chaika.moe archives e-hentai galleries as zip files; its metadata is e-hentai's (`EhTags`, after
+putting back the spaces it writes as `_`).
+- **Pages are read straight out of the remote zip with byte ranges** (`ZipIndex`): the tail for the end
+  record, the central directory, then one range per page. So a partial download fetches only what it misses,
+  never the whole archive (often hundreds of MB), and every page goes through the per-page pipeline. **A
+  server that answers a range with `200` is refused** and its answer dropped unread (a transient failure), or
+  every page would download the archive.
+- **Sizes, offsets and CRCs come from the central directory**, never local headers (zero when written as a
+  stream); every page is checked against its CRC and size. ZIP64 is read; encrypted entries and methods
+  other than stored/deflate are refused. Pages are the image entries in **natural order** (`9.jpg` before
+  `10.jpg`): chaika's names have gaps and come in no order.
+- **A page address carries where the page is** (`#n=…&o=…&c=…&u=…&m=…&crc=…`, a fragment, never sent), so
+  fetching a page needs nothing from reading the index; `pageExtension` reads the name from it.
 
 ### The nhentai source (`scrapper/nhentai`)
 nhentai's API v2 (`https://nhentai.net/api/v2/docs`, changes at `/api/v2/changelog`). `NhentaiApi` is the
@@ -955,17 +1052,38 @@ Per cache:
 - `SettingsService` keeps its own in-memory map.
 
 ## Metadata management (`MetadataService`, `dto/MetadataType`)
-- **Names are stored in lower case** (`MetadataService.normalize`: trim + lower-case, used by `add`,
-  `rename` and `resolveOrCreate`). Lookups fold case anyway, so two capitalisations only ever *looked*
-  like two values. **Anything that writes a name must go through `normalize`** (or `MetadataService`).
+- **Names are stored in lower case** (`MetadataService.normalize`: trim + lower-case). Lookups fold case
+  anyway, so two capitalisations only ever *looked* like two values. **Anything that writes a name must go
+  through `MetadataService.canonical`** (or `MetadataService`), which `add`, `rename`, `resolveOrCreate` and the
+  rules use.
+  - **Tags lose e-hentai's namespaces, for every source** (`canonical`): `female:x` → `x ♀`, `male:x` → `x ♂`,
+    and `mixed:`/`other:`/`location:`/`temp:` are dropped, so a tag from e-hentai, chaika, hitomi (gallery-dl
+    writes `X ♀`) or typed by hand is one row. Only those namespaces: a colon may belong to a name. It is
+    idempotent (an existing symbol is kept). **Not for search needles**: a half-typed `female:ha` must still
+    filter.
+  - **An imported gendered tag brings its plain tag along** (`resolveOrCreate`, `plainTagOf`): `halo ♀` is
+    stored with `halo`, so searching `halo` finds a gallery whether its source tags by gender (e-hentai, chaika,
+    hitomi) or not (nhentai). **Stored, not expanded at search time**: one link more per gendered tag keeps every
+    searched value one index range, which the plans under "Search" depend on; `halo` as `halo OR halo ♀ OR halo ♂`
+    would be a union to build and a distinct count. **Detail pages hide a plain tag beside its version**
+    (`plainTagsCoveredBy`), since it says nothing new there; the series page hides it only when every chapter
+    carrying it carries a version too, as otherwise its count shows chapters no version does. Edit forms, search
+    and autocomplete show both; tags picked by hand on an edit form are taken as picked.
+  - **A tag is managed through its plain name**, so a version never drifts from the plain tag search finds it by.
+    The Manage page lists and picks plain tags only (`recent`, `autocompleteManaged` behind `/manage/options`).
+    Rename, merge and remove of `halo` do the same to `halo ♀`/`halo ♂`: `ring` renames them to `ring ♀`/`ring ♂`;
+    a merged version goes where an import would now put it (the target's version, which it becomes if missing).
+    The new name must be plain, and a rename is checked for every version before anything changes. `add` of a
+    gendered tag adds its plain one too. **"Remove ♀/♂"** (`removeGender`) merges both versions into the plain tag.
   - **Name matching is decided in Java, never by the database.** SQLite `lower()` folds ASCII only, while
     `fold` is `Locale.ROOT` full Unicode; matching in SQL would fork `Ärger`/`ärger` into two rows. So
     `findByNames` / `idsOfName` OR a raw-name equality (seeks the UNIQUE index) with the `lower()` predicate
     (for pre-fold rows), then confirm each hit with `fold`.
-  - Backfill: Manage → **"Rewrite metadata names in lower case"**. **Two capitalisations are two rows, so
-    folding is a `merge`, not a `rename`** — links move across all three join tables and rules follow. It
-    drives `MetadataService.merge`, groups by folded name onto **one** survivor, records **no rules**, reads
-    uncached, and reports rows a rule blocks as `blocked`.
+  - Backfill: Manage → **"Rewrite metadata names"**. **Two spellings are two rows, so folding is a `merge`,
+    not a `rename`** — links move across all three join tables and rules follow. It drives
+    `MetadataService.mergeSpellings`/`respell`, which work **per row** (a version's spellings are merged in its
+    own group, not with its plain tag), groups by canonical name onto **one** survivor (`female:halo` into
+    `halo ♀`), records **no rules**, reads uncached, and reports rows a rule blocks as `blocked`.
 - **Generic over six kinds via `MetadataType`** (tag, artist, character, parody, group, category: entity, name
   property, FK column, and **three** join tables: `chapter_*`, `series_*` override, `series_effective_*`).
   **Merge/remove must touch all three** — the effective one's FK would otherwise block the delete and series
@@ -998,14 +1116,21 @@ is ticked (default on; clearing it makes a rename a one-off).
   are **one hop deep** (no chains, no cycles). Two staleness cases are fixed in `MetadataService`,
   **regardless of the checkbox**: removing a target turns its rules into blocking rules; merging a target
   away retargets them to the survivor. A rule whose target vanished anyway drops the name.
+- **A tag's rule covers its versions** (`MetadataService.fatesOf`). A version without a rule of its own is
+  dropped with its plain tag, or becomes the target's version (`halo ♀` under `halo → ring` is `ring ♀`, created
+  if missing). That version's own rule then applies too; it is the one second lookup, and nothing is followed
+  further.
+  - **"Remove ♀/♂" rules are on the versions' names** (`halo ♀ → halo`, `halo ♂ → halo`) and belong to the tag:
+    a rename moves them to the new names (a one-off rename too), a merge retargets them like any rule, a removal
+    turns them into blocks. So the gender stays removed whatever the tag is called.
 - **Invariant: a ruled-out name has no row.** Delete/merge/rename free the name they record; `resolveOrCreate`
-  never creates one; `add` and `rename` **refuse** a ruled-out name (`RuleConflict`). Exception: a rule
-  pointing at the row being renamed — the rename proceeds and the rule is deleted. A case-only rename
-  records nothing. Recording is an **upsert** on (type, name).
+  never creates one; `add` and `rename` **refuse** a ruled-out name (`RuleConflict`), and a version is ruled out
+  by its plain tag's rule too. Exception: a rule pointing at the row being renamed — the rename proceeds and the
+  rule is deleted. A case-only rename records nothing. Recording is an **upsert** on (type, name).
 - A refused action **redirects to the section title**, so the message at the top is visible; the message
   names the metadata kind.
-- **Removing a rule takes a name back** (the rules page). Rules are only created by delete/merge/rename — no
-  add form. The page shows each target's **current** name. **No rule counts** on the Manage page or tab
+- **Removing a rule takes a name back** (the rules page). Rules are only created by delete/merge/rename and
+  "Remove ♀/♂" — no add form. The page shows each target's **current** name. **No rule counts** on the Manage page or tab
   bar — six queries for a number nothing uses.
 - **One "Add rule" checkbox per section, not per form** (a checkbox belongs to one form, and one per row
   broke the layout). Each form carries a hidden `createRule` that `app.js` keeps in sync; it renders `true`
@@ -1199,6 +1324,13 @@ for good coverage.
   its own image server, so every request is visible) and **must restore `base-url` and the API key**.
   `RequestPacerTest` covers the pacing. `app.download.page-retry-backoff-millis=0`, so failure tests do not
   sleep.
+- ⚠️ **`app.gallery-dl.command` starts `FakeGalleryDl`** (a `main` in the test classes, run by this JVM's
+  `java`), so no suite starts the real gallery-dl or reaches a site through it. It behaves as the fixture a
+  suite writes says (`FakeGalleryDl.set`: pages, failures, exit status, stderr, `-j` output, per host) and
+  records every call's arguments (`FakeGalleryDl.calls`). A suite calls `FakeGalleryDl.reset()` first.
+- ⚠️ **`app.download.ehentai.api-url` and `app.download.chaika.base-url` point nowhere, unpaced** — suites point
+  them at a fake API and **`FakeChaika`** (which answers byte ranges and records them) and restore them. A
+  suite that starts e-hentai's cooldown clears it (`EhentaiDownloader.clearCooldown`).
 - **`*E2E` suites talk to the real sites and run only with `-Pe2e`** (the profile replaces surefire's includes),
   so the default build passes offline and never touches a site. One sets the real configuration back for itself
   (`NhentaiDownloadE2E` copies `new NhentaiProperties()` over the test profile's) and restores it afterwards.
@@ -1206,7 +1338,9 @@ for good coverage.
 - ⚠️ **`app.comfyui.default-url=http://127.0.0.1:1`** — nothing answers there, so no suite reaches a real
   ComfyUI on the developer's machine. ComfyUI suites run against **`FakeComfyUi`** (HTTP API and websocket on
   raw sockets; the JDK `HttpServer` cannot upgrade to websocket). A suite pointing Settings at a fake **must
-  reset the address, folder and default workflow**. `ComfyUiLiveIT` is opt-in (`-Dcomfyui.live=true`,
+  reset the address, folder and default workflow**, and call **`PageProcessingService.forgetAll()` before closing
+  the fake**: the service is shared, and a page a test left wanted runs in the next test, against its fake and
+  page files, and answers that test from the cache. `ComfyUiLiveIT` is opt-in (`-Dcomfyui.live=true`,
   optionally `-Dcomfyui.live.url/.workflow/.script`).
 - ⚠️ **`app.writes.request-wait-millis=300`**, so the busy tests (`WriteGateIT`, `BusyLibraryWebIT`,
   `DownloadWriteGateIT`) run fast. **A `@Transactional` test holds the write gate and SQLite's lock for the whole
@@ -1247,8 +1381,13 @@ for good coverage.
   `windows-exe` so it zips after the exe and runtime exist. **The all-platforms descriptor sets `start.sh`'s
   LF endings and the `0755` modes** rather than trusting the checkout: a Windows checkout has neither.
 - **`bin/` ships next to the jar, not inside it** — tens of MB of platform executables, resolved at runtime
-  (`app.image-compression.bin-dir`, default `./bin`). Without it the app still runs and compression keeps
-  originals (logged); "use the image tools installed on this system" is the alternative.
+  (`app.image-compression.bin-dir` and `app.gallery-dl.bin-dir`, default `./bin`). Without it the app still runs
+  and compression keeps originals (logged); "use the … installed on this system" is the alternative.
+- **gallery-dl is the unmodified standalone release from Codeberg** (`bin/win/gallery-dl.exe`,
+  `bin/linux/gallery-dl.bin`, checked against the release's `SHA256SUMS`), kept under its upstream name because
+  its `-U` replaces itself in place. **It is GPL-2.0, so `gallery-dl-LICENSE.txt` and `gallery-dl-SOURCE.txt`
+  (the release's source) ship beside each copy.** The Windows exe needs the Microsoft Visual C++
+  Redistributable; without it the start fails with a message saying so. There is no macOS build.
 - `BrowserLauncher` opens the browser on `ApplicationReadyEvent` (not when headless or
   `app.open-browser=false`). `start.bat` is the no-tooling Windows launcher.
 - **MapStruct and Lombok are both in `maven-compiler-plugin`'s `annotationProcessorPaths`** (`lombok`,

@@ -1,0 +1,14 @@
+gallery-dl 1.32.14 - https://codeberg.org/mikf/gallery-dl
+
+The gallery-dl executables here (gallery-dl.exe for Windows, gallery-dl.bin for Linux) are the unmodified
+standalone builds of release v1.32.14, downloaded from
+https://codeberg.org/mikf/gallery-dl/releases/tag/v1.32.14 and checked against its SHA256SUMS:
+
+  30e3830cb877f127323253c7f07f354e155d3766158969853141acff5aa82b36  gallery-dl.exe
+  dad325ef59684c317043862a0c891ebe184f929ce3580c9e9c5a101ac2bf64ec  gallery-dl.bin
+
+gallery-dl is free software under the GNU General Public License version 2 (gallery-dl-LICENSE.txt). Its
+complete corresponding source code is the release's source archive:
+https://codeberg.org/mikf/gallery-dl/releases/download/v1.32.14/gallery_dl-1.32.14.tar.gz
+(and the repository at the tag v1.32.14). Settings -> "Update gallery-dl" replaces the executable with a newer
+release from the same place; its source is published there too.

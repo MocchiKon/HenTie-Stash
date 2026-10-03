@@ -83,7 +83,7 @@ class DownloadQueueIT
     void shouldCreateTheChapterWithItsMetadataAndImagesWhenProcessingAQueuedLink()
     {
         // GIVEN one queued link.
-        assertThat(queueService.enqueue(List.of("mock:900"), NO_COMPRESSION, false).accepted()).isEqualTo(1);
+        assertThat(queueService.enqueue(List.of("mock:900"), TestDownloads.choices(NO_COMPRESSION, false)).accepted()).isEqualTo(1);
 
         Integer chapterId = null;
         try
@@ -126,7 +126,7 @@ class DownloadQueueIT
     void shouldNotTouchTheDatabaseOrTheImagesWhenTheGalleryIsAlreadyStored() throws IOException
     {
         // GIVEN a downloaded gallery, renamed by the user, with page 1 given recognizable content.
-        queueService.enqueue(List.of("mock:900"), NO_COMPRESSION, false);
+        queueService.enqueue(List.of("mock:900"), TestDownloads.choices(NO_COMPRESSION, false));
         worker.processNext();
         em.flush();
         Chapter first = chapterRepository.findByGalleryId("mock:900").orElseThrow();
@@ -140,7 +140,7 @@ class DownloadQueueIT
             Files.writeString(page1, "edited-in-place");
 
             // WHEN the same link is queued and processed again.
-            queueService.enqueue(List.of("mock:900"), NO_COMPRESSION, false);
+            queueService.enqueue(List.of("mock:900"), TestDownloads.choices(NO_COMPRESSION, false));
             assertThat(worker.processNext()).isTrue();
             em.flush();
             em.clear();
@@ -164,7 +164,7 @@ class DownloadQueueIT
     void shouldResumeAndDownloadTheImagesWhenTheAppDiedAfterSavingTheMetadata()
     {
         // GIVEN the row pending, chapter and "downloaded" record written, nothing on disk.
-        queueService.enqueue(List.of("mock:900"), NO_COMPRESSION, false);
+        queueService.enqueue(List.of("mock:900"), TestDownloads.choices(NO_COMPRESSION, false));
         ResourceLink link = registry.parse("mock:900").orElseThrow();
         GalleryData data = link.downloader().downloadGalleryInfo(link.resourceId());
         int chapterId = importService.importChapter(data, link.galleryId());
@@ -197,7 +197,7 @@ class DownloadQueueIT
     void shouldFetchEveryPageAgainWhenTheAppDiedPartWayThroughDownloadingThem() throws IOException
     {
         // GIVEN nothing published, and staging left by the killed run (with a bogus page 9).
-        queueService.enqueue(List.of("mock:900"), NO_COMPRESSION, false);
+        queueService.enqueue(List.of("mock:900"), TestDownloads.choices(NO_COMPRESSION, false));
         ResourceLink link = registry.parse("mock:900").orElseThrow();
         int chapterId = importService.importChapter(
                 link.downloader().downloadGalleryInfo(link.resourceId()), link.galleryId());
@@ -234,7 +234,7 @@ class DownloadQueueIT
     void shouldFetchOnlyTheMissingPagesWhenAPendingChapterWasLeftHalfDownloaded() throws IOException
     {
         // GIVEN a chapter whose download published page 1 and then died - PENDING, one page of two.
-        queueService.enqueue(List.of("mock:900"), NO_COMPRESSION, false);
+        queueService.enqueue(List.of("mock:900"), TestDownloads.choices(NO_COMPRESSION, false));
         ResourceLink link = registry.parse("mock:900").orElseThrow();
         int chapterId = importService.importChapter(
                 link.downloader().downloadGalleryInfo(link.resourceId()), link.galleryId());
@@ -275,7 +275,7 @@ class DownloadQueueIT
     void shouldNotPutBackAPageTheUserDeletedFromASuccessfulChapter() throws IOException
     {
         // GIVEN a fully downloaded chapter (SUCCESSFUL) that the user has since stripped down to one page.
-        queueService.enqueue(List.of("mock:900"), NO_COMPRESSION, false);
+        queueService.enqueue(List.of("mock:900"), TestDownloads.choices(NO_COMPRESSION, false));
         worker.processNext();
         em.flush();
         Chapter downloaded = chapterRepository.findByGalleryId("mock:900").orElseThrow();
@@ -286,7 +286,7 @@ class DownloadQueueIT
             imageService.deletePage(chapterId, "2.webp");
 
             // WHEN the same link is queued and processed again.
-            queueService.enqueue(List.of("mock:900"), NO_COMPRESSION, false);
+            queueService.enqueue(List.of("mock:900"), TestDownloads.choices(NO_COMPRESSION, false));
             assertThat(worker.processNext()).isTrue();
             em.flush();
             em.clear();
@@ -307,7 +307,7 @@ class DownloadQueueIT
     void shouldLeaveTheImagesAloneWhenTheChapterDidNotComeFromADownload() throws IOException
     {
         // GIVEN a hand-added chapter carrying the gallery id, holding one page of the two the source lists.
-        queueService.enqueue(List.of("mock:900"), NO_COMPRESSION, false);
+        queueService.enqueue(List.of("mock:900"), TestDownloads.choices(NO_COMPRESSION, false));
         var form = new ChapterForm();
         form.setTitleFull("dq-hand-added-900");
         form.setLanguage("English");
@@ -352,7 +352,7 @@ class DownloadQueueIT
     void shouldFinishFillingAHandAddedChapterWhenItsPublishStoppedPartWay() throws IOException
     {
         // GIVEN a hand-added chapter carrying the gallery id, with no pages...
-        queueService.enqueue(List.of("mock:900"), NO_COMPRESSION, false);
+        queueService.enqueue(List.of("mock:900"), TestDownloads.choices(NO_COMPRESSION, false));
         var form = new ChapterForm();
         form.setTitleFull("dq-filled-from-empty-900");
         form.setLanguage("English");
@@ -396,7 +396,7 @@ class DownloadQueueIT
     void shouldGiveUpAfterTheConfiguredAttemptsAndPublishNothingWhenAPageCannotBeFetched()
     {
         // GIVEN a gallery whose second page is missing from the source.
-        queueService.enqueue(List.of("mock:901"), NO_COMPRESSION, false);
+        queueService.enqueue(List.of("mock:901"), TestDownloads.choices(NO_COMPRESSION, false));
         Integer chapterId = null;
         try
         {
@@ -436,7 +436,7 @@ class DownloadQueueIT
     {
         // GIVEN a gallery whose second page is missing from the source, and a worker told to stop - one of its
         // own, so the context's worker is not left stopping for later suites.
-        queueService.enqueue(List.of("mock:901"), NO_COMPRESSION, false);
+        queueService.enqueue(List.of("mock:901"), TestDownloads.choices(NO_COMPRESSION, false));
         var stopped = new DownloadWorker(queueService, chapterDownloadService, importService, settingsService,
                 appProperties, writeGate);
         stopped.stop();
@@ -470,7 +470,7 @@ class DownloadQueueIT
     {
         // GIVEN a three-page gallery whose last page the source does not have (yet).
         writeGallery("903", 3, 2);
-        queueService.enqueue(List.of("mock:903"), NO_COMPRESSION, false);
+        queueService.enqueue(List.of("mock:903"), TestDownloads.choices(NO_COMPRESSION, false));
         Integer chapterId = null;
         try
         {
@@ -517,7 +517,7 @@ class DownloadQueueIT
     void shouldDiscardTheStagedPagesWhenAQueueItemIsRemoved()
     {
         // GIVEN an item that failed one attempt part-way, so it is still pending with pages staged.
-        queueService.enqueue(List.of("mock:901"), NO_COMPRESSION, false);
+        queueService.enqueue(List.of("mock:901"), TestDownloads.choices(NO_COMPRESSION, false));
         Integer chapterId = null;
         try
         {
@@ -552,7 +552,7 @@ class DownloadQueueIT
     {
         // GIVEN a pending, never-failed row whose chapter has pages in staging.
         writeGallery("904", 2, 2);
-        queueService.enqueue(List.of("mock:904"), NO_COMPRESSION, false);
+        queueService.enqueue(List.of("mock:904"), TestDownloads.choices(NO_COMPRESSION, false));
         Integer chapterId = null;
         try
         {
@@ -560,7 +560,7 @@ class DownloadQueueIT
             em.flush();
             chapterId = chapterRepository.findByGalleryId("mock:904").orElseThrow().getId();
 
-            queueService.enqueue(List.of("mock:904"), NO_COMPRESSION, false);
+            queueService.enqueue(List.of("mock:904"), TestDownloads.choices(NO_COMPRESSION, false));
             em.flush();
             DownloadQueueItem item = queueRepository.findByLink("mock:904").orElseThrow();
             assertThat(item.getError()).isNull();
@@ -591,7 +591,7 @@ class DownloadQueueIT
     void shouldCancelTheDownloadAndDiscardItsStagingWhenTheChapterIsDeleted()
     {
         // GIVEN a pending item with a page staged, and a second item behind it
-        queueService.enqueue(List.of("mock:901", "mock:902"), NO_COMPRESSION, false);
+        queueService.enqueue(List.of("mock:901", "mock:902"), TestDownloads.choices(NO_COMPRESSION, false));
         Integer chapterId = null;
         try
         {
@@ -623,7 +623,7 @@ class DownloadQueueIT
     void shouldNotMarkAChapterSuccessfulWhenTheSourceListsNoPages() throws IOException
     {
         writeGallery("905", 0, 0);
-        queueService.enqueue(List.of("mock:905"), NO_COMPRESSION, false);
+        queueService.enqueue(List.of("mock:905"), TestDownloads.choices(NO_COMPRESSION, false));
         Integer chapterId = null;
         try
         {
@@ -650,7 +650,7 @@ class DownloadQueueIT
     @Test
     void shouldQueueOneRowPerGalleryWhateverTheLinkSpelling()
     {
-        var result = queueService.enqueue(List.of("mock:906", "MOCK:906", "mock: 906"), NO_COMPRESSION, false);
+        var result = queueService.enqueue(List.of("mock:906", "MOCK:906", "mock: 906"), TestDownloads.choices(NO_COMPRESSION, false));
         em.flush();
 
         assertThat(result.accepted()).isEqualTo(1);
@@ -669,9 +669,9 @@ class DownloadQueueIT
     void shouldStoreNoneWhenThePastedCompressionModeIsNotARealMode()
     {
         // WHEN three links are queued with values that are not modes.
-        var sentinel = queueService.enqueue(List.of("mock:907"), "CUSTOM", false);
-        var overlong = queueService.enqueue(List.of("mock:908"), "x".repeat(5_000), false);
-        var deleted = queueService.enqueue(List.of("mock:909"), "custom:999999", false);
+        var sentinel = queueService.enqueue(List.of("mock:907"), TestDownloads.choices("CUSTOM", false));
+        var overlong = queueService.enqueue(List.of("mock:908"), TestDownloads.choices("x".repeat(5_000), false));
+        var deleted = queueService.enqueue(List.of("mock:909"), TestDownloads.choices("custom:999999", false));
         em.flush();
 
         // THEN each link was queued: a bad mode is corrected, never rejected.
@@ -696,7 +696,7 @@ class DownloadQueueIT
     void shouldStoreARealCompressionModeOnTheQueuedRow()
     {
         // WHEN
-        var result = queueService.enqueue(List.of("mock:910"), "LOSSLESS", false);
+        var result = queueService.enqueue(List.of("mock:910"), TestDownloads.choices("LOSSLESS", false));
         em.flush();
 
         // THEN
@@ -710,7 +710,7 @@ class DownloadQueueIT
     void shouldDiscardTheStagedPagesWhenAllFailedItemsAreDeleted() throws IOException
     {
         // GIVEN a failed item, and staging as a run killed after its last attempt leaves it.
-        queueService.enqueue(List.of("mock:902"), NO_COMPRESSION, false);
+        queueService.enqueue(List.of("mock:902"), TestDownloads.choices(NO_COMPRESSION, false));
         Integer chapterId = null;
         try
         {
@@ -740,7 +740,7 @@ class DownloadQueueIT
 
     {
         // GIVEN a failed item.
-        queueService.enqueue(List.of("mock:901"), NO_COMPRESSION, false);
+        queueService.enqueue(List.of("mock:901"), TestDownloads.choices(NO_COMPRESSION, false));
         failCompletely("mock:901");
         Integer chapterId = chapterRepository.findByGalleryId("mock:901").map(Chapter::getId).orElse(null);
         try
@@ -772,7 +772,7 @@ class DownloadQueueIT
     void shouldRetryOnlyTheChosenItemWhenRetryingASingleFailure()
     {
         // GIVEN two failed items.
-        queueService.enqueue(List.of("mock:901", "mock:902"), NO_COMPRESSION, false);
+        queueService.enqueue(List.of("mock:901", "mock:902"), TestDownloads.choices(NO_COMPRESSION, false));
         failCompletely("mock:901");
         failCompletely("mock:902");
         Integer chapterId = chapterRepository.findByGalleryId("mock:901").map(Chapter::getId).orElse(null);
@@ -810,7 +810,7 @@ class DownloadQueueIT
     void shouldPublishTheAvailablePagesAndFinishWhenRetryingWhileIgnoringImageErrors()
     {
         // GIVEN an item that failed because the source has only one of its two pages.
-        queueService.enqueue(List.of("mock:901"), NO_COMPRESSION, false);
+        queueService.enqueue(List.of("mock:901"), TestDownloads.choices(NO_COMPRESSION, false));
         failCompletely("mock:901");
         int id = queueRepository.findByLink("mock:901").orElseThrow().getId();
         Integer chapterId = chapterRepository.findByGalleryId("mock:901").map(Chapter::getId).orElse(null);
@@ -847,7 +847,7 @@ class DownloadQueueIT
     void shouldReturnAnItemToStrictModeWhenPlainlyRetriedAfterALenientRetry()
     {
         // GIVEN an item that has been retried in the lenient mode (and failed again for some other reason).
-        queueService.enqueue(List.of("mock:901"), NO_COMPRESSION, false);
+        queueService.enqueue(List.of("mock:901"), TestDownloads.choices(NO_COMPRESSION, false));
         failCompletely("mock:901");
         int id = queueRepository.findByLink("mock:901").orElseThrow().getId();
         Integer chapterId = chapterRepository.findByGalleryId("mock:901").map(Chapter::getId).orElse(null);
@@ -881,7 +881,7 @@ class DownloadQueueIT
     {
         // WHEN a mix of a known link shape and junk is pasted.
         DownloadQueueService.EnqueueResult result =
-                queueService.enqueue(List.of("mock:900", "https://elsewhere.example/g/1", "mock:"), NO_COMPRESSION, false);
+                queueService.enqueue(List.of("mock:900", "https://elsewhere.example/g/1", "mock:"), TestDownloads.choices(NO_COMPRESSION, false));
 
         // THEN only the recognized one is queued; the rest are reported rather than left to fail later.
         assertThat(result.accepted()).isEqualTo(1);
@@ -893,13 +893,13 @@ class DownloadQueueIT
     void shouldReQueueAFailedLinkRatherThanDuplicatingItWhenPastedAgain()
     {
         // GIVEN a link that has already failed.
-        queueService.enqueue(List.of("mock:901"), NO_COMPRESSION, false);
+        queueService.enqueue(List.of("mock:901"), TestDownloads.choices(NO_COMPRESSION, false));
         failCompletely("mock:901");
         Integer chapterId = chapterRepository.findByGalleryId("mock:901").map(Chapter::getId).orElse(null);
         try
         {
             // WHEN the user pastes it again.
-            DownloadQueueService.EnqueueResult result = queueService.enqueue(List.of("mock:901"), NO_COMPRESSION, false);
+            DownloadQueueService.EnqueueResult result = queueService.enqueue(List.of("mock:901"), TestDownloads.choices(NO_COMPRESSION, false));
             em.flush();
 
             // THEN the same row is revived instead of a second one appearing.
@@ -918,7 +918,7 @@ class DownloadQueueIT
     void shouldDoNothingWhenThePauseFlagIsSet()
     {
         // GIVEN a pending item and a paused queue.
-        queueService.enqueue(List.of("mock:900"), NO_COMPRESSION, false);
+        queueService.enqueue(List.of("mock:900"), TestDownloads.choices(NO_COMPRESSION, false));
         worker.setPaused(true);
         try
         {

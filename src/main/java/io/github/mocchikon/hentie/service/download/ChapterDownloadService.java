@@ -5,7 +5,11 @@ import io.github.mocchikon.hentie.entity.DownloadQueueItem;
 import io.github.mocchikon.hentie.entity.DownloadStatus;
 import io.github.mocchikon.hentie.scrapper.DataDownloaderRegistry;
 import io.github.mocchikon.hentie.scrapper.GalleryData;
+import io.github.mocchikon.hentie.scrapper.PageDownloader;
 import io.github.mocchikon.hentie.scrapper.ResourceLink;
+import io.github.mocchikon.hentie.scrapper.gallerydl.GalleryDl;
+import io.github.mocchikon.hentie.scrapper.gallerydl.GalleryDlDownloader;
+import io.github.mocchikon.hentie.scrapper.gallerydl.GalleryDlOptions;
 import io.github.mocchikon.hentie.service.ChapterService;
 import io.github.mocchikon.hentie.service.ImageService;
 import io.github.mocchikon.hentie.service.compress.ImageCompressionService;
@@ -19,10 +23,8 @@ import java.io.InterruptedIOException;
 import java.io.UncheckedIOException;
 import java.net.URI;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Objects;
-import java.util.Set;
+import java.util.*;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
 /**
@@ -135,7 +137,7 @@ public class ChapterDownloadService
         // --- 5. what, if anything, still has to be fetched? ---------------------------------------
         // A non-PENDING chapter with images keeps them whatever the source says: comparing counts would put
         // back pages the user deleted on purpose.
-        List<URI> pages = new ArrayList<>(data.getPageUrls() == null ? List.<URI>of() : data.getPageUrls());
+        int pageCount = data.pages();
         // A re-download replaces only the pages the chapter has, and only canonically named ones, so a page
         // the user keeps under another name is not taken for the source's.
         Set<Integer> onDisk;
@@ -163,13 +165,13 @@ public class ChapterDownloadService
         // An empty page list must not reach markSuccessful below: an empty SUCCESSFUL chapter can never be
         // fixed by re-queueing. Transient, because a source may serve metadata before its images are ready;
         // if it truly has none, the item runs out of attempts and shows in the Failed list.
-        if (pages.isEmpty())
+        if (pageCount == 0)
         {
             throw new UncheckedIOException(new IOException(
                     "The source lists no pages for " + link.galleryId()));
         }
         List<Integer> missing = new ArrayList<>();
-        for (int page = 1; page <= pages.size(); page++)
+        for (int page = 1; page <= pageCount; page++)
         {
             if ((fillGaps && !onDisk.contains(page)) || replacing.contains(page))
             {
@@ -180,13 +182,13 @@ public class ChapterDownloadService
         {
             // Finishing quietly would leave a re-download button that can never do anything; say why instead.
             throw new PermanentDownloadException("None of the pages of chapter " + chapterId + " is one of the "
-                    + pages.size() + " the source lists, named the way this app names them (1.jpg, 2.jpg, ...), "
+                    + pageCount + " the source lists, named the way this app names them (1.jpg, 2.jpg, ...), "
                     + "so none could be downloaded again in full quality.");
         }
         if (missing.isEmpty())
         {
             log.info("Skipping image download for chapter {} ({}) - all {} page(s) already on disk",
-                    chapterId, link.galleryId(), pages.size());
+                    chapterId, link.galleryId(), pageCount);
             chapterService.syncImageStats(chapterId);
             markSuccessful(chapterId, status);
             return chapterId;
@@ -217,54 +219,21 @@ public class ChapterDownloadService
 
         log.info("Downloading {} image(s) for chapter {} ({}){}", missing.size() - staged.size(), chapterId,
                 link.galleryId(), onDisk.isEmpty() ? "" : " - " + onDisk.size() + " already on disk");
-        int skipped = 0;
+        int skipped;
         int compressedPages = previous.compressedPages();
+        var fetch = new Fetch(link, item, chapterId, missing, staged, staging, phase);
         // Each page is compressed as it lands, overlapping with the download. The run must close on every
         // exit: an encoder still writing while staging is discarded or published would lose a page.
         var processing = imagePostProcessor.start(chapterId, item.getCompressionMode());
         try (processing)
         {
-            for (int page : missing)
+            skipped = switch (link.downloader())
             {
-                if (staged.contains(page))
-                {
-                    continue;
-                }
-
-                URI url = pages.get(page - 1);
-                byte[] bytes;
-                try
-                {
-                    bytes = fetchPage(link, url, page);
-                }
-                catch (IOException e)
-                {
-                    // An interrupt is no missing page: skipping would fail every page after it the same way.
-                    if (!item.isIgnoreImageErrors() || Thread.currentThread().isInterrupted())
-                    {
-                        // The chapter stays PENDING; publishing the rest would leave a gap nothing fills.
-                        throw new UncheckedIOException("Could not download page " + page + " of "
-                                + link.galleryId() + " from " + url, e);
-                    }
-                    skipped++;
-                    log.warn("Ignoring page {} of {} - {}", page, link.galleryId(), e.toString());
-                    continue;
-                }
-                try
-                {
-                    // Numbered by source position, so a skipped page leaves a gap a later run can fill.
-                    processing.page(imageService.stagePage(staging, page, extensionOf(url), bytes));
-                }
-                catch (IOException e)
-                {
-                    // A failed write is never skipped, even in lenient mode: a full staging disk would skip
-                    // every page and still mark the chapter SUCCESSFUL. The page may be torn, so the next
-                    // attempt must discard staging.
-                    stagedByThisProcess = null;
-                    throw new UncheckedIOException("Could not stage page " + page + " of " + link.galleryId()
-                            + " for chapter " + chapterId, e);
-                }
-            }
+                case PageDownloader source -> fetchPageByPage(source, data, fetch, processing);
+                case GalleryDlDownloader source -> fetchWithGalleryDl(source, fetch, processing);
+                default -> throw new PermanentDownloadException("The source of " + link.galleryId()
+                        + " fetches its pages in no way this app knows.");
+            };
         }
         finally
         {
@@ -286,6 +255,12 @@ public class ChapterDownloadService
         {
             log.info("Finished downloading {} image(s) for chapter {} ({})", missing.size(), chapterId,
                     link.galleryId());
+        }
+        // A lenient run that got no page at all would leave a SUCCESSFUL chapter without pages, which
+        // re-queueing could never fix.
+        if (onDisk.isEmpty() && imageService.stagedPageNumbers(staging).isEmpty())
+        {
+            throw new UncheckedIOException(new IOException("No page of " + link.galleryId() + " could be downloaded"));
         }
 
         // Removed from the queue during the download: publishing a partial set and marking it SUCCESSFUL
@@ -337,6 +312,146 @@ public class ChapterDownloadService
         // Also after a lenient run: its missing pages are on purpose, so re-queueing must be a no-op.
         markSuccessful(chapterId, status);
         return chapterId;
+    }
+
+    /** What both ways of fetching need to know about this attempt. */
+    private record Fetch(ResourceLink link, DownloadQueueItem item, int chapterId, List<Integer> missing,
+                         Set<Integer> staged, Path staging, Consumer<String> phase)
+    {
+    }
+
+    /** @return how many pages were skipped (lenient mode only) */
+    private int fetchPageByPage(PageDownloader source, GalleryData data, Fetch fetch, ImagePostProcessor.Run processing)
+    {
+        List<URI> pages = new ArrayList<>(data.getPageUrls() == null ? List.<URI>of() : data.getPageUrls());
+        int skipped = 0;
+        for (int page : fetch.missing())
+        {
+            if (fetch.staged().contains(page))
+            {
+                continue;
+            }
+
+            URI url = pages.get(page - 1);
+            byte[] bytes;
+            try
+            {
+                bytes = fetchPage(fetch.link(), source, url, page);
+            }
+            catch (IOException e)
+            {
+                // An interrupt is no missing page: skipping would fail every page after it the same way.
+                if (!fetch.item().isIgnoreImageErrors() || Thread.currentThread().isInterrupted())
+                {
+                    // The chapter stays PENDING; publishing the rest would leave a gap nothing fills.
+                    throw new UncheckedIOException("Could not download page " + page + " of "
+                            + fetch.link().galleryId() + " from " + url, e);
+                }
+                skipped++;
+                log.warn("Ignoring page {} of {} - {}", page, fetch.link().galleryId(), e.toString());
+                continue;
+            }
+            try
+            {
+                // Numbered by source position, so a skipped page leaves a gap a later run can fill.
+                processing.page(imageService.stagePage(fetch.staging(), page, source.pageExtension(url), bytes));
+            }
+            catch (IOException e)
+            {
+                // A failed write is never skipped, even in lenient mode: a full staging disk would skip
+                // every page and still mark the chapter SUCCESSFUL. The page may be torn, so the next
+                // attempt must discard staging.
+                stagedByThisProcess = null;
+                throw new UncheckedIOException("Could not stage page " + page + " of " + fetch.link().galleryId()
+                        + " for chapter " + fetch.chapterId(), e);
+            }
+        }
+        return skipped;
+    }
+
+    /**
+     * gallery-dl writes into a folder of its own inside staging: on the same filesystem, so a page is moved into
+     * staging by a rename, and a gallery-dl left running by a killed app writes only where nothing reads.
+     * Discarding staging removes it with the rest.
+     *
+     * @return how many pages were skipped (lenient mode only)
+     */
+    private int fetchWithGalleryDl(GalleryDlDownloader source, Fetch fetch, ImagePostProcessor.Run processing)
+    {
+        SortedSet<Integer> wanted = new TreeSet<>(fetch.missing());
+        wanted.removeAll(fetch.staged());
+        if (wanted.isEmpty())
+        {
+            return 0;
+        }
+        GalleryDlOptions options = DownloadQueueService.galleryDlOptions(fetch.item());
+        String galleryId = fetch.link().galleryId();
+        Path runFolder = fetch.staging().resolve(".gallery-dl-" + UUID.randomUUID());
+        int before = fetch.missing().size() - wanted.size();
+        var arrived = new AtomicInteger();
+        GalleryDl.Outcome outcome;
+        try
+        {
+            outcome = source.downloadPages(fetch.link().resourceId(), options, wanted, runFolder, (page, file) ->
+            {
+                Path stagedPage;
+                try
+                {
+                    stagedPage = imageService.stageFile(fetch.staging(), page, file);
+                }
+                catch (IOException e)
+                {
+                    throw new StagingFailed(page, e);
+                }
+                processing.page(stagedPage);
+                fetch.phase().accept("Downloading images (" + (before + arrived.incrementAndGet()) + " of "
+                        + fetch.missing().size() + ")");
+            });
+        }
+        catch (StagingFailed e)
+        {
+            // Never skipped, even in lenient mode: the next page would fail the same way.
+            stagedByThisProcess = null;
+            throw new UncheckedIOException("Could not stage page " + e.page + " of " + galleryId + " for chapter "
+                    + fetch.chapterId(), e.getCause() instanceof IOException io ? io : e);
+        }
+        catch (IOException e)
+        {
+            throw new UncheckedIOException("Could not download the pages of " + galleryId + ": " + e.getMessage(), e);
+        }
+        finally
+        {
+            ImageService.deleteRecursively(runFolder);
+        }
+
+        SortedSet<Integer> failed = new TreeSet<>(wanted);
+        failed.removeAll(outcome.received());
+        if (failed.isEmpty())
+        {
+            return 0;
+        }
+        String why = outcome.problem() == null ? "" : " - " + outcome.problem();
+        // A failed write is never skipped either: a full staging disk would skip every page.
+        if (!fetch.item().isIgnoreImageErrors() || outcome.writeFailed())
+        {
+            // The pages that arrived stay staged, so the next attempt asks only for the rest.
+            throw new UncheckedIOException(new IOException("Could not download page(s) " + GalleryDl.rangeSpec(failed)
+                    + " of " + galleryId + why));
+        }
+        log.warn("Ignoring page(s) {} of {}{}", GalleryDl.rangeSpec(failed), galleryId, why);
+        return failed.size();
+    }
+
+    /** A page gallery-dl delivered that could not be moved into staging; told apart from gallery-dl's failures. */
+    private static final class StagingFailed extends IOException
+    {
+        private final int page;
+
+        StagingFailed(int page, IOException cause)
+        {
+            super(cause.getMessage(), cause);
+            this.page = page;
+        }
     }
 
     /**
@@ -427,14 +542,14 @@ public class ChapterDownloadService
      * An interrupt is not retried. It is told by the thread's flag, not the exception's type: a socket timeout
      * is an {@link InterruptedIOException} too.
      */
-    private byte[] fetchPage(ResourceLink link, URI url, int page) throws IOException
+    private byte[] fetchPage(ResourceLink link, PageDownloader source, URI url, int page) throws IOException
     {
         int retries = Math.max(0, appProperties.getDownload().getPageRetries());
         for (int retry = 1; ; retry++)
         {
             try
             {
-                return link.downloader().downloadPage(url);
+                return source.downloadPage(url);
             }
             catch (IOException e)
             {
@@ -469,13 +584,5 @@ public class ChapterDownloadService
         {
             imageService.discardStagedPages(chapterId);
         }
-    }
-
-    private static String extensionOf(URI url)
-    {
-        String path = url.getPath();
-        int slash = path.lastIndexOf('/');
-        int dot = path.lastIndexOf('.');
-        return dot > slash ? path.substring(dot + 1) : "";
     }
 }

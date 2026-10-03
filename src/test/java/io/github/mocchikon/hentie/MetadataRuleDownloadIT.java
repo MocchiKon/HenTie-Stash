@@ -1,5 +1,24 @@
 package io.github.mocchikon.hentie;
 
+import io.github.mocchikon.hentie.dto.BuiltInCompressionMode;
+import io.github.mocchikon.hentie.dto.MetadataType;
+import io.github.mocchikon.hentie.entity.Artist;
+import io.github.mocchikon.hentie.entity.Chapter;
+import io.github.mocchikon.hentie.entity.Group;
+import io.github.mocchikon.hentie.entity.Tag;
+import io.github.mocchikon.hentie.repository.*;
+import io.github.mocchikon.hentie.service.ImageService;
+import io.github.mocchikon.hentie.service.MetadataService;
+import io.github.mocchikon.hentie.service.download.DownloadQueueService;
+import io.github.mocchikon.hentie.service.download.DownloadWorker;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.transaction.annotation.Transactional;
+
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -9,31 +28,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Stream;
 
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.transaction.annotation.Transactional;
-
-import io.github.mocchikon.hentie.dto.BuiltInCompressionMode;
-import io.github.mocchikon.hentie.dto.MetadataType;
-import io.github.mocchikon.hentie.entity.Artist;
-import io.github.mocchikon.hentie.entity.Chapter;
-import io.github.mocchikon.hentie.entity.Group;
-import io.github.mocchikon.hentie.entity.Tag;
-import io.github.mocchikon.hentie.repository.ArtistRepository;
-import io.github.mocchikon.hentie.repository.ChapterRepository;
-import io.github.mocchikon.hentie.repository.GroupRepository;
-import io.github.mocchikon.hentie.repository.MetadataRuleRepository;
-import io.github.mocchikon.hentie.repository.TagRepository;
-import io.github.mocchikon.hentie.service.ImageService;
-import io.github.mocchikon.hentie.service.MetadataService;
-import io.github.mocchikon.hentie.service.download.DownloadQueueService;
-import io.github.mocchikon.hentie.service.download.DownloadWorker;
-import jakarta.persistence.EntityManager;
-import jakarta.persistence.PersistenceContext;
-
-import static org.assertj.core.api.Assertions.*;
+import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Metadata rules end to end through the download pipeline, from the source's free-text names to the
@@ -81,7 +76,7 @@ class MetadataRuleDownloadIT
         try
         {
             // WHEN the link is queued and the worker takes it.
-            assertThat(queueService.enqueue(List.of("mock:7100"), NO_COMPRESSION, false).accepted()).isEqualTo(1);
+            assertThat(queueService.enqueue(List.of("mock:7100"), TestDownloads.choices(NO_COMPRESSION, false)).accepted()).isEqualTo(1);
             assertThat(worker.processNext()).isTrue();
             em.flush();
 
@@ -115,7 +110,7 @@ class MetadataRuleDownloadIT
         try
         {
             // WHEN a gallery credited to the merged-away artist is downloaded.
-            assertThat(queueService.enqueue(List.of("mock:7101"), NO_COMPRESSION, false).accepted()).isEqualTo(1);
+            assertThat(queueService.enqueue(List.of("mock:7101"), TestDownloads.choices(NO_COMPRESSION, false)).accepted()).isEqualTo(1);
             assertThat(worker.processNext()).isTrue();
             em.flush();
 
@@ -146,7 +141,7 @@ class MetadataRuleDownloadIT
         try
         {
             // WHEN the gallery is downloaded.
-            assertThat(queueService.enqueue(List.of("mock:7102"), NO_COMPRESSION, false).accepted()).isEqualTo(1);
+            assertThat(queueService.enqueue(List.of("mock:7102"), TestDownloads.choices(NO_COMPRESSION, false)).accepted()).isEqualTo(1);
             assertThat(worker.processNext()).isTrue();
             em.flush();
 
@@ -176,7 +171,7 @@ class MetadataRuleDownloadIT
         try
         {
             // WHEN a gallery none of it applies to is downloaded.
-            assertThat(queueService.enqueue(List.of("mock:7103"), NO_COMPRESSION, false).accepted()).isEqualTo(1);
+            assertThat(queueService.enqueue(List.of("mock:7103"), TestDownloads.choices(NO_COMPRESSION, false)).accepted()).isEqualTo(1);
             assertThat(worker.processNext()).isTrue();
             em.flush();
 
@@ -201,7 +196,7 @@ class MetadataRuleDownloadIT
     {
         // GIVEN a gallery downloaded before the user ruled one of its tags out.
         writeGallery("7104", "rdl-later-blocked", "rdl-later-kept", "rdl-later-artist", "rdl-later-group");
-        assertThat(queueService.enqueue(List.of("mock:7104"), NO_COMPRESSION, false).accepted()).isEqualTo(1);
+        assertThat(queueService.enqueue(List.of("mock:7104"), TestDownloads.choices(NO_COMPRESSION, false)).accepted()).isEqualTo(1);
         assertThat(worker.processNext()).isTrue();
         em.flush();
 
@@ -217,7 +212,7 @@ class MetadataRuleDownloadIT
             // WHEN the user deletes the chapter and pastes the same link again.
             chapterRepository.deleteById(firstId);
             em.flush();
-            assertThat(queueService.enqueue(List.of("mock:7104"), NO_COMPRESSION, false).accepted()).isEqualTo(1);
+            assertThat(queueService.enqueue(List.of("mock:7104"), TestDownloads.choices(NO_COMPRESSION, false)).accepted()).isEqualTo(1);
             assertThat(worker.processNext()).isTrue();
             em.flush();
 

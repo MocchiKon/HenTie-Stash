@@ -1,12 +1,5 @@
 package io.github.mocchikon.hentie.web;
 
-import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.ResultActions;
-
 import io.github.mocchikon.hentie.dto.ChapterForm;
 import io.github.mocchikon.hentie.dto.MetadataType;
 import io.github.mocchikon.hentie.entity.Tag;
@@ -16,22 +9,22 @@ import io.github.mocchikon.hentie.service.MetadataCatalog;
 import io.github.mocchikon.hentie.service.MetadataNameFolder;
 import io.github.mocchikon.hentie.service.MetadataService;
 import io.github.mocchikon.hentie.service.match.ChapterMatchingSweep;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
 
-import static org.assertj.core.api.Assertions.*;
-import static org.hamcrest.Matchers.containsString;
-import static org.hamcrest.Matchers.hasItem;
-import static org.hamcrest.Matchers.not;
+import java.util.List;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.*;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.flash;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.model;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.view;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 /** Commits to the shared DB (no rollback), so every item name is unique to this suite. */
 @SpringBootTest
@@ -245,6 +238,69 @@ class MetadataWebIT
         // THEN
         result.andExpect(status().isOk())
                 .andExpect(jsonPath("$[*].label", hasItem("mweb-items-json")));
+    }
+
+    // --- Tags and their versions ------------------------------------------------
+
+    @Test
+    void shouldOfferNoTagVersionsWhenTheManageListAndPickersAreQueried() throws Exception
+    {
+        // GIVEN a tag typed with a gender, which brings its plain tag along
+        metadataService.add(MetadataType.TAG, "female:mweb-version");
+
+        // WHEN the filter box and a merge picker ask for it
+        ResultActions list = mvc.perform(get("/manage/items").with(user("user"))
+                .param("type", "tag").param("q", "mweb-version"));
+        ResultActions picker = mvc.perform(get("/manage/options").with(user("user"))
+                .param("type", "tag").param("q", "mweb-version"));
+
+        // THEN both offer the plain tag only: the version follows whatever is done to it.
+        for (ResultActions result : List.of(list, picker))
+        {
+            result.andExpect(status().isOk())
+                    .andExpect(jsonPath("$[*].label", hasItem("mweb-version")))
+                    .andExpect(jsonPath("$[*].label", not(hasItem("mweb-version \u2640"))));
+        }
+        // AND the search form's autocomplete still offers the version.
+        mvc.perform(get("/api/autocomplete/tag").with(user("user")).param("q", "mweb-version"))
+                .andExpect(jsonPath("$[*].label", hasItem("mweb-version \u2640")));
+    }
+
+    @Test
+    void shouldPointTheManagePickersAtTheManageOptionsAndOfferRemoveGenderForTagsOnly() throws Exception
+    {
+        // WHEN
+        ResultActions result = mvc.perform(get("/manage").with(user("user")));
+
+        // THEN the merge pickers ask the Manage page's own endpoint, and only the Tags section removes genders.
+        result.andExpect(status().isOk())
+                .andExpect(content().string(containsString("data-source=\"/manage/options?type=tag\"")))
+                .andExpect(content().string(containsString("data-source=\"/manage/options?type=artist\"")))
+                .andExpect(content().string(containsString("action=\"/manage/remove-gender\"")));
+        String page = result.andReturn().getResponse().getContentAsString();
+        assertThat(page.split("action=\"/manage/remove-gender\"", -1)).hasSize(2);
+    }
+
+    @Test
+    void shouldExplainTheRefusalWhenAPlainTagIsRenamedToAGenderedName() throws Exception
+    {
+        // GIVEN a tag
+        metadataService.add(MetadataType.TAG, "mweb-ungendered-name");
+        Integer id = idOf(MetadataType.TAG, "mweb-ungendered-name");
+
+        // WHEN it is renamed to a gendered name
+        mvc.perform(post("/manage/rename").with(user("user")).with(csrf())
+                        .param("type", "tag").param("id", String.valueOf(id))
+                        .param("name", "female:mweb-gendered-name"))
+                .andExpect(status().is3xxRedirection())
+                // THEN the message names the kind, the canonical name and why.
+                .andExpect(redirectedUrl("/manage#section-title"))
+                .andExpect(flash().attribute("refusal", containsString("Tags")))
+                .andExpect(flash().attribute("refusal", containsString("mweb-gendered-name \u2640")))
+                .andExpect(flash().attribute("refusal", containsString("renamed without")));
+
+        // AND nothing was renamed.
+        assertHasLabel("mweb-ungendered-name");
     }
 
     // --- Autocomplete ----------------------------------------------------------

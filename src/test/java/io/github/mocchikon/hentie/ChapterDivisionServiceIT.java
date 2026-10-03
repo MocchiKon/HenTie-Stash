@@ -1,5 +1,22 @@
 package io.github.mocchikon.hentie;
 
+import io.github.mocchikon.hentie.config.AppProperties;
+import io.github.mocchikon.hentie.dto.BuiltInCompressionMode;
+import io.github.mocchikon.hentie.dto.ChapterForm;
+import io.github.mocchikon.hentie.entity.*;
+import io.github.mocchikon.hentie.entity.Character;
+import io.github.mocchikon.hentie.repository.*;
+import io.github.mocchikon.hentie.service.*;
+import io.github.mocchikon.hentie.service.ChapterDivisionService.CreatedPart;
+import io.github.mocchikon.hentie.service.ChapterDivisionService.NewPart;
+import io.github.mocchikon.hentie.service.compress.ImageCompressionService;
+import io.github.mocchikon.hentie.service.match.TitleKey;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
+
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -7,42 +24,6 @@ import java.nio.file.Path;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
-
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.jdbc.core.JdbcTemplate;
-
-import io.github.mocchikon.hentie.config.AppProperties;
-import io.github.mocchikon.hentie.dto.BuiltInCompressionMode;
-import io.github.mocchikon.hentie.dto.ChapterForm;
-import io.github.mocchikon.hentie.entity.Artist;
-import io.github.mocchikon.hentie.entity.Chapter;
-import io.github.mocchikon.hentie.entity.Character;
-import io.github.mocchikon.hentie.entity.DownloadQueueItem;
-import io.github.mocchikon.hentie.entity.DownloadStatus;
-import io.github.mocchikon.hentie.entity.Group;
-import io.github.mocchikon.hentie.entity.Metadata;
-import io.github.mocchikon.hentie.entity.Parody;
-import io.github.mocchikon.hentie.entity.Status;
-import io.github.mocchikon.hentie.entity.Tag;
-import io.github.mocchikon.hentie.repository.ArtistRepository;
-import io.github.mocchikon.hentie.repository.ChapterRepository;
-import io.github.mocchikon.hentie.repository.CharacterRepository;
-import io.github.mocchikon.hentie.repository.DownloadQueueRepository;
-import io.github.mocchikon.hentie.repository.GroupRepository;
-import io.github.mocchikon.hentie.repository.ParodyRepository;
-import io.github.mocchikon.hentie.repository.TagRepository;
-import io.github.mocchikon.hentie.service.ChapterDivisionService;
-import io.github.mocchikon.hentie.service.ChapterDivisionService.CreatedPart;
-import io.github.mocchikon.hentie.service.ChapterDivisionService.NewPart;
-import io.github.mocchikon.hentie.service.ChapterService;
-import io.github.mocchikon.hentie.service.ImageDirectory;
-import io.github.mocchikon.hentie.service.ImageService;
-import io.github.mocchikon.hentie.service.SettingsService;
-import io.github.mocchikon.hentie.service.compress.ImageCompressionService;
-import io.github.mocchikon.hentie.service.match.TitleKey;
 
 import static org.assertj.core.api.Assertions.*;
 
@@ -527,9 +508,7 @@ class ChapterDivisionServiceIT
         var form = chapterService.toForm(chapterId);
         form.setGalleryId(galleryId);
         chapterService.update(form);
-        var item = new DownloadQueueItem();
-        item.setLink(galleryId);
-        item.setGalleryId(galleryId);
+        var item = TestDownloads.queueItem(galleryId, galleryId);
         item.setChapterId(chapterId);
         item.setError(error);
         item.setReplacePages(error == null);

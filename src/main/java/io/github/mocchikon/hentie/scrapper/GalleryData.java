@@ -32,4 +32,19 @@ public class GalleryData
      * do a DNS lookup per page and merge two pages whose hosts resolve to one address.
      */
     private LinkedHashSet<URI> pageUrls;
+    /**
+     * How many pages the gallery has, for a source that fetches its pages without per-page addresses (gallery-dl).
+     * A {@link PageDownloader} fills {@link #pageUrls} instead and leaves this null.
+     */
+    private Integer pageCount;
+
+    /** The page count whichever way the source gave it; 0 when it gave none. */
+    public int pages()
+    {
+        if (pageUrls != null && !pageUrls.isEmpty())
+        {
+            return pageUrls.size();
+        }
+        return pageCount == null ? 0 : Math.max(0, pageCount);
+    }
 }

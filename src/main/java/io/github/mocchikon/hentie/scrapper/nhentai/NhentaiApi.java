@@ -3,28 +3,22 @@ package io.github.mocchikon.hentie.scrapper.nhentai;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.mocchikon.hentie.scrapper.GalleryNotFoundException;
+import io.github.mocchikon.hentie.scrapper.RateLimitedHttp;
 import io.github.mocchikon.hentie.scrapper.RequestPacer;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.io.InterruptedIOException;
 import java.net.URI;
 import java.net.http.HttpClient;
-import java.net.http.HttpHeaders;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
-import java.time.Instant;
-import java.time.ZonedDateTime;
-import java.time.format.DateTimeFormatter;
-import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
-import java.util.Optional;
 import java.util.function.Supplier;
 
 /**
@@ -46,15 +40,6 @@ final class NhentaiApi
     private static final Duration SERVER_LIST_TTL = Duration.ofHours(1);
 
     private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(15);
-
-    /** How often one request sits out a 429 before it fails. */
-    static final int MAX_RATE_LIMIT_WAITS = 5;
-
-    /** For a 429 that does not say how long to wait: nhentai's limits count per minute. */
-    private static final Duration DEFAULT_RATE_LIMIT_WAIT = Duration.ofMinutes(1);
-
-    /** Longer waits are cut to this and asked again, so one answer cannot stall the worker for hours. */
-    private static final Duration MAX_RATE_LIMIT_WAIT = Duration.ofMinutes(15);
 
     private final NhentaiProperties properties;
     private final Supplier<String> apiKey;
@@ -258,87 +243,7 @@ final class NhentaiApi
     private HttpResponse<byte[]> send(HttpClient client, HttpRequest request, RequestPacer pacer, Duration interval)
             throws IOException
     {
-        for (int waits = 0; ; waits++)
-        {
-            HttpResponse<byte[]> response;
-            try
-            {
-                pacer.await(interval);
-                response = client.send(request, HttpResponse.BodyHandlers.ofByteArray());
-            }
-            catch (InterruptedException e)
-            {
-                Thread.currentThread().interrupt();
-                throw new InterruptedIOException("Interrupted while waiting for nhentai");
-            }
-            if (response.statusCode() != 429)
-            {
-                return response;
-            }
-            if (waits >= MAX_RATE_LIMIT_WAITS)
-            {
-                throw new IOException("nhentai still answered 429 Too Many Requests for " + request.uri().getPath()
-                        + " after waiting " + waits + " times; try again later.");
-            }
-            Duration wait = retryAfter(response.headers(), Instant.now()).orElse(DEFAULT_RATE_LIMIT_WAIT);
-            if (wait.compareTo(MAX_RATE_LIMIT_WAIT) > 0)
-            {
-                wait = MAX_RATE_LIMIT_WAIT;
-            }
-            log.warn("nhentai asks to slow down (HTTP 429 for {}); waiting {} s before asking again",
-                    request.uri().getPath(), wait.toSeconds());
-            pacer.holdOff(wait);
-        }
-    }
-
-    /**
-     * {@code Retry-After} in seconds or as a date; else a rate-limit reset, which sites send as seconds to wait or
-     * as an epoch time in seconds or milliseconds (told apart by size).
-     */
-    static Optional<Duration> retryAfter(HttpHeaders headers, Instant now)
-    {
-        Optional<String> retryAfter = headers.firstValue("Retry-After").map(String::strip);
-        if (retryAfter.isPresent())
-        {
-            String value = retryAfter.get();
-            if (value.matches("\\d{1,9}"))
-            {
-                return Optional.of(Duration.ofSeconds(Long.parseLong(value)));
-            }
-            try
-            {
-                Instant at = ZonedDateTime.parse(value, DateTimeFormatter.RFC_1123_DATE_TIME).toInstant();
-                return Optional.of(untilOrZero(now, at));
-            }
-            catch (DateTimeParseException e)
-            {
-                // Not a date either; try the reset headers.
-            }
-        }
-        for (String name : List.of("X-RateLimit-Reset", "RateLimit-Reset"))
-        {
-            Optional<String> reset = headers.firstValue(name).map(String::strip).filter(v -> v.matches("\\d{1,15}"));
-            if (reset.isPresent())
-            {
-                long value = Long.parseLong(reset.get());
-                if (value > 1_000_000_000_000L)
-                {
-                    return Optional.of(untilOrZero(now, Instant.ofEpochMilli(value)));
-                }
-                if (value > 1_000_000_000L)
-                {
-                    return Optional.of(untilOrZero(now, Instant.ofEpochSecond(value)));
-                }
-                return Optional.of(Duration.ofSeconds(value));
-            }
-        }
-        return Optional.empty();
-    }
-
-    private static Duration untilOrZero(Instant now, Instant at)
-    {
-        Duration until = Duration.between(now, at);
-        return until.isNegative() ? Duration.ZERO : until;
+        return RateLimitedHttp.send(client, request, pacer, interval, "nhentai");
     }
 
     /** 401 and 403 are worded for the user: they are the key's fault, or the site's refusal, not a glitch. */

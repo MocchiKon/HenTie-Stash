@@ -7,8 +7,11 @@ import io.github.mocchikon.hentie.dto.SelectedFilters;
 import io.github.mocchikon.hentie.entity.Status;
 import io.github.mocchikon.hentie.entity.ViewMode;
 import io.github.mocchikon.hentie.scrapper.DataDownloaderRegistry;
+import io.github.mocchikon.hentie.scrapper.gallerydl.GalleryDlDownloader;
+import io.github.mocchikon.hentie.scrapper.gallerydl.GalleryDlOptions;
 import io.github.mocchikon.hentie.service.*;
 import io.github.mocchikon.hentie.service.compress.ImageCompressionModeService;
+import io.github.mocchikon.hentie.service.download.DownloadChoices;
 import io.github.mocchikon.hentie.service.download.DownloadQueueService;
 import io.github.mocchikon.hentie.service.download.DownloadWorker;
 import io.github.mocchikon.hentie.service.download.FavouritesDownloadService;
@@ -111,30 +114,98 @@ public class ChapterController
     @GetMapping("/download")
     public String downloadPage(Model model)
     {
-        model.addAttribute("sources", downloaderRegistry.sourcePrefixes());
-        // Settings' mode, never the last paste's: that choice was for one paste only. storableKey turns a
-        // deleted mode into None, an option the list really has.
-        model.addAttribute("compressionMode",
-                compressionModeService.storableKey(settingsService.getImageCompressionMode()));
+        // Settings' choices, never the last paste's: those were for one paste only. storableKey turns a deleted
+        // mode into None, an option the list really has.
+        addDownloadModel(model, "", compressionModeService.storableKey(settingsService.getImageCompressionMode()),
+                false, settingsService.getGalleryDlDefaults(), null, null);
+        return "chapter-download";
+    }
+
+    private void addDownloadModel(Model model, String links, String compressionMode, boolean avoidDuplicateTitles,
+                                  GalleryDlOptions galleryDl, String requestDelay, String delayError)
+    {
+        model.addAttribute("links", links);
+        model.addAttribute("linkExamples", downloaderRegistry.linkExamples());
+        model.addAttribute("compressionMode", compressionMode);
         model.addAttribute("compressionModes", compressionModeService.options());
+        model.addAttribute("avoidDuplicateTitles", avoidDuplicateTitles);
+        model.addAttribute("browserGroups", GalleryDlOptions.BROWSER_GROUPS);
+        model.addAttribute("cookiesBrowser", StringUtils.defaultString(galleryDl.cookiesBrowser()));
+        model.addAttribute("downloadOriginals", galleryDl.originals());
+        model.addAttribute("requestDelay", requestDelay == null ? galleryDl.delay() : requestDelay);
+        model.addAttribute("delayError", delayError);
         var favouritesSources = favouritesDownloadService.options();
         model.addAttribute("favouritesSources", favouritesSources);
         model.addAttribute("favouritesReady",
                 favouritesSources.stream().anyMatch(FavouritesDownloadService.Option::ready));
-        return "chapter-download";
     }
 
-    /** Redirects to the queue, the only page that can say what became of the links. */
+    /**
+     * Redirects to the queue, the only page that can say what became of the links. A delay gallery-dl could not
+     * read is shown on the form with the links kept, rather than quietly replaced: it decides how fast a site is
+     * asked, which the user chose for a reason.
+     */
     @PostMapping("/download")
     public String downloadSubmit(@RequestParam(name = "links", required = false) String links,
                                  @RequestParam(name = "compressionMode", required = false) String compressionMode,
                                  @RequestParam(name = "avoidDuplicateTitles", defaultValue = "false")
                                  boolean avoidDuplicateTitles,
-                                 RedirectAttributes redirectAttributes)
+                                 @RequestParam(name = "cookiesBrowser", required = false) String cookiesBrowser,
+                                 @RequestParam(name = "downloadOriginals", defaultValue = "false")
+                                 boolean downloadOriginals,
+                                 @RequestParam(name = "requestDelay", required = false) String requestDelay,
+                                 Model model, RedirectAttributes redirectAttributes)
     {
-        var result = downloadService.queue(downloadService.parseLinks(links), compressionMode, avoidDuplicateTitles);
+        List<String> parsed = downloadService.parseLinks(links);
+        boolean usesGalleryDl = parsed.stream().anyMatch(link -> downloaderRegistry.parse(link)
+                .filter(resource -> resource.downloader() instanceof GalleryDlDownloader).isPresent());
+        Optional<DownloadChoices> choices = downloadChoices(compressionMode, avoidDuplicateTitles, cookiesBrowser,
+                downloadOriginals, requestDelay, usesGalleryDl);
+        if (choices.isEmpty())
+        {
+            return downloadFormWithDelayError(model, links, compressionMode, avoidDuplicateTitles, cookiesBrowser,
+                    downloadOriginals, requestDelay);
+        }
+        var result = downloadService.queue(parsed, choices.get());
         redirectAttributes.addFlashAttribute("enqueued", result);
         return REDIRECT_CHAPTER_QUEUE;
+    }
+
+    /**
+     * Empty when the delay is not one gallery-dl can read and a link goes through gallery-dl. A missing or cleared
+     * field means Settings' default, and so does an unreadable one that nothing will read (nhentai and chaika ignore
+     * it).
+     */
+    private Optional<DownloadChoices> downloadChoices(String compressionMode, boolean avoidDuplicateTitles,
+                                                      String cookiesBrowser, boolean downloadOriginals,
+                                                      String requestDelay, boolean usesGalleryDl)
+    {
+        boolean blank = StringUtils.isBlank(requestDelay);
+        Optional<String> delay = blank ? Optional.empty() : GalleryDlOptions.normalizedDelay(requestDelay);
+        if (delay.isEmpty() && (blank || !usesGalleryDl))
+        {
+            delay = Optional.of(settingsService.getGalleryDlDefaults().delay());
+        }
+        return delay.map(d -> new DownloadChoices(compressionMode, avoidDuplicateTitles,
+                new GalleryDlOptions(cookiesBrowser, downloadOriginals, d)));
+    }
+
+    private String downloadFormWithDelayError(Model model, String links, String compressionMode,
+                                              boolean avoidDuplicateTitles, String cookiesBrowser,
+                                              boolean downloadOriginals, String requestDelay)
+    {
+        addDownloadModel(model, StringUtils.defaultString(links), compressionModeService.storableKey(compressionMode),
+                avoidDuplicateTitles, new GalleryDlOptions(cookiesBrowser, downloadOriginals, "0"),
+                StringUtils.abbreviate(StringUtils.defaultString(requestDelay), 100),
+                delayProblem(requestDelay));
+        return "chapter-download";
+    }
+
+    static String delayProblem(String requestDelay)
+    {
+        return "\"" + StringUtils.abbreviate(StringUtils.strip(StringUtils.defaultString(requestDelay)), 40)
+                + "\" is not a delay gallery-dl understands. Give seconds, e.g. 0.5, or a range for a random "
+                + "wait, e.g. 0.4-0.65 (at most " + GalleryDlOptions.MAX_DELAY_SECONDS + ").";
     }
 
     /**
@@ -143,12 +214,26 @@ public class ChapterController
      */
     @PostMapping("/download/favourites")
     public String downloadFavourites(@RequestParam(name = "source", required = false) String source,
+                                     @RequestParam(name = "links", required = false) String links,
                                      @RequestParam(name = "compressionMode", required = false) String compressionMode,
                                      @RequestParam(name = "avoidDuplicateTitles", defaultValue = "false")
                                      boolean avoidDuplicateTitles,
-                                     RedirectAttributes redirectAttributes)
+                                     @RequestParam(name = "cookiesBrowser", required = false) String cookiesBrowser,
+                                     @RequestParam(name = "downloadOriginals", defaultValue = "false")
+                                     boolean downloadOriginals,
+                                     @RequestParam(name = "requestDelay", required = false) String requestDelay,
+                                     Model model, RedirectAttributes redirectAttributes)
     {
-        var outcome = favouritesDownloadService.queueAll(source, compressionMode, avoidDuplicateTitles);
+        boolean usesGalleryDl = downloaderRegistry.favouritesSource(source)
+                .filter(GalleryDlDownloader.class::isInstance).isPresent();
+        Optional<DownloadChoices> choices = downloadChoices(compressionMode, avoidDuplicateTitles, cookiesBrowser,
+                downloadOriginals, requestDelay, usesGalleryDl);
+        if (choices.isEmpty())
+        {
+            return downloadFormWithDelayError(model, links, compressionMode, avoidDuplicateTitles, cookiesBrowser,
+                    downloadOriginals, requestDelay);
+        }
+        var outcome = favouritesDownloadService.queueAll(source, choices.get());
         if (outcome.isRefused())
         {
             redirectAttributes.addFlashAttribute("favouritesError", outcome.summary());

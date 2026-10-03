@@ -1,38 +1,21 @@
 package io.github.mocchikon.hentie.service;
 
-import java.io.IOException;
-import java.nio.channels.FileChannel;
-import java.nio.file.AccessDeniedException;
-import java.nio.file.AtomicMoveNotSupportedException;
-import java.nio.file.FileAlreadyExistsException;
-import java.nio.file.FileSystemException;
-import java.nio.file.FileVisitResult;
-import java.nio.file.Files;
-import java.nio.file.LinkOption;
-import java.nio.file.NoSuchFileException;
-import java.nio.file.Path;
-import java.nio.file.SimpleFileVisitor;
-import java.nio.file.StandardCopyOption;
-import java.nio.file.StandardOpenOption;
-import java.nio.file.attribute.BasicFileAttributes;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
-
+import io.github.mocchikon.hentie.scrapper.PageDownloader;
+import io.github.mocchikon.hentie.service.scratch.PageDerivedCache;
+import io.github.mocchikon.hentie.service.scratch.ScratchArea;
+import io.github.mocchikon.hentie.service.scratch.ScratchSpace;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
-import io.github.mocchikon.hentie.service.scratch.PageDerivedCache;
-import io.github.mocchikon.hentie.service.scratch.ScratchArea;
-import io.github.mocchikon.hentie.service.scratch.ScratchSpace;
+import java.io.IOException;
+import java.nio.channels.FileChannel;
+import java.nio.file.*;
+import java.nio.file.attribute.BasicFileAttributes;
+import java.util.*;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * Chapter page images on disk ({@code data/{chapterId}/{page}.{ext}}). Reads that render pages or
@@ -493,6 +476,26 @@ public class ImageService
         }
         Path file = stagingDir.resolve(pageNumber + "." + ext);
         Files.write(file, bytes);
+        return file;
+    }
+
+    /**
+     * Moves a page a tool wrote (gallery-dl) into staging under its page number. Moved, not copied: the tool's
+     * folder is inside staging, so this is a rename, and a page is either staged whole or not at all. Never
+     * overwrites a staged page.
+     *
+     * @throws IOException also for a file that is no image the app shows: renaming it would hide what it is
+     */
+    public Path stageFile(Path stagingDir, int pageNumber, Path source) throws IOException
+    {
+        String ext = PageDownloader.extensionOf(source.getFileName().toString()).toLowerCase(Locale.ROOT);
+        if (!ImageDirectory.isImage("x." + ext))
+        {
+            throw new IOException(source + " is no image the app can show");
+        }
+        Files.createDirectories(stagingDir);
+        Path file = stagingDir.resolve(pageNumber + "." + ext);
+        Files.move(source, file);
         return file;
     }
 

@@ -1,10 +1,7 @@
 package io.github.mocchikon.hentie.scrapper.nhentai;
 
 import io.github.mocchikon.hentie.FakeNhentai;
-import io.github.mocchikon.hentie.scrapper.DataDownloader;
-import io.github.mocchikon.hentie.scrapper.FavouritesSource;
-import io.github.mocchikon.hentie.scrapper.GalleryData;
-import io.github.mocchikon.hentie.scrapper.GalleryNotFoundException;
+import io.github.mocchikon.hentie.scrapper.*;
 import io.github.mocchikon.hentie.service.SettingsService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -240,14 +237,14 @@ class NhentaiDownloaderTest
     void shouldGiveUpWhenTheSiteKeepsSayingTooManyRequests()
     {
         // GIVEN more refusals than one request sits out.
-        Integer[] refusals = new Integer[NhentaiApi.MAX_RATE_LIMIT_WAITS + 1];
+        Integer[] refusals = new Integer[RateLimitedHttp.MAX_RATE_LIMIT_WAITS + 1];
         Arrays.fill(refusals, 429);
         site.simpleGallery("11", 1).failNext("/api/v2/galleries/11", refusals);
 
         // WHEN + THEN - transient: the queue tries the item again later.
         assertThatExceptionOfType(UncheckedIOException.class).isThrownBy(() -> downloader.downloadGalleryInfo("11"))
                 .withMessageContaining("429");
-        assertThat(site.requestsFor("/api/v2/galleries/11")).isEqualTo(NhentaiApi.MAX_RATE_LIMIT_WAITS + 1);
+        assertThat(site.requestsFor("/api/v2/galleries/11")).isEqualTo(RateLimitedHttp.MAX_RATE_LIMIT_WAITS + 1);
     }
 
     /** Stored, either would be a page that shows nothing, and the chapter would count as complete. */

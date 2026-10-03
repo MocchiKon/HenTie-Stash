@@ -523,6 +523,48 @@ public class PageProcessingService
     }
 
     /**
+     * Forgets every asker, page and run time, stops the page running and waits for it to end; for the tests, which
+     * share this bean. A page still wanted when a test ends would otherwise run in the next test, against its ComfyUI
+     * and its page files, and answer that test's requests from the cache; an earlier test's run times would turn the
+     * next one's progress into a time estimate.
+     *
+     * @throws IllegalStateException if the page running did not end in time
+     */
+    public void forgetAll() throws InterruptedException
+    {
+        Thread running;
+        lock.lock();
+        try
+        {
+            interests.clear();
+            runTimes.clear();
+            for (Iterator<Job> it = jobs.values().iterator(); it.hasNext(); )
+            {
+                Job job = it.next();
+                if (!job.running)
+                {
+                    it.remove();
+                    job.done.complete(new Pending(Progress.queued(0)));
+                }
+            }
+            running = runningJob == null ? null : runningJob.thread;
+            stopUnwanted();
+        }
+        finally
+        {
+            lock.unlock();
+        }
+        if (running != null)
+        {
+            running.join(STOP_WAIT_MILLIS);
+            if (running.isAlive())
+            {
+                throw new IllegalStateException("The page running did not stop within " + STOP_WAIT_MILLIS + " ms.");
+            }
+        }
+    }
+
+    /**
      * Asks for the listing first, or a stale version would keep serving an old export's results. That call does
      * not wait for ComfyUI, and when it is down the last known version still finds the result.
      */

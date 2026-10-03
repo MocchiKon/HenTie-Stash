@@ -90,7 +90,7 @@ class DownloadWriteGateIT
     {
         // GIVEN a queued two-page gallery, and a sweep holding the gate for longer than a request would wait.
         writeGallery("9701", 2);
-        queueService.enqueue(List.of("mock:9701"), NO_COMPRESSION, false);
+        queueService.enqueue(List.of("mock:9701"), TestDownloads.choices(NO_COMPRESSION, false));
         CompletableFuture<Boolean> worked;
         try (GateHolder ignored = GateHolder.hold(transactionManager, writeGate, "the test's sweep"))
         {
@@ -112,7 +112,7 @@ class DownloadWriteGateIT
     {
         // GIVEN a queued two-page gallery, and a program outside the app holding SQLite's write lock.
         writeGallery("9702", 2);
-        queueService.enqueue(List.of("mock:9702"), NO_COMPRESSION, false);
+        queueService.enqueue(List.of("mock:9702"), TestDownloads.choices(NO_COMPRESSION, false));
         CompletableFuture<Boolean> worked;
         try (SqliteLockHolder ignored = SqliteLockHolder.hold(datasourceUrl))
         {
@@ -134,7 +134,7 @@ class DownloadWriteGateIT
     void shouldCountNoAttemptWhenALockErrorStillReachesTheWorker()
     {
         // GIVEN a queued link whose download meets SQLite's lock error.
-        queueService.enqueue(List.of("mock:9703"), NO_COMPRESSION, false);
+        queueService.enqueue(List.of("mock:9703"), TestDownloads.choices(NO_COMPRESSION, false));
         var downloads = mock(ChapterDownloadService.class);
         when(downloads.download(any(), any())).thenThrow(new PessimisticLockingFailureException("locked",
                 new SQLException("[SQLITE_BUSY] The database file is locked (database is locked)", null, 5)));

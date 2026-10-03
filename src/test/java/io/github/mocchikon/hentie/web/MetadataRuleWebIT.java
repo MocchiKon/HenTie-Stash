@@ -1,5 +1,10 @@
 package io.github.mocchikon.hentie.web;
 
+import io.github.mocchikon.hentie.dto.MetadataType;
+import io.github.mocchikon.hentie.repository.MetadataRuleRepository;
+import io.github.mocchikon.hentie.repository.TagRepository;
+import io.github.mocchikon.hentie.service.MetadataRuleService;
+import io.github.mocchikon.hentie.service.MetadataService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -7,25 +12,16 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
-import io.github.mocchikon.hentie.dto.MetadataType;
-import io.github.mocchikon.hentie.repository.MetadataRuleRepository;
-import io.github.mocchikon.hentie.repository.TagRepository;
-import io.github.mocchikon.hentie.service.MetadataRuleService;
-import io.github.mocchikon.hentie.service.MetadataService;
+import java.util.List;
 
-import static org.assertj.core.api.Assertions.*;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.flash;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.model;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.view;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 /** Commits to the shared database (no rollback), so every name here is unique to this suite. */
 @SpringBootTest
@@ -58,6 +54,47 @@ class MetadataRuleWebIT
                 .findByTypeAndSourceNameLower(MetadataType.TAG, "mrweb-delete-with-rule").orElseThrow();
         assertThat(rule.isBlocking()).isTrue();
         assertThat(rule.getSourceNameLower()).isEqualTo("mrweb-delete-with-rule");
+    }
+
+    @Test
+    void shouldMergeTheVersionsIntoTheTagAndRecordTheirRulesWhenItsGenderIsRemoved() throws Exception
+    {
+        // GIVEN a tag with both versions
+        metadataService.resolveOrCreate(MetadataType.TAG, List.of("female:mrweb-ungender", "male:mrweb-ungender"));
+        Integer id = tagRepository.findByNameIgnoreCase("mrweb-ungender").orElseThrow().getId();
+
+        // WHEN "Remove \u2640/\u2642" is submitted with "Add rule" checked
+        mvc.perform(post("/manage/remove-gender").with(user("user")).with(csrf())
+                        .param("id", String.valueOf(id)).param("createRule", "true"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/manage#tag"));
+
+        // THEN the versions are gone, and both names now lead to the tag.
+        assertThat(tagRepository.findByNameIgnoreCase("mrweb-ungender \u2640")).isEmpty();
+        assertThat(tagRepository.findByNameIgnoreCase("mrweb-ungender \u2642")).isEmpty();
+        for (String version : List.of("mrweb-ungender \u2640", "mrweb-ungender \u2642"))
+        {
+            assertThat(ruleRepository.findByTypeAndSourceNameLower(MetadataType.TAG, version).orElseThrow()
+                    .getTargetId()).isEqualTo(id);
+        }
+    }
+
+    @Test
+    void shouldRecordNoRuleWhenAGenderIsRemovedWithTheCheckboxCleared() throws Exception
+    {
+        // GIVEN a tag with a version
+        metadataService.resolveOrCreate(MetadataType.TAG, List.of("female:mrweb-ungender-once"));
+        Integer id = tagRepository.findByNameIgnoreCase("mrweb-ungender-once").orElseThrow().getId();
+
+        // WHEN "Remove \u2640/\u2642" is submitted with "Add rule" cleared
+        mvc.perform(post("/manage/remove-gender").with(user("user")).with(csrf())
+                        .param("id", String.valueOf(id)).param("createRule", "false"))
+                .andExpect(status().is3xxRedirection());
+
+        // THEN the version is merged away, as a one-off.
+        assertThat(tagRepository.findByNameIgnoreCase("mrweb-ungender-once \u2640")).isEmpty();
+        assertThat(ruleRepository.findByTypeAndSourceNameLower(MetadataType.TAG, "mrweb-ungender-once \u2640"))
+                .isEmpty();
     }
 
     @Test

@@ -5,6 +5,7 @@ import io.github.mocchikon.hentie.entity.DownloadQueueItem;
 import io.github.mocchikon.hentie.repository.DownloadQueueRepository;
 import io.github.mocchikon.hentie.scrapper.DataDownloaderRegistry;
 import io.github.mocchikon.hentie.scrapper.ResourceLink;
+import io.github.mocchikon.hentie.scrapper.gallerydl.GalleryDlOptions;
 import io.github.mocchikon.hentie.service.ImageService;
 import io.github.mocchikon.hentie.service.compress.ImageCompressionModeService;
 import lombok.RequiredArgsConstructor;
@@ -44,11 +45,13 @@ public class DownloadQueueService
      * this paste's choices, since the form is how the user says how the link should be downloaded.
      */
     @Transactional
-    public EnqueueResult enqueue(List<String> links, String compressionMode, boolean avoidDuplicateTitles)
+    public EnqueueResult enqueue(List<String> links, DownloadChoices choices)
     {
         // The one seam every enqueue passes, so an invalid key (the "Custom" sentinel, a hand-made POST)
         // becomes NONE here instead of being stored.
-        String mode = modeService.storableKey(compressionMode);
+        String mode = modeService.storableKey(choices.compressionMode());
+        boolean avoidDuplicateTitles = choices.avoidDuplicateTitles();
+        GalleryDlOptions galleryDl = choices.galleryDl();
         int accepted = 0;
         int requeued = 0;
         int alreadyQueued = 0;
@@ -78,6 +81,7 @@ public class DownloadQueueService
                     item.setCompressionMode(mode);
                     item.setAvoidDuplicateTitles(avoidDuplicateTitles);
                     item.setReplacePages(false);
+                    setGalleryDlOptions(item, galleryDl);
                     repository.save(item);
                     requeued++;
                 }
@@ -85,11 +89,13 @@ public class DownloadQueueService
                 {
                     // A waiting row takes this paste's choices too; a running attempt keeps its own.
                     if (!mode.equals(item.getCompressionMode())
-                            || item.isAvoidDuplicateTitles() != avoidDuplicateTitles || item.isReplacePages())
+                            || item.isAvoidDuplicateTitles() != avoidDuplicateTitles || item.isReplacePages()
+                            || !StoredGalleryDl.of(item).equals(StoredGalleryDl.of(galleryDl)))
                     {
                         item.setCompressionMode(mode);
                         item.setAvoidDuplicateTitles(avoidDuplicateTitles);
                         item.setReplacePages(false);
+                        setGalleryDlOptions(item, galleryDl);
                         repository.save(item);
                     }
                     // Counted, or the page would say "Nothing to queue" about a link about to download.
@@ -103,6 +109,7 @@ public class DownloadQueueService
             item.setGalleryId(galleryId);
             item.setCompressionMode(mode);
             item.setAvoidDuplicateTitles(avoidDuplicateTitles);
+            setGalleryDlOptions(item, galleryDl);
             item.setQueuedAt(LocalDateTime.now());
             repository.save(item);
             accepted++;
@@ -111,11 +118,54 @@ public class DownloadQueueService
     }
 
     /**
+     * The row's gallery-dl choices.
+     *
+     * @throws PermanentDownloadException when the row's delay is none gallery-dl reads (a hand-edited row): a retry
+     *                                    keeps it, a re-paste replaces it
+     */
+    public static GalleryDlOptions galleryDlOptions(DownloadQueueItem item)
+    {
+        try
+        {
+            return new GalleryDlOptions(item.getCookiesBrowser(), item.isDownloadOriginals(), item.getRequestDelay());
+        }
+        catch (IllegalArgumentException e)
+        {
+            throw new PermanentDownloadException(e.getMessage() + "; paste the link again to choose one.", e);
+        }
+    }
+
+    /**
+     * The row's gallery-dl choices as stored, compared as one value wherever a change matters, so a new choice
+     * cannot be left out of one comparison. Not {@link GalleryDlOptions}: a hand-edited delay must not throw here.
+     */
+    private record StoredGalleryDl(String cookiesBrowser, boolean originals, String delay)
+    {
+        static StoredGalleryDl of(DownloadQueueItem item)
+        {
+            return new StoredGalleryDl(item.getCookiesBrowser(), item.isDownloadOriginals(), item.getRequestDelay());
+        }
+
+        static StoredGalleryDl of(GalleryDlOptions options)
+        {
+            return new StoredGalleryDl(options.cookiesBrowser(), options.originals(), options.delay());
+        }
+    }
+
+    private static void setGalleryDlOptions(DownloadQueueItem item, GalleryDlOptions options)
+    {
+        item.setCookiesBrowser(options.cookiesBrowser());
+        item.setDownloadOriginals(options.originals());
+        item.setRequestDelay(options.delay());
+    }
+
+    /**
      * Always uncompressed and strict: a page that failed to arrive should be a visible failure, not a page
-     * silently left compressed. The gallery's existing row is reused rather than joined by a second.
+     * silently left compressed. The gallery's existing row is reused rather than joined by a second. Its
+     * gallery-dl choices are Settings' defaults: the paste that once chose others is long gone.
      */
     @Transactional
-    public void enqueueFullQuality(String link, String galleryId)
+    public void enqueueFullQuality(String link, String galleryId, GalleryDlOptions galleryDl)
     {
         DownloadQueueItem item = repository.findFirstByGalleryIdOrderByIdAsc(galleryId).orElseGet(() ->
         {
@@ -131,6 +181,7 @@ public class DownloadQueueService
         item.setCompressionMode(BuiltInCompressionMode.NONE.getKey());
         item.setAvoidDuplicateTitles(false);
         item.setReplacePages(true);
+        setGalleryDlOptions(item, galleryDl);
         repository.save(item);
     }
 
@@ -164,7 +215,8 @@ public class DownloadQueueService
         return row.isReplacePages() != attempted.isReplacePages()
                 || row.isIgnoreImageErrors() != attempted.isIgnoreImageErrors()
                 || row.isAvoidDuplicateTitles() != attempted.isAvoidDuplicateTitles()
-                || !Objects.equals(row.getCompressionMode(), attempted.getCompressionMode());
+                || !Objects.equals(row.getCompressionMode(), attempted.getCompressionMode())
+                || !StoredGalleryDl.of(row).equals(StoredGalleryDl.of(attempted));
     }
 
     public enum FailureOutcome

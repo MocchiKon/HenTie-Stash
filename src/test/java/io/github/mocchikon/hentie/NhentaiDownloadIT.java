@@ -72,7 +72,7 @@ class NhentaiDownloadIT
     {
         // GIVEN
         site.simpleGallery("177013", 3);
-        assertThat(queueService.enqueue(List.of("https://nhentai.net/g/177013/1/"), NO_COMPRESSION, false).accepted())
+        assertThat(queueService.enqueue(List.of("https://nhentai.net/g/177013/1/"), TestDownloads.choices(NO_COMPRESSION, false)).accepted())
                 .isEqualTo(1);
         Integer chapterId = null;
         try
@@ -114,7 +114,7 @@ class NhentaiDownloadIT
     {
         // GIVEN a page that fails three times before it arrives.
         site.simpleGallery("178", 2).failNext("/galleries/m178/2.jpg", 500, 503, 502);
-        queueService.enqueue(List.of("nhentai:178"), NO_COMPRESSION, false);
+        queueService.enqueue(List.of("nhentai:178"), TestDownloads.choices(NO_COMPRESSION, false));
         Integer chapterId = null;
         try
         {
@@ -144,7 +144,7 @@ class NhentaiDownloadIT
         Integer[] failures = new Integer[tries];
         Arrays.fill(failures, 500);
         site.simpleGallery("179", 2).failNext("/galleries/m179/2.jpg", failures);
-        queueService.enqueue(List.of("nhentai:179"), NO_COMPRESSION, false);
+        queueService.enqueue(List.of("nhentai:179"), TestDownloads.choices(NO_COMPRESSION, false));
         Integer chapterId = null;
         try
         {

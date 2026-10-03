@@ -1,27 +1,5 @@
 package io.github.mocchikon.hentie.service;
 
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Optional;
-import java.util.Set;
-
-import org.apache.commons.lang3.StringUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageImpl;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-
 import io.github.mocchikon.hentie.dto.MetadataRuleDto;
 import io.github.mocchikon.hentie.dto.MetadataType;
 import io.github.mocchikon.hentie.entity.Metadata;
@@ -32,6 +10,14 @@ import jakarta.persistence.PersistenceContext;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Root;
+import org.apache.commons.lang3.StringUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.data.domain.*;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.*;
 
 /**
  * Standing decisions about metadata names ({@link MetadataRule}). This service never decides <i>whether</i>
@@ -57,10 +43,13 @@ public class MetadataRuleService
 
     /**
      * Keyed by the <b>lower-case</b> name. A rewrite whose target has vanished counts as blocked, rather than
-     * writing a dangling id into a join table.
+     * writing a dangling id into a join table. {@code targetNames} names every rewrite's target, because a tag's
+     * rule turns its {@code ♀}/{@code ♂} versions into the target's ({@link MetadataService#resolveOrCreate}).
      */
-    public record Verdicts(Set<String> blocked, Map<String, Integer> rewrites)
+    public record Verdicts(Set<String> blocked, Map<String, Integer> rewrites, Map<Integer, String> targetNames)
     {
+        static final Verdicts NONE = new Verdicts(Set.of(), Map.of(), Map.of());
+
         public boolean isEmpty()
         {
             return blocked.isEmpty() && rewrites.isEmpty();
@@ -72,16 +61,17 @@ public class MetadataRuleService
     {
         if (lowerNames == null || lowerNames.isEmpty())
         {
-            return new Verdicts(Set.of(), Map.of());
+            return Verdicts.NONE;
         }
         List<MetadataRule> rules = repository.findByTypeAndSourceNameLowerIn(type, lowerNames);
         if (rules.isEmpty())
         {
-            return new Verdicts(Set.of(), Map.of());
+            return Verdicts.NONE;
         }
         var targets = new LinkedHashSet<Integer>();
         rules.stream().map(MetadataRule::getTargetId).filter(Objects::nonNull).forEach(targets::add);
-        Set<Integer> alive = namesByIds(type, targets).keySet();
+        Map<Integer, String> targetNames = namesByIds(type, targets);
+        Set<Integer> alive = targetNames.keySet();
 
         var blocked = new HashSet<String>();
         var rewrites = new HashMap<String, Integer>();
@@ -101,7 +91,7 @@ public class MetadataRuleService
                 blocked.add(rule.getSourceNameLower());
             }
         }
-        return new Verdicts(blocked, rewrites);
+        return new Verdicts(blocked, rewrites, targetNames);
     }
 
     @Transactional(readOnly = true)
@@ -111,7 +101,7 @@ public class MetadataRuleService
         {
             return Optional.empty();
         }
-        return repository.findByTypeAndSourceNameLower(type, MetadataService.normalize(name));
+        return repository.findByTypeAndSourceNameLower(type, MetadataService.canonical(type, name));
     }
 
     @Transactional
@@ -134,7 +124,7 @@ public class MetadataRuleService
         {
             return;
         }
-        String folded = MetadataService.normalize(name);
+        String folded = MetadataService.canonical(type, name);
         MetadataRule rule = repository.findByTypeAndSourceNameLower(type, folded).orElseGet(MetadataRule::new);
         rule.setType(type);
         rule.setSourceNameLower(folded);

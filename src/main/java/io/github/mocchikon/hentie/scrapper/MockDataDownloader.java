@@ -24,7 +24,7 @@ import java.util.Set;
  * <p>The JSON mirrors the real source's shape, so swapping it in changes only the fetch.
  */
 @Component
-public class MockDataDownloader implements DataDownloader
+public class MockDataDownloader implements PageDownloader
 {
     private static final ObjectMapper MAPPER = new ObjectMapper();
 

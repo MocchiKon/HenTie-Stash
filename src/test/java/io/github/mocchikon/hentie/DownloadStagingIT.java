@@ -91,7 +91,7 @@ class DownloadStagingIT
     void shouldStageOutsideTheDataDirectoryAndStillPublishIntoIt() throws IOException
     {
         // GIVEN a queued link, with staging configured away from the data directory.
-        queueService.enqueue(List.of("mock:910"), NO_COMPRESSION, false);
+        queueService.enqueue(List.of("mock:910"), TestDownloads.choices(NO_COMPRESSION, false));
         Integer chapterId = null;
         try
         {
@@ -145,7 +145,7 @@ class DownloadStagingIT
         Integer chapterId = null;
         try
         {
-            queueService.enqueue(List.of("mock:910"), NO_COMPRESSION, false);
+            queueService.enqueue(List.of("mock:910"), TestDownloads.choices(NO_COMPRESSION, false));
             int id = queueRepository.findByLink("mock:910").orElseThrow().getId();
             // ...and the item in the one mode allowed to skip pages.
             assertThat(queueService.retry(id, true, false)).isTrue();

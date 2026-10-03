@@ -1,11 +1,14 @@
 package io.github.mocchikon.hentie.web;
 
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.attribute.PosixFilePermissions;
-import java.util.concurrent.CountDownLatch;
-
+import io.github.mocchikon.hentie.FakeComfyUi;
+import io.github.mocchikon.hentie.TestImages;
+import io.github.mocchikon.hentie.TestWorkflows;
+import io.github.mocchikon.hentie.service.ImageDirectory;
+import io.github.mocchikon.hentie.service.ImageService;
+import io.github.mocchikon.hentie.service.SettingsService;
+import io.github.mocchikon.hentie.service.comfy.ComfyResultCache;
+import io.github.mocchikon.hentie.service.comfy.PageProcessingService;
+import io.github.mocchikon.hentie.service.comfy.WorkflowCatalog;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -19,27 +22,20 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.RequestBuilder;
 import org.springframework.test.web.servlet.ResultActions;
 
-import io.github.mocchikon.hentie.FakeComfyUi;
-import io.github.mocchikon.hentie.TestImages;
-import io.github.mocchikon.hentie.TestWorkflows;
-import io.github.mocchikon.hentie.service.ImageDirectory;
-import io.github.mocchikon.hentie.service.ImageService;
-import io.github.mocchikon.hentie.service.SettingsService;
-import io.github.mocchikon.hentie.service.comfy.ComfyResultCache;
-import io.github.mocchikon.hentie.service.comfy.WorkflowCatalog;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermissions;
+import java.util.concurrent.CountDownLatch;
 
-import static org.assertj.core.api.Assertions.*;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.fail;
 import static org.hamcrest.Matchers.containsString;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.flash;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -53,6 +49,7 @@ class ComfyUiWebIT
     @Autowired ImageDirectory imageDirectory;
     @Autowired ImageService imageService;
     @Autowired ComfyResultCache resultCache;
+    @Autowired PageProcessingService processing;
 
     @TempDir Path tmp;
 
@@ -75,21 +72,30 @@ class ComfyUiWebIT
     }
 
     @AfterEach
-    void tearDown() throws IOException
+    void tearDown() throws Exception
     {
-        release.countDown();
-        comfy.close();
-        // Shared singletons: the next suite must find the defaults again.
-        settingsService.setComfyUiUrl("");
-        settingsService.setComfyUiWorkflowDir("");
-        settingsService.setDefaultWorkflow("");
-        settingsService.setComfyUiStartScript("");
-        settingsService.setComfyUiAutostart(false);
-        catalog.invalidate();
-        imageService.evictDerived(CHAPTER);
-        ImageService.deleteRecursively(chapterDir);
-        // The test profile requires login; a save below may have posted without it.
-        settingsService.setLoginRequired(true);
+        try
+        {
+            // Before the fake goes: a page still wanted would otherwise run in the next test, against its fake.
+            processing.forgetAll();
+        }
+        finally
+        {
+            // Even when a page would not stop: left pointing at a closed fake, every later suite would fail too.
+            release.countDown();
+            comfy.close();
+            // Shared singletons: the next suite must find the defaults again.
+            settingsService.setComfyUiUrl("");
+            settingsService.setComfyUiWorkflowDir("");
+            settingsService.setDefaultWorkflow("");
+            settingsService.setComfyUiStartScript("");
+            settingsService.setComfyUiAutostart(false);
+            catalog.invalidate();
+            imageService.evictDerived(CHAPTER);
+            ImageService.deleteRecursively(chapterDir);
+            // The test profile requires login; a save below may have posted without it.
+            settingsService.setLoginRequired(true);
+        }
     }
 
     // ---- the processed page --------------------------------------------------

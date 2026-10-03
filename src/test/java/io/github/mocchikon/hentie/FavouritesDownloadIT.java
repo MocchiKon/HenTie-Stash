@@ -85,7 +85,7 @@ class FavouritesDownloadIT
         failedRow("https://nhentai.net/g/104/");
 
         // WHEN
-        FavouritesDownloadService.Outcome outcome = favouritesService.queueAll("nhentai", NO_COMPRESSION, true);
+        FavouritesDownloadService.Outcome outcome = favouritesService.queueAll("nhentai", TestDownloads.choices(NO_COMPRESSION, true));
 
         // THEN
         assertThat(outcome.isRefused()).isFalse();
@@ -118,7 +118,7 @@ class FavouritesDownloadIT
         site.favourites(List.of(201), List.of(202)).failNext("/api/v2/favorites?page=2", 500);
 
         // WHEN
-        FavouritesDownloadService.Outcome outcome = favouritesService.queueAll("nhentai", NO_COMPRESSION, false);
+        FavouritesDownloadService.Outcome outcome = favouritesService.queueAll("nhentai", TestDownloads.choices(NO_COMPRESSION, false));
 
         // THEN
         assertThat(outcome.isStopped()).isTrue();
@@ -136,7 +136,7 @@ class FavouritesDownloadIT
         settingsService.setNhentaiApiKey("");
 
         // WHEN
-        FavouritesDownloadService.Outcome outcome = favouritesService.queueAll("nhentai", NO_COMPRESSION, false);
+        FavouritesDownloadService.Outcome outcome = favouritesService.queueAll("nhentai", TestDownloads.choices(NO_COMPRESSION, false));
 
         // THEN
         assertThat(outcome.isRefused()).isTrue();
@@ -148,9 +148,9 @@ class FavouritesDownloadIT
     void shouldRefuseASourceThatHasNoFavourites()
     {
         // WHEN + THEN - the mock source has no accounts.
-        assertThat(favouritesService.queueAll("mock", NO_COMPRESSION, false).summary())
+        assertThat(favouritesService.queueAll("mock", TestDownloads.choices(NO_COMPRESSION, false)).summary())
                 .isEqualTo("No source here can list favourites from \"mock\".");
-        assertThat(favouritesService.queueAll(null, NO_COMPRESSION, false).isRefused()).isTrue();
+        assertThat(favouritesService.queueAll(null, TestDownloads.choices(NO_COMPRESSION, false)).isRefused()).isTrue();
     }
 
     @Test
@@ -160,7 +160,7 @@ class FavouritesDownloadIT
         site.favourites();
 
         // WHEN + THEN
-        assertThat(favouritesService.queueAll("nhentai", NO_COMPRESSION, false).summary())
+        assertThat(favouritesService.queueAll("nhentai", TestDownloads.choices(NO_COMPRESSION, false)).summary())
                 .isEqualTo("Your nhentai favourites list is empty.");
     }
 
@@ -240,7 +240,7 @@ class FavouritesDownloadIT
     /** As {@code recordFailure} leaves a row that used up its attempts. */
     private void failedRow(String link)
     {
-        queueService.enqueue(List.of(link), NO_COMPRESSION, false);
+        queueService.enqueue(List.of(link), TestDownloads.choices(NO_COMPRESSION, false));
         DownloadQueueItem item = queueRepository.findByLink(link).orElseThrow();
         item.setAttempts(3);
         item.setError("failed before");

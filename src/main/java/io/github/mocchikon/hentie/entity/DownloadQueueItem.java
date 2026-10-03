@@ -1,17 +1,11 @@
 package io.github.mocchikon.hentie.entity;
 
-import java.time.LocalDateTime;
-
 import io.github.mocchikon.hentie.dto.BuiltInCompressionMode;
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
-import jakarta.persistence.Index;
-import jakarta.persistence.Table;
+import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
+
+import java.time.LocalDateTime;
 
 /**
  * Half of the crash recovery: the row is deleted only after the last step, so a killed app finds it still
@@ -80,6 +74,21 @@ public class DownloadQueueItem
      */
     @Column(name = "replace_pages", nullable = false, columnDefinition = "boolean not null default 0")
     private boolean replacePages = false;
+
+    /**
+     * The browser gallery-dl reads cookies from, null for none. Like the two below: picked on the paste form,
+     * replaced by a re-paste, kept by retries, and read only by gallery-dl sources.
+     */
+    @Column(name = "cookies_browser", length = 32)
+    private String cookiesBrowser;
+
+    /** e-hentai's original files: they cost far more of the account's image limit. */
+    @Column(name = "download_originals", nullable = false, columnDefinition = "boolean not null default 0")
+    private boolean downloadOriginals = false;
+
+    /** Seconds between two image requests, as gallery-dl reads it. */
+    @Column(name = "request_delay", nullable = false, length = 32)
+    private String requestDelay;
 
     @Column(name = "queued_at", nullable = false)
     private LocalDateTime queuedAt = LocalDateTime.now();

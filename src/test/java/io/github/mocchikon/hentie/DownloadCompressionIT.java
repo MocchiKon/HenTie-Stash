@@ -1,22 +1,5 @@
 package io.github.mocchikon.hentie;
 
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.Comparator;
-import java.util.List;
-import java.util.stream.Stream;
-
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.Assumptions;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.transaction.annotation.Transactional;
-
 import io.github.mocchikon.hentie.dto.BuiltInCompressionMode;
 import io.github.mocchikon.hentie.entity.Chapter;
 import io.github.mocchikon.hentie.entity.DownloadStatus;
@@ -33,8 +16,24 @@ import io.github.mocchikon.hentie.service.download.DownloadQueueService;
 import io.github.mocchikon.hentie.service.download.DownloadWorker;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assumptions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.transaction.annotation.Transactional;
 
-import static org.assertj.core.api.Assertions.*;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.Comparator;
+import java.util.List;
+import java.util.stream.Stream;
+
+import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * The paste form's mode rides the queue row, so most tests here check that it survives re-queueing, retries
@@ -90,7 +89,7 @@ class DownloadCompressionIT
         assumeTool("cjxl");
         // GIVEN a user-defined lossy JPEG XL mode, and a link queued with it.
         String key = modeService.save(mode("Download JXL", "-q 40 -e 1"));
-        assertThat(queueService.enqueue(List.of("mock:8100"), key, false).accepted()).isEqualTo(1);
+        assertThat(queueService.enqueue(List.of("mock:8100"), TestDownloads.choices(key, false)).accepted()).isEqualTo(1);
 
         // WHEN the worker takes it.
         assertThat(worker.processNext()).isTrue();
@@ -117,7 +116,7 @@ class DownloadCompressionIT
     void shouldPublishTheDownloadedPagesUntouchedWhenTheModeIsNone()
     {
         // GIVEN
-        assertThat(queueService.enqueue(List.of("mock:8100"), BuiltInCompressionMode.NONE.getKey(), false)
+        assertThat(queueService.enqueue(List.of("mock:8100"), TestDownloads.choices(BuiltInCompressionMode.NONE.getKey(), false))
                 .accepted()).isEqualTo(1);
 
         // WHEN
@@ -138,7 +137,7 @@ class DownloadCompressionIT
     void shouldStoreTheChosenModeOnTheQueueRowWhenLinksAreQueued()
     {
         // GIVEN + WHEN
-        var result = queueService.enqueue(List.of("mock:8100"), BuiltInCompressionMode.LOSSLESS.getKey(), false);
+        var result = queueService.enqueue(List.of("mock:8100"), TestDownloads.choices(BuiltInCompressionMode.LOSSLESS.getKey(), false));
 
         // THEN
         assertThat(result.accepted()).isEqualTo(1);
@@ -154,7 +153,7 @@ class DownloadCompressionIT
     void shouldReplaceTheModeOnAFailedRowWhenTheLinkIsPastedAgain()
     {
         // GIVEN a row that failed after being queued with one mode.
-        queueService.enqueue(List.of("mock:8100"), BuiltInCompressionMode.LOSSLESS.getKey(), false);
+        queueService.enqueue(List.of("mock:8100"), TestDownloads.choices(BuiltInCompressionMode.LOSSLESS.getKey(), false));
         var item = queueRepository.findByLink("mock:8100").orElseThrow();
         item.setError("boom");
         item.setIgnoreImageErrors(true);
@@ -162,8 +161,7 @@ class DownloadCompressionIT
         em.flush();
 
         // WHEN it is pasted again, this time with a different mode.
-        var result = queueService.enqueue(List.of("mock:8100"),
-                BuiltInCompressionMode.VERY_HIGH_REDUCTION.getKey(), false);
+        var result = queueService.enqueue(List.of("mock:8100"), TestDownloads.choices(BuiltInCompressionMode.VERY_HIGH_REDUCTION.getKey(), false));
 
         // THEN the one row is revived, carrying the new mode and back in the strict image mode.
         assertThat(result.requeued()).isEqualTo(1);
@@ -182,12 +180,11 @@ class DownloadCompressionIT
     void shouldReplaceTheModeOnAPendingRowWhenTheLinkIsPastedAgain()
     {
         // GIVEN a link still waiting, queued with one mode.
-        queueService.enqueue(List.of("mock:8100"), BuiltInCompressionMode.LOSSLESS.getKey(), false);
+        queueService.enqueue(List.of("mock:8100"), TestDownloads.choices(BuiltInCompressionMode.LOSSLESS.getKey(), false));
         em.flush();
 
         // WHEN it is pasted again with a different mode.
-        var result = queueService.enqueue(List.of("mock:8100"),
-                BuiltInCompressionMode.HIGH_REDUCTION.getKey(), false);
+        var result = queueService.enqueue(List.of("mock:8100"), TestDownloads.choices(BuiltInCompressionMode.HIGH_REDUCTION.getKey(), false));
 
         // THEN it is still the one waiting row, now carrying the new mode.
         assertThat(result.alreadyQueued()).isEqualTo(1);
@@ -209,7 +206,7 @@ class DownloadCompressionIT
         assumeTool("cjxl");
         // GIVEN a three-page gallery whose last page is missing, queued uncompressed...
         writeGallery("8101", 3, 2);
-        queueService.enqueue(List.of("mock:8101"), BuiltInCompressionMode.NONE.getKey(), false);
+        queueService.enqueue(List.of("mock:8101"), TestDownloads.choices(BuiltInCompressionMode.NONE.getKey(), false));
         // ...and a first attempt that stages pages 1-2 as they are and then fails on page 3.
         assertThat(worker.processNext()).isTrue();
         em.flush();
@@ -218,7 +215,7 @@ class DownloadCompressionIT
                 .containsExactlyInAnyOrder(1, 2);
 
         // WHEN the link is pasted again with a JPEG XL mode, the missing page turns up, and it is retried.
-        queueService.enqueue(List.of("mock:8101"), modeService.save(mode("Changed mode", "-q 40 -e 1")), false);
+        queueService.enqueue(List.of("mock:8101"), TestDownloads.choices(modeService.save(mode("Changed mode", "-q 40 -e 1")), false));
         Files.write(MOCK_DIR.resolve("galleries/8101/3.png"), TestImages.png(SIZE, SIZE));
         assertThat(worker.processNext()).isTrue();
         em.flush();
@@ -245,7 +242,7 @@ class DownloadCompressionIT
         var pngOnly = mode("PNG only", "-q 40 -e 1");
         pngOnly.setFormats("PNG");
         String key = modeService.save(pngOnly);
-        queueService.enqueue(List.of("mock:8102"), key, false);
+        queueService.enqueue(List.of("mock:8102"), TestDownloads.choices(key, false));
         // ...and a first attempt that compresses pages 1-2 in staging and then fails on page 3.
         assertThat(worker.processNext()).isTrue();
         em.flush();
@@ -281,7 +278,7 @@ class DownloadCompressionIT
         // attempt that compresses pages 1-2 in staging and then fails on page 3...
         writeGallery("8103", 3, 2);
         String key = modeService.save(mode("Before publishing", "-q 40 -e 1"));
-        queueService.enqueue(List.of("mock:8103"), key, false);
+        queueService.enqueue(List.of("mock:8103"), TestDownloads.choices(key, false));
         assertThat(worker.processNext()).isTrue();
         em.flush();
         createdChapterId = chapterRepository.findByGalleryId("mock:8103").orElseThrow().getId();
@@ -309,7 +306,7 @@ class DownloadCompressionIT
     {
         // GIVEN a link queued with a mode that is then deleted.
         String key = modeService.save(mode("Doomed", "-q 40 -e 1"));
-        queueService.enqueue(List.of("mock:8100"), key, false);
+        queueService.enqueue(List.of("mock:8100"), TestDownloads.choices(key, false));
         modeService.delete(ImageCompressionModeService.customId(key));
         em.flush();
 
@@ -333,7 +330,7 @@ class DownloadCompressionIT
         assumeTool("cjxl");
         // GIVEN
         String key = modeService.save(mode("Staging check", "-q 40 -e 1"));
-        queueService.enqueue(List.of("mock:8100"), key, false);
+        queueService.enqueue(List.of("mock:8100"), TestDownloads.choices(key, false));
 
         // WHEN
         assertThat(worker.processNext()).isTrue();

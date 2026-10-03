@@ -112,7 +112,7 @@ class DataDownloaderRegistryTest
         assertThat(registry.favouritesSource(null)).isEmpty();
     }
 
-    private record StubFavouritesSource(String prefix) implements FavouritesSource
+    private record StubFavouritesSource(String prefix) implements FavouritesSource, PageDownloader
     {
         @Override
         public String sourcePrefix()
@@ -163,7 +163,7 @@ class DataDownloaderRegistryTest
         }
     }
 
-    private record StubDownloader(String prefix, String marker, String pageLinkTemplate) implements DataDownloader
+    private record StubDownloader(String prefix, String marker, String pageLinkTemplate) implements PageDownloader
     {
         StubDownloader(String prefix, String marker)
         {

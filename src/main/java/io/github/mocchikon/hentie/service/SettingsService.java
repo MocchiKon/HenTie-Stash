@@ -7,6 +7,7 @@ import io.github.mocchikon.hentie.dto.TitleDisplayMode;
 import io.github.mocchikon.hentie.entity.Setting;
 import io.github.mocchikon.hentie.entity.ViewMode;
 import io.github.mocchikon.hentie.repository.SettingRepository;
+import io.github.mocchikon.hentie.scrapper.gallerydl.GalleryDlOptions;
 import io.github.mocchikon.hentie.service.scratch.ScratchArea;
 import jakarta.annotation.PostConstruct;
 import org.apache.commons.lang3.StringUtils;
@@ -53,6 +54,10 @@ public class SettingsService
     /** Use ImageMagick/cjxl/avifenc from the PATH instead of the copies bundled beside the jar. */
     public static final String IMAGE_TOOLS_SYSTEM = "image.compression.system-binaries";
     public static final String JXL_DELIVERY = "image.jxl.delivery";
+    public static final String GALLERY_DL_SYSTEM = "gallery-dl.system-binary";
+    public static final String GALLERY_DL_COOKIES_BROWSER = "gallery-dl.cookies-browser";
+    public static final String GALLERY_DL_ORIGINALS = "gallery-dl.originals";
+    public static final String GALLERY_DL_DELAY = "gallery-dl.delay";
     public static final String COMFYUI_URL = "comfyui.url";
     /** The folder inside ComfyUI's user folder whose API-format workflows are offered. */
     public static final String COMFYUI_WORKFLOW_DIR = "comfyui.workflow-dir";
@@ -285,6 +290,30 @@ public class SettingsService
         return Boolean.parseBoolean(cache.getOrDefault(IMAGE_TOOLS_SYSTEM, "false"));
     }
 
+    /** Off by default, like the image tools: the bundled copy is known to work and needs no installation. */
+    public boolean isSystemGalleryDlEnabled()
+    {
+        return Boolean.parseBoolean(cache.getOrDefault(GALLERY_DL_SYSTEM, "false"));
+    }
+
+    /**
+     * What the Download page starts at, and what a full-quality re-download uses. Stored values were checked on
+     * the way in; {@link GalleryDlOptions} checks them again, so a hand-edited row cannot reach the command line.
+     */
+    public GalleryDlOptions getGalleryDlDefaults()
+    {
+        return new GalleryDlOptions(cache.get(GALLERY_DL_COOKIES_BROWSER),
+                Boolean.parseBoolean(cache.getOrDefault(GALLERY_DL_ORIGINALS, "false")),
+                GalleryDlOptions.normalizedDelay(cache.get(GALLERY_DL_DELAY))
+                        .orElseGet(this::defaultGalleryDlDelay));
+    }
+
+    /** {@code app.gallery-dl.default-delay}, or none if an install set it to something gallery-dl cannot read. */
+    public String defaultGalleryDlDelay()
+    {
+        return GalleryDlOptions.normalizedDelay(appProperties.getGalleryDl().getDefaultDelay()).orElse("0");
+    }
+
     public JxlDelivery getJxlDelivery()
     {
         try
@@ -423,6 +452,21 @@ public class SettingsService
     public void setSystemImageToolsEnabled(boolean enabled)
     {
         put(IMAGE_TOOLS_SYSTEM, Boolean.toString(enabled));
+    }
+
+    @Transactional
+    public void setSystemGalleryDlEnabled(boolean enabled)
+    {
+        put(GALLERY_DL_SYSTEM, Boolean.toString(enabled));
+    }
+
+    /** The caller has validated the delay (only it can report a refusal); the browser is whitelisted here. */
+    @Transactional
+    public void setGalleryDlDefaults(GalleryDlOptions defaults)
+    {
+        put(GALLERY_DL_COOKIES_BROWSER, StringUtils.defaultString(defaults.cookiesBrowser()));
+        put(GALLERY_DL_ORIGINALS, Boolean.toString(defaults.originals()));
+        put(GALLERY_DL_DELAY, defaults.delay());
     }
 
     @Transactional
