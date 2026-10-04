@@ -18,6 +18,7 @@ import io.github.mocchikon.hentie.service.compress.ImageCompressionModeService;
 import io.github.mocchikon.hentie.service.compress.JxlTranscoder;
 import io.github.mocchikon.hentie.service.scratch.ScratchArea;
 import io.github.mocchikon.hentie.service.scratch.ScratchSpace;
+import io.github.mocchikon.hentie.service.subscription.SubscriptionRunner;
 import lombok.RequiredArgsConstructor;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Controller;
@@ -30,6 +31,9 @@ import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.*;
+import java.util.function.Consumer;
+import java.util.function.Function;
+import java.util.regex.Pattern;
 
 @Controller
 @RequiredArgsConstructor
@@ -37,6 +41,10 @@ public class SettingsController
 {
     /** What BCrypt reads of a password; see {@link #passwordProblem}. */
     static final int MAX_PASSWORD_BYTES = 72;
+
+    private static final Pattern MEMBER_ID = Pattern.compile("\\d{1,12}");
+    private static final Pattern PASS_HASH = Pattern.compile("[0-9a-fA-F]{32}");
+    private static final Pattern IGNEOUS = Pattern.compile("[0-9a-fA-F]{1,64}");
 
     private final SettingsService settingsService;
     private final ImageCompressionModeService compressionModeService;
@@ -48,6 +56,7 @@ public class SettingsController
     private final AppShutdown appShutdown;
     private final WriteGate writeGate;
     private final GalleryDlTool galleryDlTool;
+    private final SubscriptionRunner subscriptionRunner;
 
     @GetMapping("/settings")
     public String index(Model model) throws InterruptedException
@@ -60,6 +69,9 @@ public class SettingsController
         model.addAttribute("maxPagesAhead", SettingsService.MAX_PAGES_AHEAD);
         model.addAttribute("searchPageSize", settingsService.getSearchPageSize());
         model.addAttribute("nhentaiApiKey", settingsService.getNhentaiApiKey());
+        model.addAttribute("ehentaiMemberId", settingsService.getEhentaiMemberId());
+        model.addAttribute("ehentaiPassHash", settingsService.getEhentaiPassHash());
+        model.addAttribute("ehentaiIgneous", settingsService.getEhentaiIgneous());
         model.addAttribute("titleDisplayMode", settingsService.getTitleDisplayMode());
         model.addAttribute("titleDisplayModes", TitleDisplayMode.values());
         model.addAttribute("matchAutoLink", settingsService.isMatchAutoLinkEnabled());
@@ -171,11 +183,20 @@ public class SettingsController
         settingsService.setSystemImageToolsEnabled(systemImageTools);
         settingsService.setJxlDelivery(jxlDelivery);
         Optional<String> galleryDlRefusal = saveGalleryDl(params, systemGalleryDl);
+        List<String> accountRefusals = saveEhentaiAccount(params);
         List<String> comfyRefusals = saveComfyUi(params, comfyAutostart);
         Optional<String> refusal = saveScratchFolders(params);
-        if (loginRefusal.isPresent() || refusal.isPresent() || !comfyRefusals.isEmpty() || galleryDlRefusal.isPresent())
+        // An API key or account cookies may be what a subscription waited for.
+        subscriptionRunner.kick();
+        if (loginRefusal.isPresent() || refusal.isPresent() || !comfyRefusals.isEmpty() || galleryDlRefusal.isPresent()
+                || !accountRefusals.isEmpty())
         {
             galleryDlRefusal.ifPresent(reason -> redirect.addFlashAttribute("galleryDlError", reason));
+            if (!accountRefusals.isEmpty())
+            {
+                redirect.addFlashAttribute("ehentaiAccountError", "The other settings were saved, but "
+                        + String.join(" Also, ", accountRefusals));
+            }
             // Not "?saved": a green "Settings saved." above a refusal reads as if the refused value took effect.
             loginRefusal.ifPresent(reason -> redirect.addFlashAttribute("loginError", reason));
             refusal.ifPresent(reason -> redirect.addFlashAttribute("storageError", reason));
@@ -213,6 +234,53 @@ public class SettingsController
                 Boolean.parseBoolean(params.get("galleryDlOriginals")), delay.orElse(before.delay())));
         return delay.isPresent() ? Optional.empty() : Optional.of("The other settings were saved, but "
                 + ChapterController.delayProblem(params.get("galleryDlDelay")) + " The default delay was not changed.");
+    }
+
+    /**
+     * Each cookie is checked on its own and a refused one keeps its value: they go into a request header, so only
+     * their own characters may. Missing fields (a POST without this section) keep their values; blank clears one.
+     *
+     * @return why values were refused, one sentence each
+     */
+    private List<String> saveEhentaiAccount(Map<String, String> params)
+    {
+        var refusals = new ArrayList<String>();
+        for (AccountCookie cookie : accountCookies())
+        {
+            if (!params.containsKey(cookie.param()))
+            {
+                continue;
+            }
+            String value = StringUtils.strip(params.get(cookie.param()));
+            if (StringUtils.isEmpty(value) || cookie.shape().matcher(value).matches())
+            {
+                cookie.save().accept(value);
+            }
+            else
+            {
+                refusals.add(cookie.refusal().apply(value));
+            }
+        }
+        return refusals;
+    }
+
+    /** @param refusal why a value of the wrong shape was not saved, given the value */
+    private record AccountCookie(String param, Pattern shape, Consumer<String> save, Function<String, String> refusal)
+    {
+    }
+
+    private List<AccountCookie> accountCookies()
+    {
+        return List.of(
+                new AccountCookie("ehentaiMemberId", MEMBER_ID, settingsService::setEhentaiMemberId,
+                        value -> "ipb_member_id is a number, so \"" + shown(value) + "\" was not saved."),
+                new AccountCookie("ehentaiPassHash", PASS_HASH, settingsService::setEhentaiPassHash,
+                        value -> "ipb_pass_hash is 32 letters and digits (0-9, a-f), so \"" + shown(value)
+                                + "\" was not saved."),
+                new AccountCookie("ehentaiIgneous", IGNEOUS, settingsService::setEhentaiIgneous,
+                        value -> "mystery".equalsIgnoreCase(value)
+                                ? "igneous=mystery means exhentai gives the account no access, so it was not saved."
+                                : "igneous is letters and digits (0-9, a-f), so \"" + shown(value) + "\" was not saved."));
     }
 
     @PostMapping("/settings/gallery-dl/update")

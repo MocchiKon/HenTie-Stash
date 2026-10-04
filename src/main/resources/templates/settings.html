@@ -14,6 +14,7 @@
     <div th:if="${storageError}" class="alert error" role="alert" th:text="${storageError}">error</div>
     <div th:if="${comfyuiError}" class="alert error" role="alert" th:text="${comfyuiError}">error</div>
     <div th:if="${galleryDlError}" class="alert error" role="alert" th:text="${galleryDlError}">error</div>
+    <div th:if="${ehentaiAccountError}" class="alert error" role="alert" th:text="${ehentaiAccountError}">error</div>
 
     <form class="edit-form" method="post" th:action="@{/settings}">
         <label class="checkbox big">
@@ -145,6 +146,34 @@
         <p class="hint">
             A number, or a range for a random wait, e.g. 0.4-0.65. Too low a value can get your IP temporarily
             banned by e-hentai.
+        </p>
+
+        <h2 class="section-title" id="ehentai-account">e-hentai account (exhentai subscriptions)</h2>
+        <p class="hint">
+            exhentai shows its search only to a logged-in account, so an exhentai subscription sends your e-hentai
+            account's cookies with each search. Copy them from your browser while you are logged in to e-hentai: open
+            its developer tools (F12), then Storage (Firefox) or Application (Chrome), Cookies, e-hentai.org. They are
+            kept in this app's database, like the nhentai API key, and sent only to e-hentai's own sites. Downloads
+            still read the cookies of the browser chosen above.
+        </p>
+        <div class="field">
+            <label for="ehentaiMemberId">ipb_member_id</label>
+            <input type="text" id="ehentaiMemberId" name="ehentaiMemberId" th:value="${ehentaiMemberId}"
+                   class="short-input" maxlength="20" inputmode="numeric" autocomplete="off" spellcheck="false">
+        </div>
+        <div class="field">
+            <label for="ehentaiPassHash">ipb_pass_hash</label>
+            <input type="text" id="ehentaiPassHash" name="ehentaiPassHash" th:value="${ehentaiPassHash}"
+                   maxlength="64" autocomplete="off" spellcheck="false">
+        </div>
+        <div class="field">
+            <label for="ehentaiIgneous">igneous (optional)</label>
+            <input type="text" id="ehentaiIgneous" name="ehentaiIgneous" th:value="${ehentaiIgneous}"
+                   maxlength="64" autocomplete="off" spellcheck="false">
+        </div>
+        <p class="hint">
+            One of exhentai.org's own cookies. Without it the app gets one from exhentai the way your browser did;
+            give it when exhentai still refuses the account.
         </p>
 
         <h2 class="section-title">Image Compression</h2>

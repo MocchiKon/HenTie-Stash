@@ -4,6 +4,7 @@ import io.github.mocchikon.hentie.dto.ChapterForm;
 import io.github.mocchikon.hentie.dto.ChapterViewModel;
 import io.github.mocchikon.hentie.dto.MetadataType;
 import io.github.mocchikon.hentie.dto.SelectedFilters;
+import io.github.mocchikon.hentie.entity.DownloadQueueItem;
 import io.github.mocchikon.hentie.entity.Status;
 import io.github.mocchikon.hentie.entity.ViewMode;
 import io.github.mocchikon.hentie.scrapper.DataDownloaderRegistry;
@@ -15,6 +16,7 @@ import io.github.mocchikon.hentie.service.download.DownloadChoices;
 import io.github.mocchikon.hentie.service.download.DownloadQueueService;
 import io.github.mocchikon.hentie.service.download.DownloadWorker;
 import io.github.mocchikon.hentie.service.download.FavouritesDownloadService;
+import io.github.mocchikon.hentie.service.subscription.SubscriptionService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.apache.commons.lang3.StringUtils;
@@ -30,7 +32,11 @@ import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import java.io.IOException;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 @Controller
@@ -61,6 +67,7 @@ public class ChapterController
     private final DataDownloaderRegistry downloaderRegistry;
     private final FavouritesDownloadService favouritesDownloadService;
     private final ImageCompressionModeService compressionModeService;
+    private final SubscriptionService subscriptionService;
 
     // --- Add a chapter manually -------------------------------------------------
 
@@ -171,23 +178,26 @@ public class ChapterController
         return REDIRECT_CHAPTER_QUEUE;
     }
 
-    /**
-     * Empty when the delay is not one gallery-dl can read and a link goes through gallery-dl. A missing or cleared
-     * field means Settings' default, and so does an unreadable one that nothing will read (nhentai and chaika ignore
-     * it).
-     */
+    /** Empty when the delay is refused (see {@link #delayOrDefault}). */
     private Optional<DownloadChoices> downloadChoices(String compressionMode, boolean avoidDuplicateTitles,
                                                       String cookiesBrowser, boolean downloadOriginals,
                                                       String requestDelay, boolean usesGalleryDl)
     {
+        return delayOrDefault(requestDelay, usesGalleryDl, settingsService.getGalleryDlDefaults().delay())
+                .map(d -> new DownloadChoices(compressionMode, avoidDuplicateTitles,
+                        new GalleryDlOptions(cookiesBrowser, downloadOriginals, d)));
+    }
+
+    /**
+     * The delay a paste or a subscription gets, one rule for both forms. Empty when it is not one gallery-dl can read
+     * and gallery-dl will read it, which the form reports. A missing or cleared field means Settings' default, and so
+     * does an unreadable one that nothing will read (nhentai and chaika ignore it).
+     */
+    static Optional<String> delayOrDefault(String requestDelay, boolean readByGalleryDl, String defaultDelay)
+    {
         boolean blank = StringUtils.isBlank(requestDelay);
         Optional<String> delay = blank ? Optional.empty() : GalleryDlOptions.normalizedDelay(requestDelay);
-        if (delay.isEmpty() && (blank || !usesGalleryDl))
-        {
-            delay = Optional.of(settingsService.getGalleryDlDefaults().delay());
-        }
-        return delay.map(d -> new DownloadChoices(compressionMode, avoidDuplicateTitles,
-                new GalleryDlOptions(cookiesBrowser, downloadOriginals, d)));
+        return delay.isEmpty() && (blank || !readByGalleryDl) ? Optional.of(defaultDelay) : delay;
     }
 
     private String downloadFormWithDelayError(Model model, String links, String compressionMode,
@@ -249,12 +259,28 @@ public class ChapterController
     public String queue(Model model)
     {
         model.addAttribute("progress", downloadWorker.progress());
-        model.addAttribute("pending", downloadQueueService.pending());
+        var pending = downloadQueueService.pending();
+        model.addAttribute("pending", pending);
         model.addAttribute("failed", downloadQueueService.failed());
+        model.addAttribute("subscriptionTitles", subscriptionService.titlesById());
+        model.addAttribute("deferredUntil", deferredUntil(pending));
         model.addAttribute("listLimit", DownloadQueueService.LIST_LIMIT);
         // Once per render, not per row: each mode lookup is a repository read.
         model.addAttribute("compressionModeNames", compressionModeService.namesByKey());
         return "download-queue";
+    }
+
+    /** A subscription's rows of a source sitting out a ban wait for it, and the page says until when. */
+    private Map<Integer, String> deferredUntil(List<DownloadQueueItem> pending)
+    {
+        var deferred = new HashMap<Integer, String>();
+        LocalDateTime now = LocalDateTime.now();
+        for (var item : pending)
+        {
+            downloadQueueService.deferredUntil(item).ifPresent(until -> deferred.put(item.getId(),
+                    SubscriptionService.when(LocalDateTime.ofInstant(until, ZoneId.systemDefault()), now)));
+        }
+        return deferred;
     }
 
     @PostMapping("/queue/pause")

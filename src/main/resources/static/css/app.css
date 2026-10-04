@@ -715,6 +715,24 @@ a.meta-gallery:hover { color: var(--text); }
 .rule-actions { margin: 0 0 0 auto; }
 .rule-actions .inline-form { margin: 0; }
 
+/* ===== Subscriptions ===== */
+.subscription-list { list-style: none; margin: .75rem 0 0; padding: 0; display: flex; flex-direction: column; gap: .75rem; }
+.subscription-item {
+    min-width: 0; padding: .75rem 1rem;
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+}
+.subscription-item .hint { margin: .25rem 0; }
+.subscription-head { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+.subscription-status { margin: .5rem 0 .25rem; min-width: 0; overflow-wrap: anywhere; word-break: break-word; }
+.subscription-status.warning { color: var(--warning-text); }
+.subscription-status.error { color: var(--danger-text); }
+.subscription-actions { margin-top: .5rem; }
+.subscription-actions .inline-form { margin: 0; }
+/* A whole search address can be long and space-less. */
+.query-input { min-height: 4.5rem; resize: vertical; font-family: ui-monospace, "Cascadia Code", Consolas, monospace; }
+/* app.js hides these while another site is chosen; a display rule of their own would win over [hidden]. */
+[data-shown-for][hidden] { display: none; }
+
 /* ===== Responsive ===== */
 @media (max-width: 720px) {
     .nav-toggle { display: block; }

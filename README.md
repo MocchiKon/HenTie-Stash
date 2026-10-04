@@ -113,10 +113,17 @@ stored as they arrive.
   one at a time; **View download queue** shows how far it got and what failed. **Download all favourites**
   queues every gallery in your nhentai favourites that is not in your library yet; it needs your nhentai
   API key (see Settings). A gallery's artists written as `name1 | name2` become two artists.
+- **Subscriptions** (Manage → Chapters → Subscriptions): follow a search on nhentai, e-hentai or exhentai —
+  e.g. an artist, or a tag in your language. The app queues every gallery the search already has, newest
+  first, then checks for new ones as often as you choose (every 10 minutes at the most), and once a day it
+  looks at the last two days again, for galleries that were tagged after they were uploaded. It never queues a
+  gallery you already have or downloaded before (even if you deleted it since). What a subscription queues
+  downloads after the links you paste, and it keeps only about a hundred galleries waiting at a time, so it
+  goes at the pace of your downloads. exhentai needs your e-hentai account's cookies in Settings.
 - **Settings**: turn the login requirement on/off, choose the default reading size, change your
-  password, store your nhentai API key (create one in your nhentai account settings, under API keys), and
-  choose how JPEG XL pages are sent to your browser (some browsers cannot show them, so they are turned
-  into PNG on the way out).
+  password, store your nhentai API key (create one in your nhentai account settings, under API keys) and
+  your e-hentai account's cookies (for exhentai subscriptions), and choose how JPEG XL pages are sent to your
+  browser (some browsers cannot show them, so they are turned into PNG on the way out).
 
 Every **delete** asks you to confirm first.
 

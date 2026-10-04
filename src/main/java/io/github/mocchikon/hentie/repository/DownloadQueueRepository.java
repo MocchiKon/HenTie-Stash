@@ -3,6 +3,7 @@ package io.github.mocchikon.hentie.repository;
 import io.github.mocchikon.hentie.entity.DownloadQueueItem;
 import org.springframework.data.domain.Limit;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -13,9 +14,11 @@ import java.util.Optional;
 
 /**
  * The download queue. "Pending" is {@code error is null} and "failed" is {@code error is not null} - see
- * {@link DownloadQueueItem} for why there is no status column.
+ * {@link DownloadQueueItem} for why there is no status column. Both run in {@code (priority, id)} order, so what the
+ * user asked for comes before what a subscription found.
  */
-public interface DownloadQueueRepository extends JpaRepository<DownloadQueueItem, Integer>
+public interface DownloadQueueRepository extends JpaRepository<DownloadQueueItem, Integer>,
+        JpaSpecificationExecutor<DownloadQueueItem>
 {
     Optional<DownloadQueueItem> findByLink(String link);
 
@@ -26,6 +29,9 @@ public interface DownloadQueueRepository extends JpaRepository<DownloadQueueItem
      */
     Optional<DownloadQueueItem> findFirstByGalleryIdOrderByIdAsc(String galleryId);
 
+    /** {@code link} is UNIQUE on its own, apart from the gallery id, so an insert is checked against both. */
+    boolean existsByGalleryIdOrLink(String galleryId, String link);
+
     /** A failed row does not count: nothing runs it until a retry, which works out its pages afresh. */
     boolean existsByGalleryIdAndErrorIsNull(String galleryId);
 
@@ -34,15 +40,34 @@ public interface DownloadQueueRepository extends JpaRepository<DownloadQueueItem
     @Query("delete from DownloadQueueItem i where i.galleryId in :galleryIds")
     int deleteByGalleryIdIn(@Param("galleryIds") Collection<String> galleryIds);
 
-    Optional<DownloadQueueItem> findFirstByErrorIsNullOrderByIdAsc();
+    List<DownloadQueueItem> findByErrorIsNullOrderByPriorityAscIdAsc(Limit limit);
 
-    List<DownloadQueueItem> findByErrorIsNullOrderByIdAsc(Limit limit);
-
-    List<DownloadQueueItem> findByErrorIsNotNullOrderByIdAsc(Limit limit);
+    List<DownloadQueueItem> findByErrorIsNotNullOrderByPriorityAscIdAsc(Limit limit);
 
     long countByErrorIsNull();
 
     long countByErrorIsNotNull();
+
+    long countBySubscriptionIdAndErrorIsNull(int subscriptionId);
+
+    long countBySubscriptionIdAndErrorIsNotNull(int subscriptionId);
+
+    /** Waiting rows per subscription, for the subscriptions page; one query for every subscription. */
+    @Query("select i.subscriptionId as subscriptionId, count(i) as rowCount from DownloadQueueItem i "
+            + "where i.subscriptionId is not null and i.error is null group by i.subscriptionId")
+    List<SubscriptionRows> waitingBySubscription();
+
+    /** Failed rows per subscription, as {@link #waitingBySubscription}. */
+    @Query("select i.subscriptionId as subscriptionId, count(i) as rowCount from DownloadQueueItem i "
+            + "where i.subscriptionId is not null and i.error is not null group by i.subscriptionId")
+    List<SubscriptionRows> failedBySubscription();
+
+    interface SubscriptionRows
+    {
+        Integer getSubscriptionId();
+
+        long getRowCount();
+    }
 
     /**
      * {@code ignoreImageErrors} is assigned, not OR-ed, so a plain retry puts a lenient item back into

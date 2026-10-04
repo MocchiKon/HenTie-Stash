@@ -11,14 +11,20 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.Instant;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.function.Supplier;
 
 /**
@@ -50,10 +56,14 @@ final class NhentaiApi
 
     private final RequestPacer galleryPacer = new RequestPacer();
     private final RequestPacer favouritesPacer = new RequestPacer();
+    private final RequestPacer searchPacer = new RequestPacer();
     private final RequestPacer serverListPacer = new RequestPacer();
     private final RequestPacer imagePacer = new RequestPacer();
 
     private volatile ServerList imageServers;
+
+    /** nhentai's clock minus this machine's, from the last answer's {@code Date} header; null before the first. */
+    private volatile Duration serverClockOffset;
 
     /** Keyed by the API address, so a list from one never serves another (the tests switch fakes). */
     private record ServerList(String baseUrl, List<String> servers, long fetchedAtNanos)
@@ -118,6 +128,32 @@ final class NhentaiApi
         HttpResponse<byte[]> response = send(api, apiRequest("/api/v2/favorites?page=" + page, key), favouritesPacer,
                 RequestPacer.interval(properties.getFavouritesRequestsPerMinute()));
         return json(response, "page " + page + " of your favourites");
+    }
+
+    /**
+     * One page of a search, newest first ({@code sort=date}). Sent with the API key when there is one: nhentai allows
+     * more searches a minute with it.
+     */
+    JsonNode search(String query, int page) throws IOException
+    {
+        String key = currentKey();
+        int perMinute = key == null
+                ? properties.getSearchRequestsPerMinute() : properties.getSearchRequestsPerMinuteWithKey();
+        String pathAndQuery = "/api/v2/search?query=" + URLEncoder.encode(query, StandardCharsets.UTF_8)
+                .replace("+", "%20") + "&sort=date&page=" + page;
+        HttpResponse<byte[]> response = send(api, apiRequest(pathAndQuery, key), searchPacer,
+                RequestPacer.interval(perMinute));
+        return json(response, "page " + page + " of the search " + StringUtils.abbreviate(query, 200));
+    }
+
+    /**
+     * nhentai's time, for its relative filters ({@code uploaded:>Nh} counts back from its own clock): this machine's
+     * clock may be off by any amount, which would move the filter's edge. Empty until an answer has told it.
+     */
+    Optional<Instant> serverNow()
+    {
+        Duration offset = serverClockOffset;
+        return offset == null ? Optional.empty() : Optional.of(Instant.now().plus(offset));
     }
 
     /**
@@ -243,7 +279,25 @@ final class NhentaiApi
     private HttpResponse<byte[]> send(HttpClient client, HttpRequest request, RequestPacer pacer, Duration interval)
             throws IOException
     {
-        return RateLimitedHttp.send(client, request, pacer, interval, "nhentai");
+        HttpResponse<byte[]> response = RateLimitedHttp.send(client, request, pacer, interval, "nhentai");
+        if (client == api)
+        {
+            response.headers().firstValue("Date").ifPresent(this::followClock);
+        }
+        return response;
+    }
+
+    private void followClock(String date)
+    {
+        try
+        {
+            Instant server = ZonedDateTime.parse(date.strip(), DateTimeFormatter.RFC_1123_DATE_TIME).toInstant();
+            serverClockOffset = Duration.between(Instant.now(), server);
+        }
+        catch (DateTimeParseException e)
+        {
+            log.debug("nhentai sent a Date header that is no date: {}", date);
+        }
     }
 
     /** 401 and 403 are worded for the user: they are the key's fault, or the site's refusal, not a glitch. */

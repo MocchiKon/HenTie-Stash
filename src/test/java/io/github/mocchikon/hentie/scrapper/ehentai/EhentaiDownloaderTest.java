@@ -8,6 +8,7 @@ import io.github.mocchikon.hentie.scrapper.GalleryData;
 import io.github.mocchikon.hentie.scrapper.GalleryNotFoundException;
 import io.github.mocchikon.hentie.scrapper.gallerydl.GalleryDl;
 import io.github.mocchikon.hentie.scrapper.gallerydl.GalleryDlTool;
+import io.github.mocchikon.hentie.service.SettingsService;
 import io.github.mocchikon.hentie.service.download.PermanentDownloadException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -21,6 +22,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
 
 /** e-hentai's links, its JSON API and what its answers become, against a fake API. */
 class EhentaiDownloaderTest
@@ -63,13 +65,14 @@ class EhentaiDownloaderTest
         properties.setApiRequestIntervalMillis(0);
         // A gallery-dl never updated: metadata asks whether one is.
         var appProperties = new AppProperties();
-        return new EhentaiDownloader(properties, new GalleryDl(new GalleryDlTool(appProperties, null), appProperties));
+        return new EhentaiDownloader(properties, new GalleryDl(new GalleryDlTool(appProperties, null), appProperties),
+                mock(SettingsService.class));
     }
 
     @Test
     void shouldNameOneGalleryWhicheverDomainOrSpellingTheLinkUses()
     {
-        var downloader = new EhentaiDownloader(new EhentaiProperties(), null);
+        var downloader = new EhentaiDownloader(new EhentaiProperties(), null, mock(SettingsService.class));
 
         // WHEN + THEN
         assertThat(downloader.resourceId("https://e-hentai.org/g/618395/0439fa3666/")).isEqualTo("618395/0439fa3666");
@@ -84,7 +87,7 @@ class EhentaiDownloaderTest
     @Test
     void shouldRefuseLinksThatNeedTheNetworkToBeUnderstood()
     {
-        var downloader = new EhentaiDownloader(new EhentaiProperties(), null);
+        var downloader = new EhentaiDownloader(new EhentaiProperties(), null, mock(SettingsService.class));
 
         // WHEN + THEN a page link's gallery token is unknown, and a link without a token names nothing fetchable.
         assertThat(downloader.accepts("https://e-hentai.org/s/0123456789/618395-3")).isFalse();

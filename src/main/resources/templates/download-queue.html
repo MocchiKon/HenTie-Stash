@@ -48,13 +48,13 @@
              th:attr="data-active=${progress.isActive() and !progress.paused()} ? 'true' : 'false'">
         <h2 class="section-title">Progress</h2>
 
-        <!-- Failures count too: total() is done + pending only, so it alone would call the queue empty above
-             a Failed list. -->
-        <p class="hint" th:if="${progress.total() == 0 and progress.failed() == 0}">
+        <!-- Failures and rows waiting for a ban count too: total() is done + runnable only, so it alone would call
+             the queue empty above them. -->
+        <p class="hint" th:if="${progress.total() == 0 and progress.pending() == 0 and progress.failed() == 0}">
             The queue is empty. Anything you queue is downloaded in the background — you can close this
             page and come back to it.
         </p>
-        <p class="hint" th:if="${progress.total() == 0 and progress.failed() > 0}">
+        <p class="hint" th:if="${progress.total() == 0 and progress.pending() == 0 and progress.failed() > 0}">
             Nothing is waiting to download. The failed item(s) below are all that is left — retry or
             remove them.
         </p>
@@ -92,9 +92,17 @@
         <h2 class="section-title">
             Waiting (<span th:text="${progress.pending()}">0</span>)
         </h2>
+        <p class="hint">
+            In the order they run: links you paste come before the galleries your
+            <a th:href="@{/subscriptions}">subscriptions</a> queued.
+        </p>
         <ul class="queue-list">
             <li class="queue-item" th:each="item : ${pending}">
                 <span class="queue-link" th:text="${item.link}">mock:1212</span>
+                <span class="hint wrap-anywhere" th:if="${item.fromSubscription}"
+                      th:text="${subscriptionTitles.containsKey(item.subscriptionId)} ? 'from subscription ' + ${subscriptionTitles.get(item.subscriptionId)} : 'from a deleted subscription'">from subscription</span>
+                <span class="hint" th:if="${deferredUntil.containsKey(item.id)}"
+                      th:text="'waiting until ' + ${deferredUntil.get(item.id)} + ', when its site is asked again'">waiting until 15:00</span>
                 <span class="hint" th:if="${item.attempts > 0}"
                       th:text="${item.attempts} + ' failed attempt(s) so far'">1 failed attempt(s) so far</span>
                 <span class="hint" th:if="${item.replacePages}">re-downloading in full quality</span>
@@ -150,6 +158,8 @@
         <ul class="queue-list">
             <li class="queue-item failed" th:each="item : ${failed}">
                 <span class="queue-link" th:text="${item.link}">mock:1212</span>
+                <span class="hint wrap-anywhere" th:if="${item.fromSubscription}"
+                      th:text="${subscriptionTitles.containsKey(item.subscriptionId)} ? 'from subscription ' + ${subscriptionTitles.get(item.subscriptionId)} : 'from a deleted subscription'">from subscription</span>
                 <a class="hint" th:if="${item.chapterId != null}" th:href="@{'/chapter/' + ${item.chapterId}}"
                    th:text="'chapter ' + ${item.chapterId}">chapter 1</a>
                 <span class="hint" th:if="${item.replacePages}">re-downloading in full quality</span>

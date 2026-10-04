@@ -28,7 +28,7 @@ class SchemaMigrationIT
     void shouldMatchTheEntityMappingsWhenSchemaComesFromMigrations() // TODO After releasing change assert to contains
     {
         // Starting the context is the real check; this assertion keeps the test from passing vacuously.
-        assertThat(appliedMigrations()).containsExactly("1", "2");
+        assertThat(appliedMigrations()).containsExactly("1", "2", "3");
     }
 
     @Test
@@ -129,6 +129,29 @@ class SchemaMigrationIT
     }
 
     /**
+     * The queue's order and a subscription's limits read these indexes; without them the worker sorts the queue on
+     * every item and each enqueue scans it. A deleted subscription must leave its queue rows (SET NULL) and take
+     * its checkpoints along (CASCADE).
+     */
+    @Test
+    void shouldCreateTheSubscriptionSchemaWhenMigrating()
+    {
+        // GIVEN + WHEN + THEN
+        assertThat(objectNames("type = 'table'")).contains("subscription", "subscription_checkpoint");
+        assertThat(columnNames("download_queue")).contains("priority", "subscription_id");
+        assertThat(columnNames("subscription")).contains("newest_gallery_id", "oldest_gallery_id", "oldest_cursor",
+                "catch_up_top", "catch_up_cursor", "catch_up_stop", "revision", "recheck_every_hours",
+                "recheck_depth_hours");
+        assertThat(objectNames("type = 'index'")).contains("ix_download_queue__error_priority_id",
+                "ix_download_queue__gallery_id", "ix_download_queue__subscription_error",
+                "ix_subscription_checkpoint__subscription_recorded");
+        assertThat(objectNames("type = 'index'")).doesNotContain("ix_download_queue__error_id");
+        assertThat(foreignKeys("download_queue")).containsExactly("subscription_id -> subscription(id) SET NULL");
+        assertThat(foreignKeys("subscription_checkpoint"))
+                .containsExactly("subscription_id -> subscription(id) CASCADE");
+    }
+
+    /**
      * A reused id would let a new chapter inherit what a deleted one left behind (its image folder, a
      * download publishing into it, a bookmark). Nothing but the keyword prevents it, so every table with a
      * generated key is checked.
@@ -138,7 +161,8 @@ class SchemaMigrationIT
     {
         // GIVEN
         List<String> tablesWithGeneratedIds = List.of("chapter", "series", "artist", "character", "group_artists",
-                "parody", "tag", "category", "metadata_rule", "download_queue", "image_compression_mode");
+                "parody", "tag", "category", "metadata_rule", "download_queue", "image_compression_mode",
+                "subscription", "subscription_checkpoint");
 
         // WHEN
         List<String> autoincrementTables = objectNames("type = 'table' AND sql LIKE '%primary key autoincrement%'");
@@ -195,8 +219,8 @@ class SchemaMigrationIT
         // GIVEN
         List<String> tables = objectNames("type = 'table' AND sql LIKE '%references%'");
 
-        // WHEN + THEN
-        assertThat(tables).hasSize(19);
+        // WHEN + THEN the 19 join tables, the queue's subscription and a subscription's checkpoints
+        assertThat(tables).hasSize(21);
         for (String table : tables)
         {
             List<String> leadingColumns = jdbc.queryForList(

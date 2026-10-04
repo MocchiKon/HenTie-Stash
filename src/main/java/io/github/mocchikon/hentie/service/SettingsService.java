@@ -46,6 +46,14 @@ public class SettingsService
     public static final String API_KEY_PREFIX = "apikey.";
     /** Optional for downloads (it raises nhentai's rate limits), required to list the user's favourites. */
     public static final String NHENTAI_API_KEY = API_KEY_PREFIX + "nhentai";
+    /**
+     * The e-hentai account an exhentai subscription searches with (the {@code ipb_member_id}, {@code ipb_pass_hash}
+     * and, optionally, {@code igneous} cookies). Only the app's own search sends them; downloads read the browser's
+     * cookies through gallery-dl.
+     */
+    public static final String EHENTAI_MEMBER_ID = "ehentai.member-id";
+    public static final String EHENTAI_PASS_HASH = "ehentai.pass-hash";
+    public static final String EHENTAI_IGNEOUS = "ehentai.igneous";
     public static final String MATCH_AUTO_LINK = "matching.auto-link";
     public static final String MATCH_THRESHOLD = "matching.threshold";
     public static final String DOWNLOAD_PAUSED = "download.paused";
@@ -255,6 +263,22 @@ public class SettingsService
         return cache.getOrDefault(NHENTAI_API_KEY, "");
     }
 
+    /** Blank when none is set, like the two below. */
+    public String getEhentaiMemberId()
+    {
+        return cache.getOrDefault(EHENTAI_MEMBER_ID, "");
+    }
+
+    public String getEhentaiPassHash()
+    {
+        return cache.getOrDefault(EHENTAI_PASS_HASH, "");
+    }
+
+    public String getEhentaiIgneous()
+    {
+        return cache.getOrDefault(EHENTAI_IGNEOUS, "");
+    }
+
     public TitleDisplayMode getTitleDisplayMode()
     {
         String raw = cache.getOrDefault(TITLE_DISPLAY_MODE, TitleDisplayMode.FULL.name());
@@ -421,6 +445,25 @@ public class SettingsService
     public void setNhentaiApiKey(String apiKey)
     {
         put(NHENTAI_API_KEY, StringUtils.strip(StringUtils.defaultString(apiKey)));
+    }
+
+    /** Stored as given (blank = none); the caller validates, since only it can report a refusal. */
+    @Transactional
+    public void setEhentaiMemberId(String memberId)
+    {
+        put(EHENTAI_MEMBER_ID, StringUtils.strip(StringUtils.defaultString(memberId)));
+    }
+
+    @Transactional
+    public void setEhentaiPassHash(String passHash)
+    {
+        put(EHENTAI_PASS_HASH, StringUtils.strip(StringUtils.defaultString(passHash)));
+    }
+
+    @Transactional
+    public void setEhentaiIgneous(String igneous)
+    {
+        put(EHENTAI_IGNEOUS, StringUtils.strip(StringUtils.defaultString(igneous)));
     }
 
     @Transactional

@@ -1,7 +1,5 @@
 package io.github.mocchikon.hentie.entity;
 
-import java.time.LocalDateTime;
-
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
@@ -9,9 +7,12 @@ import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.Setter;
 
+import java.time.LocalDateTime;
+
 /**
  * Permanent record of a downloaded gallery, since successful queue rows are deleted. Not the same as "a
- * chapter with this gallery id exists": it outlives the chapter, for the planned "watchers" to consult.
+ * chapter with this gallery id exists": it outlives the chapter, so a subscription never brings back a gallery the
+ * user deleted.
  */
 @Entity
 @Table(name = "downloaded_gallery")

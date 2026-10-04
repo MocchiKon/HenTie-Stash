@@ -707,6 +707,22 @@
         });
     });
 
+    // --- Fields that belong to some values of a select only (a subscription's site) ---
+    //     Each [data-shown-for] lists the values it belongs to, space-separated. Hidden, never disabled: hidden
+    //     fields are still sent, so switching back finds them as they were. Without JavaScript all of them show.
+    document.querySelectorAll("select[data-shows]").forEach(function (select) {
+        var form = select.closest("form");
+        if (!form) { return; }
+        var sync = function () {
+            form.querySelectorAll("[data-shown-for]").forEach(function (element) {
+                var values = (element.getAttribute("data-shown-for") || "").split(/\s+/);
+                element.hidden = values.indexOf(select.value) < 0;
+            });
+        };
+        select.addEventListener("change", sync);
+        sync();
+    });
+
     // --- Settings: the password asked for when login is turned on while none exists ---
     //     Required only while "Require login" is ticked, so saving another setting never asks for one. The
     //     server enforces it anyway; this only saves a round trip.

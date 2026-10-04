@@ -3,6 +3,7 @@ package io.github.mocchikon.hentie.scrapper;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Component;
 
+import java.time.Instant;
 import java.util.*;
 
 /**
@@ -13,6 +14,11 @@ import java.util.*;
 public class DataDownloaderRegistry
 {
     private final List<DataDownloader> downloaders;
+
+    /** Fixed at startup, so worked out once: the runner and the subscription pages ask on every round. */
+    private final List<SearchSource> searchSources;
+    private final List<SearchSource.SearchSite> searchSites;
+    private final Map<String, SearchSource> searchSourcesBySite;
 
     public DataDownloaderRegistry(List<DataDownloader> downloaders)
     {
@@ -27,6 +33,27 @@ public class DataDownloaderRegistry
             }
         }
         this.downloaders = List.copyOf(downloaders);
+        this.searchSources = downloaders.stream()
+                .filter(SearchSource.class::isInstance)
+                .map(SearchSource.class::cast)
+                .sorted(Comparator.comparing(DataDownloader::sourcePrefix))
+                .toList();
+        // Stored on subscriptions, so two sites with one key would make a subscription search the wrong one.
+        var sites = new ArrayList<SearchSource.SearchSite>();
+        var bySite = new HashMap<String, SearchSource>();
+        for (SearchSource source : searchSources)
+        {
+            for (SearchSource.SearchSite site : source.searchSites())
+            {
+                if (bySite.putIfAbsent(site.key(), source) != null)
+                {
+                    throw new IllegalStateException("Two search sites share the key '" + site.key() + "'.");
+                }
+                sites.add(site);
+            }
+        }
+        this.searchSites = List.copyOf(sites);
+        this.searchSourcesBySite = Map.copyOf(bySite);
     }
 
     public Optional<ResourceLink> parse(String link)
@@ -108,5 +135,50 @@ public class DataDownloaderRegistry
         return favouritesSources().stream()
                 .filter(source -> source.sourcePrefix().equals(sourcePrefix))
                 .findFirst();
+    }
+
+    /** Sorted by prefix, like {@link #favouritesSources}. */
+    public List<SearchSource> searchSources()
+    {
+        return searchSources;
+    }
+
+    /** Every site a subscription may pick, in the order of {@link #searchSources}. */
+    public List<SearchSource.SearchSite> searchSites()
+    {
+        return searchSites;
+    }
+
+    /** The source offering the site with this key. */
+    public Optional<SearchSource> searchSource(String siteKey)
+    {
+        return siteKey == null ? Optional.empty() : Optional.ofNullable(searchSourcesBySite.get(siteKey));
+    }
+
+    /** Gallery-id prefixes ({@code "ehentai:"}) of the sources refusing every download now. */
+    public Set<String> refusals()
+    {
+        var refusals = new LinkedHashSet<String>();
+        for (DataDownloader downloader : downloaders)
+        {
+            if (downloader.refusingUntil().isPresent())
+            {
+                refusals.add(downloader.galleryId(""));
+            }
+        }
+        return refusals;
+    }
+
+    /** Until when the source of this gallery refuses every download; empty while it does not, or for no source. */
+    public Optional<Instant> refusingUntil(String galleryId)
+    {
+        if (StringUtils.isBlank(galleryId))
+        {
+            return Optional.empty();
+        }
+        return downloaders.stream()
+                .filter(downloader -> galleryId.startsWith(downloader.galleryId("")))
+                .findFirst()
+                .flatMap(DataDownloader::refusingUntil);
     }
 }

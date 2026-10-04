@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head('Subscriptions')}"></head>
+<body>
+<nav th:replace="~{fragments/layout :: nav}"></nav>
+
+<main class="container">
+    <div class="edit-head">
+        <h1>Subscriptions</h1>
+        <div class="btn-row">
+            <a class="btn btn-accent" th:href="@{/subscriptions/new}">New subscription</a>
+            <a class="btn" th:href="@{/chapter/queue}">View download queue</a>
+            <a class="btn btn-ghost" th:href="@{/manage}">Back to Manage</a>
+        </div>
+    </div>
+
+    <div th:if="${saved != null}" class="alert ok">
+        Subscription <span class="wrap-anywhere" th:text="${saved}">name</span> saved.
+    </div>
+    <div th:if="${deleted != null}" class="alert ok">
+        Subscription <span class="wrap-anywhere" th:text="${deleted}">name</span> deleted. What it had queued stays
+        in the download queue.
+    </div>
+    <div th:if="${problem != null}" class="alert error" role="alert" th:text="${problem}">problem</div>
+
+    <p class="hint">
+        A subscription follows a search on nhentai, e-hentai or exhentai. It queues every gallery the search already
+        has, newest first, and then looks for new ones. What it queues downloads after the links you paste. It never
+        queues a gallery that is in the library, one you downloaded before (even if you deleted it since), or one
+        already in the queue - a link you pasted keeps the choices you gave it.
+    </p>
+    <p class="hint">
+        Removing a gallery from the queue does not stop a re-check, or another subscription with a similar search,
+        from queueing it again. Pause a subscription to stop it listing; what it queued still downloads.
+    </p>
+
+    <p class="empty" th:if="${#lists.isEmpty(subscriptions)}">No subscriptions yet.</p>
+
+    <ul class="subscription-list" th:unless="${#lists.isEmpty(subscriptions)}">
+        <li class="subscription-item" th:each="s : ${subscriptions}" th:id="'subscription-' + ${s.id()}">
+            <div class="subscription-head">
+                <span class="rule-name" th:text="${s.title()}">title</span>
+                <span class="badge" th:text="${s.siteLabel()}">nhentai</span>
+                <span class="badge incomplete" th:unless="${s.enabled()}">Paused</span>
+            </div>
+            <p class="subscription-status" th:classappend="${s.statusKind()}" th:text="${s.status()}">Up to date.</p>
+            <p class="hint wrap-anywhere">
+                Search:
+                <a th:if="${s.searchUrl() != null}" th:href="${s.searchUrl()}" target="_blank"
+                   rel="noopener noreferrer" title="Open this search on the site" th:text="${s.query()}">query</a>
+                <span th:if="${s.searchUrl() == null}" th:text="${s.query()}">query</span>
+            </p>
+            <p class="hint">
+                Queued <span th:text="${s.queued()}">0</span>
+                · already in the library <span th:text="${s.inLibrary()}">0</span>
+                · downloaded before <span th:text="${s.deletedSince()}">0</span>
+                · already queued <span th:text="${s.alreadyQueued()}">0</span><th:block th:if="${s.blacklisted() > 0}">
+                · blacklisted on the site <span th:text="${s.blacklisted()}">0</span></th:block>
+                · <a th:href="@{/chapter/queue}"><span th:text="${s.waiting()}">0</span> waiting<th:block
+                    th:if="${s.failed() > 0}">, <span th:text="${s.failed()}">0</span> failed</th:block></a>
+            </p>
+            <p class="hint wrap-anywhere" th:if="${s.newestGalleryId() != null}">
+                Newest:
+                <a th:if="${s.newestLink() != null}" th:href="${s.newestLink()}" target="_blank" rel="noopener noreferrer"
+                   th:text="${s.newestGalleryId()}">nhentai:1</a><span th:unless="${s.newestLink() != null}"
+                   th:text="${s.newestGalleryId()}">nhentai:1</span>
+                · oldest:
+                <a th:if="${s.oldestLink() != null}" th:href="${s.oldestLink()}" target="_blank" rel="noopener noreferrer"
+                   th:text="${s.oldestGalleryId()}">nhentai:1</a><span th:unless="${s.oldestLink() != null}"
+                   th:text="${s.oldestGalleryId()}">nhentai:1</span>
+            </p>
+            <p class="hint" th:text="'Checks ' + ${s.schedule()}">Checks new galleries every 60 min</p>
+            <p class="hint wrap-anywhere" th:text="${s.choices()}">compression: None</p>
+            <div class="btn-row subscription-actions">
+                <a class="btn" th:href="@{/subscriptions/{id}/edit(id=${s.id()})}">Edit</a>
+                <form method="post" class="inline-form" th:if="${s.enabled()}"
+                      th:action="@{/subscriptions/{id}/check(id=${s.id()})}">
+                    <button type="submit" class="btn">Check now</button>
+                </form>
+                <form method="post" class="inline-form" th:if="${s.enabled()}"
+                      th:action="@{/subscriptions/{id}/pause(id=${s.id()})}">
+                    <button type="submit" class="btn">Pause</button>
+                </form>
+                <form method="post" class="inline-form" th:unless="${s.enabled()}"
+                      th:action="@{/subscriptions/{id}/resume(id=${s.id()})}">
+                    <button type="submit" class="btn">Resume</button>
+                </form>
+                <form method="post" class="inline-form confirm-delete"
+                      th:action="@{/subscriptions/{id}/restart(id=${s.id()})}"
+                      data-confirm="Start over? The whole search is listed again from the newest gallery; what is in the library or the queue is passed over.">
+                    <button type="submit" class="btn">Start over</button>
+                </form>
+                <form method="post" class="inline-form confirm-delete"
+                      th:action="@{/subscriptions/{id}/delete(id=${s.id()})}"
+                      data-confirm="Delete this subscription? What it already queued stays in the download queue.">
+                    <button type="submit" class="btn btn-danger">Delete</button>
+                </form>
+            </div>
+        </li>
+    </ul>
+</main>
+
+<script th:src="@{/js/app.js}"></script>
+</body>
+</html>

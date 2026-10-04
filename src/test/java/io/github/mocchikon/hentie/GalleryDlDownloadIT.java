@@ -6,8 +6,10 @@ import io.github.mocchikon.hentie.dto.BuiltInCompressionMode;
 import io.github.mocchikon.hentie.entity.Chapter;
 import io.github.mocchikon.hentie.entity.DownloadQueueItem;
 import io.github.mocchikon.hentie.entity.DownloadStatus;
+import io.github.mocchikon.hentie.entity.Subscription;
 import io.github.mocchikon.hentie.repository.ChapterRepository;
 import io.github.mocchikon.hentie.repository.DownloadQueueRepository;
+import io.github.mocchikon.hentie.repository.SubscriptionRepository;
 import io.github.mocchikon.hentie.scrapper.ehentai.EhentaiDownloader;
 import io.github.mocchikon.hentie.scrapper.ehentai.EhentaiProperties;
 import io.github.mocchikon.hentie.scrapper.gallerydl.GalleryDlOptions;
@@ -62,6 +64,7 @@ class GalleryDlDownloadIT
     @Autowired AppProperties appProperties;
     @Autowired EhentaiProperties ehentaiProperties;
     @Autowired EhentaiDownloader ehentaiDownloader;
+    @Autowired SubscriptionRepository subscriptionRepository;
     @PersistenceContext EntityManager em;
 
     private HttpServer api;
@@ -466,6 +469,63 @@ class GalleryDlDownloadIT
                     .contains("not asked again until");
             assertThat(apiCalls.get()).isEqualTo(1);
             assertThat(FakeGalleryDl.calls()).hasSize(1);
+        }
+        finally
+        {
+            cleanUp(chapterId);
+        }
+    }
+
+    /**
+     * A subscription's galleries wait out the ban in the queue instead of failing one after the other: their failure
+     * would say nothing about them, and the subscription would only list more to fail the same way.
+     */
+    @Test
+    void shouldKeepASubscriptionsDownloadsWaitingThroughABan() throws IOException
+    {
+        // GIVEN two galleries a subscription queued, and gallery-dl reporting a ban
+        ehentaiProperties.setCooldownMinutes(60);
+        FakeGalleryDl.set("pages", "2");
+        FakeGalleryDl.set("exit", "16");
+        FakeGalleryDl.set("stderr", "[exhentai][error] AuthorizationError: Temporarily Banned");
+        var subscription = new Subscription();
+        subscription.setSource("e-hentai");
+        subscription.setQuery("f_search=x");
+        subscription.setPollMinutes(60);
+        subscription.setRecheckEveryHours(24);
+        subscription.setRecheckDepthHours(48);
+        subscription.setRequestDelay("0");
+        int subscriptionId = subscriptionRepository.save(subscription).getId();
+        queueService.queueForSubscription(subscriptionId, List.of("https://e-hentai.org/g/618395/0439fa3666/",
+                "https://e-hentai.org/g/1/0123456789/"), choices(null, false, "0"));
+        Integer chapterId = null;
+        try
+        {
+            // WHEN the first runs into the ban, and the worker looks for more
+            assertThat(worker.processNext()).isTrue();
+            em.flush();
+            chapterId = chapterRepository.findByGalleryId("ehentai:618395/0439fa3666").map(Chapter::getId).orElse(null);
+            boolean ranAnother = worker.processNext();
+
+            // THEN both still wait, nothing counted, and nothing more was asked of the site
+            assertThat(ranAnother).isFalse();
+            assertThat(queueRepository.findAll())
+                    .filteredOn(row -> Integer.valueOf(subscriptionId).equals(row.getSubscriptionId()))
+                    .hasSize(2)
+                    .allSatisfy(row ->
+                    {
+                        assertThat(row.getError()).isNull();
+                        assertThat(row.getAttempts()).isZero();
+                    });
+            assertThat(apiCalls.get()).isEqualTo(1);
+            assertThat(FakeGalleryDl.calls()).hasSize(1);
+
+            // WHEN the cooldown is over
+            ehentaiDownloader.clearCooldown();
+
+            // THEN the first is next again
+            assertThat(queueService.nextPending()).get().extracting(DownloadQueueItem::getGalleryId)
+                    .isEqualTo("ehentai:618395/0439fa3666");
         }
         finally
         {

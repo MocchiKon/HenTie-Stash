@@ -1,5 +1,6 @@
 package io.github.mocchikon.hentie.scrapper;
 
+import java.time.Instant;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -74,6 +75,16 @@ public interface DataDownloader
     default String linkExample()
     {
         return sourcePrefix() + ":<id>";
+    }
+
+    /**
+     * Until when the source fails every download without asking its site (a ban it sits out); empty while it does
+     * not. A subscription's rows wait meanwhile instead of failing: their failure would say nothing about the
+     * gallery, and the subscription would only list more to fail the same way.
+     */
+    default Optional<Instant> refusingUntil()
+    {
+        return Optional.empty();
     }
 
     /** Namespaced, so two sources both numbering from 1 never collide on the unique {@code chapter.gallery_id}. Never override. */

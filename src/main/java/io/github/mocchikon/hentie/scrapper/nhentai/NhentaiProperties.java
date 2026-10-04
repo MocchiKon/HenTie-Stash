@@ -31,6 +31,12 @@ public class NhentaiProperties
     /** Pages of the favourites list, per API key owner. 0 = no limit. */
     private int favouritesRequestsPerMinute = 15;
 
+    /** Pages of a search, for subscriptions, without an API key, per IP. 0 = no limit. */
+    private int searchRequestsPerMinute = 10;
+
+    /** Pages of a search with an API key, per IP. 0 = no limit. */
+    private int searchRequestsPerMinuteWithKey = 20;
+
     /**
      * Between two image requests. The image servers publish no number, only that rates "well beyond normal
      * browsing" get a client banned for a while; this keeps a long download near a reader's pace. 0 = no gap.

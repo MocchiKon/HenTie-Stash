@@ -6,8 +6,8 @@ downloading, image handling, security, packaging, or anything that writes (see "
 
 ## What it is
 A **single-user, local** web app (MPA) for browsing and managing comics: `Series` → ordered `Chapter`s,
-each with page images on disk. Chapter metadata comes from an external scraper; series are curated by the
-user and also created by auto-matching. Ships as one executable jar (plus a Windows `.exe`), reachable on
+each with page images on disk. Chapters come from pasted links, from subscriptions that follow a site's search,
+or by hand; series are curated by the user and also created by auto-matching. Ships as one executable jar (plus a Windows `.exe`), reachable on
 the LAN.
 
 Stack: Spring Boot 4.1, Java 21, Thymeleaf, Spring Data JPA/Hibernate, SQLite (xerial + Hibernate
@@ -67,10 +67,11 @@ live under `app.data-dir`, served at `/data/**`. `mock_server/` stands in for a 
 ## Package layout (`io.github.mocchikon.hentie`)
 `entity/` JPA entities, ORDINAL enums, `entity/link/` read-only search projections · `repository/` +
 `repository/spec/` search predicates · `service/` business logic, with `match/` (chapter→series matching),
-`download/` (download pipeline), `compress/` (downscaling + re-encoding), `comfy/` (ComfyUI in the image
-viewer), `scratch/` (temporary image files) · `scrapper/` data sources (a real one in its own package,
-`scrapper/nhentai/`, `ehentai/`, `hitomi/`, `chaika/`; `scrapper/gallerydl/` runs gallery-dl for the sources
-that use it) · `dto/` view models, forms, search
+`download/` (download pipeline), `subscription/` (saved searches that queue downloads), `compress/` (downscaling +
+re-encoding), `comfy/` (ComfyUI in the image viewer), `scratch/` (temporary image files) · `scrapper/` data
+sources (a real one in its own package, `scrapper/nhentai/`, `ehentai/`, `hitomi/`, `chaika/`;
+`scrapper/gallerydl/` runs gallery-dl for the sources that use it; `SearchSource` is what a subscription walks)
+· `dto/` view models, forms, search
 criteria · `mapper/` MapStruct · `web/` controllers · `security/` · `config/` · `resources/db/migration/`
 Flyway history.
 
@@ -80,6 +81,8 @@ Flyway history.
   `ImageCompressionMode.encoder` (`ImageEncoder`). Existing rows hold the integer. `NONE` is first in
   `DownloadStatus` so the column's `DEFAULT 0` means "not from a download".
 - **`status` is `NOT NULL`** on `Chapter` and `Series` (field default `NEW`; services coalesce null).
+- **`download_queue.priority` values are never renumbered**: 0 = the user asked for it, 1 = a subscription queued
+  it; lower runs first (see "Chapter downloading").
 - **`Group` maps to table `group_artists`** — `GROUP` is a SQL keyword.
 - **Flyway owns the schema; Hibernate never generates DDL** (`ddl-auto=none`). `V1__initial_schema.sql`
   builds everything from an empty file (tables, indexes, FTS5 tables, triggers). There is **no
@@ -488,6 +491,15 @@ the pipeline hands it (gallery-dl's run folder, see "gallery-dl").
     with the JVM (a daemon thread) and runs again on the next start. **Once `stop()` has run, a failure is
     not recorded**: the pools and the database close under the item, and counting that failure could use up
     the link's last attempt.
+- **The queue runs in `(priority, id)` order**: everything the user asked for (a paste, favourites, a full-quality
+  re-download) before what a subscription found, each oldest first. The waiting list shows that order. A paste
+  of a gallery a subscription queued **claims** its row (priority 0, no subscription) along with the paste's
+  choices; a retry keeps a row's priority. `gallery_id` is indexed: every enqueue looks its gallery up.
+  - **A subscription's rows of a source that refuses every download meanwhile wait instead of failing**
+    (`DataDownloader.refusingUntil`, e-hentai's cooldown): `nextPending` skips them, and one that fails into the
+    cooldown is not counted. Otherwise a routine image limit would put a subscription's whole backlog on the
+    Failed list, and the subscription would list more to fail the same way. A pasted row still fails at once,
+    saying why.
 - **Progress is `[done/total]` for the current batch** — successful rows are deleted, so no lifetime total.
 - **The queue page's two lists are capped (200) with no pagination — don't add it.** Counts are exact;
   only rows are cut, and the page says so. The queue empties itself: the waiting list is in execution
@@ -574,7 +586,10 @@ either is `ehentai:<gid>/<token>`. The token is in the id because nothing can be
   the account; without them e-hentai.org. `link()` is always e-hentai.org.
 - **A ban or a used-up image limit starts a cooldown** (`app.download.ehentai.cooldown-minutes`, in memory):
   every e-hentai item then fails at once, saying until when, without asking the API or starting gallery-dl —
-  requests during an IP ban can extend it. Other sources keep running.
+  requests during an IP ban can extend it. Other sources keep running. Subscriptions' searches share it: a ban
+  either one meets stops both, and a subscription's rows wait for its end (see "Chapter downloading").
+- **Search pages for subscriptions** come from `EhentaiSearchPages`, the only class that fetches the site's HTML
+  (see "Subscriptions").
 - Without the Multi-Page Viewer gallery-dl walks image pages from 1 even under `--range`, one paced API request
   per page before the first wanted one (no image download). Partial runs are rare (a `PENDING` resume), so it
   is accepted.
@@ -619,7 +634,7 @@ only class that speaks HTTP to it; `NhentaiDownloader` turns the answers into `G
   extension, a guessed number). A page without a path fails the gallery, since pages are numbered by
   position. An empty or text/JSON answer from an image server is a failure, not a page.
 - **Rate limits are nhentai's published ones, per endpoint** (`NhentaiProperties`): gallery details 20 a
-  minute without a key and 45 with one, favourites 15, images 250 ms apart (no number is published, only bans
+  minute without a key and 45 with one, favourites 15, images 30 ms apart (no number is published, only bans
   for rates "well beyond normal browsing"). `RequestPacer` spaces requests evenly, which keeps within a limit
   however the site counts its minute; the interval is picked per call, by whether a key is sent.
   - **A 429 is sat out, not failed**: as long as `Retry-After` (or a rate-limit reset) says, else a minute;
@@ -633,11 +648,100 @@ only class that speaks HTTP to it; `NhentaiDownloader` turns the answers into `G
   whole. "translated", "rewrite" and the like are filed as languages, so the language is the first tag
   `LanguageService` knows; without one (a "speechless" gallery) the first tag is kept, and the import's
   refusal names it.
+- **Search for subscriptions** (`GET /api/v2/search`, `sort=date`): 10 a minute without a key and 20 with one,
+  its own pacer. Its pages move as galleries come and go, so a walk continues from a cursor that carries an upload
+  time (see "Subscriptions"); times come from the galleries' own details, usually two requests a page.
 - **Page by page, against nhentai's advice.** nhentai offers whole-gallery archives
   (`POST /api/v2/galleries/{id}/download`, a few per 5 minutes) and asks apps not to rebuild galleries from
   image-server pages. The pipeline works per page (absent pages only, lenient gaps, full-quality
   replacement), so this source does too, at a reader's pace. If nhentai starts enforcing it, the archive
   endpoint is the way out.
+
+## Subscriptions (`service/subscription`, `scrapper/SearchSource`)
+A subscription is a saved search on a site (nhentai, e-hentai, exhentai) whose galleries are queued for download on
+their own: everything the search has, newest first, then each new upload. **`scrapper/` lists, `service/subscription`
+decides** — a `SearchSource` never touches the database. Manage → Chapters → Subscriptions.
+- **The walk is a head and a tail** (`newest_gallery_id`, `oldest_gallery_id`): every gallery the search listed
+  between them has been handled. A **backfill** extends it downwards a page at a time; a **check** reads the newest
+  page every polling interval (during a long backfill too); more than a page of new galleries leaves a
+  **catch-up** (top, cursor, stop) that later steps carry down, and only then does the top become the head — so a
+  crash part-way never leaves a gap under the head. **A check during a catch-up stops at its top** and raises it,
+  leaving more than a page for the check after the catch-up; starting the catch-up over would count its pages twice
+  and lose a re-check's stop. A re-check waits for a catch-up to end. The transitions are pure (`SubscriptionWalk`).
+- **Positions, never pages.** Both sites list newest first, and every comparison is by position (e-hentai's gid,
+  nhentai's id), so a head, tail or stop whose gallery was deleted works all the same. e-hentai lists in strictly
+  descending gids; a page that does not is an error, never trusted. nhentai sorts by upload time, and lists the
+  galleries of one second in no order of their ids (checked on the site: 5785, 5786, 5784, 5783, all uploaded at
+  17:01:04), so its pages are sorted by id. Its ids follow upload times otherwise; the cursor checks that where it
+  reads times.
+- **A walk continues from a cursor, never a page number** (pages move while the site changes), and one request
+  continues it however long the app was off: there is no seeking and no probe limit.
+  - e-hentai: `next=<gid>` lists exactly the galleries below any gid (checked on the site), so the cursor is the
+    gid.
+  - nhentai has page numbers only, so its cursor carries an upload time (`NhentaiSearchCursor`): the search
+    narrowed with `uploaded:>Nh`, N just under the age of the second the walk stopped in, lists everything below
+    the cursor on its first page, **in one answer**, so nothing can slip between two requests. Checked on the site:
+    nhentai answers the value 1 with nothing, so a cursor under ~2 h old (only near the top) reads the plain search
+    from page 1, and the daily re-check lists that range again anyway; it reads hours only up to somewhere between
+    4000 and 6000 (every larger number lists the same galleries), so a cursor older than 4000 h is counted in days,
+    which keeps up to a day of galleries above it. The server's time comes from its `Date` header. **Don't go back
+    to page numbers or a seek:** two pages fetched one after the other only meet if nothing was deleted between
+    them.
+  - **nhentai's cursor stands above a whole second, never inside one**: below the page's lowest gallery uploaded
+    after the second the page ended in, naming the galleries of that second it had. A page can end inside a second
+    whose other galleries, with higher ids, are on the next page; a cursor below the page's last gallery would pass
+    them over for good. A page that is all one second keeps the cursor where it was and adds itself to what it had.
+    When the narrowed search needs more than one page to reach the cursor, those pages rely on nhentai listing a
+    second the same way every time (checked on the site); between steps nothing but ids and times is relied on.
+- **A page that cannot be read is an error, never an empty page**: the walk would take it for the end of the search
+  and stop listing for good. Only e-hentai's "No hits found" is an empty result; a missing `nexturl`, an empty
+  results list, a blank exhentai page, a captcha or login page all fail the step.
+- **One transaction per page** (`SubscriptionService.applyPage`): its queue rows, the walk moving past them, the
+  counters and the checkpoint commit together, so a crash repeats at most one page and a repeated page queues
+  nothing twice. The network (the page, nhentai's cursor) runs before it, outside any transaction. The row is read
+  afresh there, and the page is **dropped** if the subscription is gone, paused, or its `revision` changed (another
+  site or query, "Start over"): a page fetched for the old walk must never move the new one. Never `save()` a
+  detached `Subscription`; it is `@DynamicUpdate`, so an edit and a step never undo each other's columns.
+- **Never queued**: a gallery in the library; one in `downloaded_gallery`, which covers one downloaded and deleted
+  since and one whose download never finished (`recordDownloaded` runs before its pages); one with a queue row of
+  any kind (a paste's choices stay its own; a failed row waits for the user); one the site marks blacklisted.
+  Removing a row is not remembered, so a re-check or another subscription may queue it again; a paste always
+  downloads.
+- **Its rows run after what the user asks for** (priority 1, see "Chapter downloading"). Deleting a subscription
+  keeps them (`ON DELETE SET NULL`, the priority stays); pausing stops only the listing.
+- **Listing follows the downloads**: beyond its check a subscription lists only while fewer than
+  `app.subscriptions.queue-ahead` (100) of its rows wait and fewer than `failed-limit` (100) failed. A broad search
+  would otherwise fill the queue with rows chosen before an edit, and downloads that fail at once (no gallery-dl,
+  unreadable cookies) would page a whole site into the Failed list. Edited choices apply to what is queued from
+  then on.
+- **Re-checks catch tags added after upload**: every `recheck_every_hours` a check stops not at the head but at the
+  head as it was `recheck_depth_hours` ago. The search lists no upload times, so `subscription_checkpoint` keeps
+  the head with a time when it grows (at most one an hour), pruned past the one a re-check stops at.
+- **Counters count a gallery the first time it is listed** (above the head or below the tail); one listed again
+  counts only if it gets queued.
+- **The runner** (`SubscriptionRunner`): one platform daemon thread per `SearchSource`, so a site sitting out a 429
+  never holds up another; each takes its subscriptions in turn, one page each. It starts on `ApplicationReadyEvent`
+  when `app.subscriptions.enabled` — that start is the resume — and `runNext()` is the test seam.
+  - A failed step backs the subscription off: doubling from `retry-after-failure-seconds`, up to its polling
+    interval, worked out from stored columns so a restart waits too. A source refusing every download
+    (`refusingUntil`, e-hentai's cooldown) is not asked at all, for any of its sites; a `RetryLaterException` parks
+    its site in memory, uncounted; a lock error is never counted; nothing is recorded once `stop()` ran. A site that
+    is not ready (exhentai without the account) is said once, not written every round, and such an uncounted problem
+    is cleared once over even when no step is due.
+- **exhentai searches with the e-hentai account's cookies from Settings** (`ipb_member_id`, `ipb_pass_hash`,
+  optionally `igneous`); its downloads still read the browser's cookies through gallery-dl, so the form requires a
+  cookies browser for it (`SearchSource.choicesProblem`). exhentai sends a visitor without `igneous` through the
+  forums to get one: `EhentaiSearchPages` follows redirects by hand, only between e-hentai's own hosts, keeps what
+  they set in memory per account, and asks for the search again. Search pages go out with a browser User-Agent
+  (`app.download.ehentai.browser-user-agent`) and one pacer for both domains (`search-request-interval-millis`,
+  5 s, as gallery-dl paces e-hentai).
+- **Queries are the source's** (`normalizedQuery`): nhentai's search text (a pasted search address gives its `q`,
+  another page's address is refused; `uploaded:` is refused, the walk adds its own); for e-hentai the part after "?" (a pasted address, a tag page, or
+  plain search text as `f_search`), keeping only `f_*` filters and `advsearch`, dropping paging and `inline_set`
+  (it changes the account's display settings), every value encoded afresh. Another site or query starts the walk
+  over.
+- **A new search site is one source implementing `SearchSource`**; its site keys are stored on subscriptions, so
+  never renamed, and unique across sources (checked at startup).
 
 ## Image compression (`service/compress`, `bin/`)
 Downscaling with **ImageMagick** and re-encoding to **JPEG XL** (`cjxl`) or **AVIF** (`avifenc`), for
@@ -980,8 +1084,8 @@ clear "busy, nothing was changed" answer, and background writers wait instead of
   - **`WriteGate.background(activity, …)` waits as long as it must**: the sweeps, the bulk deletes, merge,
     remove, the title index rebuild, deleting a series with its chapters. They run on request threads, but the
     user started them and watches a spinner. `activity` names them in busy messages and the log.
-  - **A thread that serves no request always waits as long as it must, unasked**: the download worker, and
-    anything scheduled (future Subscriptions/Watchers), need nothing. **Except during shutdown**, which another
+  - **A thread that serves no request always waits as long as it must, unasked**: the download worker, the
+    subscription runner, and anything scheduled need nothing. **Except during shutdown**, which another
     program holding the lock must not stall for good: a write there goes through `WriteGate.withinRequestBudget`
     (ComfyUI's launch record).
   - **`WriteGate.ifFree(…)` does not wait at all**, not even behind a queued writer: for repairs a GET may skip.
@@ -1148,6 +1252,9 @@ is ticked (default on; clearing it makes a rename a one-off).
   one whatever the setting says. Ticking "Require login" without a password shows password fields; the
   save takes the password from them, or keeps login off and says why, without "Settings saved.". Every
   password form has a repeat field; BCrypt's 72-byte limit is refused, not truncated.
+- **The e-hentai account's cookies** (Settings, for exhentai subscriptions) are kept in the database like the
+  nhentai API key, checked field by field (they go into a request header), and sent only to e-hentai's own
+  hosts: redirects are followed by hand, never off them, and nothing logs them.
 - `LoginToggleFilter` applies the toggle at runtime by injecting an authenticated token when login is off,
   instead of rebuilding the filter chain. So **Logout** is gated on the `loginRequired` model flag, not on
   `sec:authorize`.
@@ -1207,6 +1314,11 @@ narrow width after any CSS/template change.
 - **The detail `<h1>` prints `titleFull` in three spans** (`dto/TitleParts`): the pretty title in the middle,
   the bracket decoration muted around it; nothing is muted if the pretty title is not contained. **The spans
   stay on one source line without whitespace** — Thymeleaf would render a newline as a space.
+- **A field that belongs to some values of a select carries `data-shown-for`** (space-separated values; the select
+  has `data-shows`): `app.js` hides it while another is chosen. Hidden, never disabled, so it is still sent and a
+  switch back finds it as it was; without JavaScript everything shows. The subscription form hides gallery-dl's
+  choices and the other sites' help that way. Those choices are one fragment (`components :: galleryDlOptions`),
+  shared with the Download page.
 - **A form whose POST works through the whole library has `class="long-running"`** (library maintenance,
   metadata merge/remove, delete-series-with-chapters). `app.js` adds a spinner, disables the button on the
   **next tick** (a disabled control is not submitted) and adds a `role="status"` note that **the app stays
@@ -1225,7 +1337,8 @@ narrow width after any CSS/template change.
   top-left and scrollable when larger, avoiding the `align-items: center` + `overflow` clipping bug.
 
 ## Chapter create / edit
-Manage → Chapters offers **Download** (many links, one per line), **View download queue**, **Add manually**.
+Manage → Chapters offers **Download** (many links, one per line), **Add manually**, **Subscriptions**,
+**View download queue**.
 - `titleFull` and `language` are **required** on manual create; a blank or unknown language is a field
   error, never defaulted. The value is stored via `LanguageService.canonical`, because language is searched
   by exact value. **Anything new that writes a language must canonicalize.**
@@ -1331,6 +1444,14 @@ for good coverage.
 - ⚠️ **`app.download.ehentai.api-url` and `app.download.chaika.base-url` point nowhere, unpaced** — suites point
   them at a fake API and **`FakeChaika`** (which answers byte ranges and records them) and restore them. A
   suite that starts e-hentai's cooldown clears it (`EhentaiDownloader.clearCooldown`).
+- ⚠️ **`app.subscriptions.enabled=false`**, so no runner races the suites; they call
+  `SubscriptionRunner.runNext()`, and a failed step may be tried again at once (`retry-after-failure-seconds=0`).
+  The search limits are off, and **e-hentai's search addresses point nowhere**: suites point them at
+  **`FakeEhentai`** (`next=<gid>` as the site pages, a ban mode, an exhentai that wants the account's cookie) and
+  **`FakeNhentai`**'s search (a list that may change before every search; `uploaded:` read as nhentai reads it,
+  against the real clock, since the JDK's server always sends its own `Date` header). A runner suite commits every step, so it is not `@Transactional`, removes what it made, and
+  restores the addresses, limits, Settings' e-hentai account and the cooldown. Upload times there sit half an hour
+  off the whole hours, or a gallery would be on the filter's edge.
 - **`*E2E` suites talk to the real sites and run only with `-Pe2e`** (the profile replaces surefire's includes),
   so the default build passes offline and never touches a site. One sets the real configuration back for itself
   (`NhentaiDownloadE2E` copies `new NhentaiProperties()` over the test profile's) and restores it afterwards.
@@ -1352,8 +1473,8 @@ for good coverage.
   window (Windows kills the process a few seconds later) run no `@PreDestroy`, so every path must survive
   being killed at any point: SQLite transactions, committed slices, the download queue row, staging.
 - **The graceful stops are Ctrl+C in the console and Settings → Shut down.** Requests get a minute
-  (`spring.lifecycle.timeout-per-shutdown-phase`), then the download worker 10 s (see "Chapter
-  downloading").
+  (`spring.lifecycle.timeout-per-shutdown-phase`), the subscription runner 5 s (interrupted: a step has nothing
+  half-done outside its one transaction), then the download worker 10 s (see "Chapter downloading").
 - **Shut down runs `SpringApplication.exit` on its own non-daemon thread, a second after answering**
   (`AppShutdown`). Closing the context waits for running requests, so on the request thread it would wait
   for itself. The server takes no new request once shutdown starts, so the browser needs that second to

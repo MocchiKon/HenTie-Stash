@@ -7,9 +7,11 @@ import io.github.mocchikon.hentie.dto.ChapterForm;
 import io.github.mocchikon.hentie.entity.Chapter;
 import io.github.mocchikon.hentie.entity.DownloadQueueItem;
 import io.github.mocchikon.hentie.entity.DownloadStatus;
+import io.github.mocchikon.hentie.entity.Subscription;
 import io.github.mocchikon.hentie.repository.ChapterRepository;
 import io.github.mocchikon.hentie.repository.DownloadQueueRepository;
 import io.github.mocchikon.hentie.repository.DownloadedGalleryRepository;
+import io.github.mocchikon.hentie.repository.SubscriptionRepository;
 import io.github.mocchikon.hentie.scrapper.DataDownloaderRegistry;
 import io.github.mocchikon.hentie.scrapper.GalleryData;
 import io.github.mocchikon.hentie.scrapper.ResourceLink;
@@ -66,6 +68,7 @@ class DownloadQueueIT
     @Autowired SettingsService settingsService;
     @Autowired AppProperties appProperties;
     @Autowired WriteGate writeGate;
+    @Autowired SubscriptionRepository subscriptionRepository;
     @PersistenceContext EntityManager em;
 
     @BeforeEach
@@ -936,6 +939,104 @@ class DownloadQueueIT
     // ---- fixture -----------------------------------------------------------
 
     /** Only the first {@code presentPages} of the listed pages exist on disk. */
+    // ---- what runs first ------------------------------------------------------------------------------------
+
+    @Test
+    void shouldRunWhatTheUserAskedForBeforeWhatASubscriptionQueued()
+    {
+        // GIVEN a subscription's rows, then a paste
+        int subscription = subscription();
+        queueService.queueForSubscription(subscription, List.of("mock:900", "mock:901"),
+                TestDownloads.choices(NO_COMPRESSION, false));
+        queueService.enqueue(List.of("mock:902"), TestDownloads.choices(NO_COMPRESSION, false));
+
+        // WHEN + THEN the paste runs first, and the list shows that order
+        assertThat(queueService.nextPending()).get().extracting(DownloadQueueItem::getLink).isEqualTo("mock:902");
+        assertThat(queueService.pending()).extracting(DownloadQueueItem::getLink)
+                .containsExactly("mock:902", "mock:900", "mock:901");
+        assertThat(queueRepository.findByLink("mock:900")).get().satisfies(row ->
+        {
+            assertThat(row.getPriority()).isEqualTo(DownloadQueueItem.FROM_SUBSCRIPTION);
+            assertThat(row.getSubscriptionId()).isEqualTo(subscription);
+        });
+    }
+
+    /** A paste is the user asking for the gallery: it takes the paste's choices and moves ahead. */
+    @Test
+    void shouldGiveTheUserASubscriptionsRowWhenTheyPasteItsGallery()
+    {
+        // GIVEN
+        queueService.queueForSubscription(subscription(), List.of("mock:901"),
+                TestDownloads.choices(NO_COMPRESSION, false));
+
+        // WHEN
+        var result = queueService.enqueue(List.of("MOCK:901"), TestDownloads.choices("LOSSLESS", true));
+
+        // THEN
+        assertThat(result.alreadyQueued()).isOne();
+        assertThat(queueRepository.findByLink("mock:901")).get().satisfies(row ->
+        {
+            assertThat(row.getPriority()).isEqualTo(DownloadQueueItem.ASKED_FOR);
+            assertThat(row.getSubscriptionId()).isNull();
+            assertThat(row.getCompressionMode()).isEqualTo("LOSSLESS");
+            assertThat(row.isAvoidDuplicateTitles()).isTrue();
+        });
+    }
+
+    /** A paste chose its own way to download the gallery, and a failed row waits for the user's decision. */
+    @Test
+    void shouldNeverTouchARowThatExistsWhenASubscriptionQueuesItsGallery()
+    {
+        // GIVEN a pasted row and a failed one
+        queueService.enqueue(List.of("mock:900", "mock:901"), TestDownloads.choices("LOSSLESS", true));
+        DownloadQueueItem failed = queueRepository.findByLink("mock:901").orElseThrow();
+        failed.setError("failed before");
+        queueRepository.save(failed);
+
+        // WHEN
+        var queued = queueService.queueForSubscription(subscription(), List.of("mock:900", "mock:901", "mock:902"),
+                TestDownloads.choices(NO_COMPRESSION, false));
+
+        // THEN
+        assertThat(queued).containsExactly("mock:902");
+        assertThat(queueRepository.findByLink("mock:900")).get().extracting(DownloadQueueItem::getPriority,
+                DownloadQueueItem::getCompressionMode).containsExactly(DownloadQueueItem.ASKED_FOR, "LOSSLESS");
+        assertThat(queueRepository.findByLink("mock:901")).get().extracting(DownloadQueueItem::getError)
+                .isEqualTo("failed before");
+    }
+
+    @Test
+    void shouldGiveTheUserASubscriptionsRowForAFullQualityRedownload()
+    {
+        // GIVEN
+        queueService.queueForSubscription(subscription(), List.of("mock:900"),
+                TestDownloads.choices("LOSSLESS", false));
+
+        // WHEN
+        queueService.enqueueFullQuality("mock:900", "mock:900", TestDownloads.PLAIN_GALLERY_DL);
+
+        // THEN
+        assertThat(queueRepository.findByLink("mock:900")).get().satisfies(row ->
+        {
+            assertThat(row.getPriority()).isEqualTo(DownloadQueueItem.ASKED_FOR);
+            assertThat(row.getSubscriptionId()).isNull();
+            assertThat(row.isReplacePages()).isTrue();
+        });
+    }
+
+    /** A row needs a subscription to name; only the foreign key cares what it searches. */
+    private int subscription()
+    {
+        var subscription = new Subscription();
+        subscription.setSource("nhentai");
+        subscription.setQuery("q");
+        subscription.setPollMinutes(60);
+        subscription.setRecheckEveryHours(24);
+        subscription.setRecheckDepthHours(48);
+        subscription.setRequestDelay("0");
+        return subscriptionRepository.save(subscription).getId();
+    }
+
     private static void writeGallery(String id, int declaredPages, int presentPages) throws IOException
     {
         Path gallery = MOCK_DIR.resolve("galleries").resolve(id);

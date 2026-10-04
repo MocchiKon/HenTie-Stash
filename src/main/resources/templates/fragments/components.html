@@ -175,5 +175,57 @@
     <button type="submit" class="btn btn-accent">Link selected</button>
 </div>
 
+<!-- The gallery-dl choices of a paste or a subscription: one copy, so both offer and explain the same. shownFor
+     (space-separated site keys) lets app.js hide it while another site is chosen; it shows without JavaScript. -->
+<fieldset th:fragment="galleryDlOptions(legend, intro, cookiesBrowser, downloadOriginals, requestDelay, delayError, shownFor)"
+          class="gallery-dl-options" th:attr="data-shown-for=${shownFor}">
+    <legend th:text="${legend}">gallery-dl</legend>
+    <p class="hint" th:text="${intro}">These sources are downloaded by gallery-dl.</p>
+    <div class="field">
+        <label for="cookiesBrowser">Use cookies when downloading</label>
+        <select id="cookiesBrowser" name="cookiesBrowser" class="capped-select">
+            <option value="" th:selected="${#strings.isEmpty(cookiesBrowser)}">No cookies</option>
+            <optgroup th:each="group : ${browserGroups}" th:label="${group.label()}">
+                <option th:each="browser : ${group.browsers()}" th:value="${browser}" th:text="${browser}"
+                        th:selected="${browser == cookiesBrowser}">firefox</option>
+            </optgroup>
+        </select>
+        <p class="hint">
+            gallery-dl reads the cookies of the browser you are logged in with
+            (<code>--cookies-from-browser</code>). For e-hentai/exhentai only: hitomi needs no login. With
+            cookies, e-hentai galleries are downloaded from exhentai.org, or from e-hentai.org if your
+            account has no ExHentai access. Firefox works best: on Windows, Chrome, Edge and Brave encrypt
+            their cookies in a way gallery-dl cannot read.
+        </p>
+    </div>
+    <div class="field">
+        <label class="checkbox big">
+            <input type="checkbox" name="downloadOriginals" value="true" th:checked="${downloadOriginals}">
+            <span>Download originals</span>
+        </label>
+        <p class="hint">
+            e-hentai/exhentai only; hitomi never serves the originals. Unticked: the resampled image (usually
+            1280 px wide, or your account's "Image Size" setting), 1 point of your image limit per page.
+            Ticked: the original file. It needs cookies of a logged-in account (without them the resampled
+            image is used), costs 1 point plus 1 per 0.1 MB of the file (a 3 MB page costs 31), and can cost
+            GP. The limit then runs out much sooner, and downloads fail with "Image limit exceeded" until it
+            recovers or you reset it on e-hentai.
+        </p>
+    </div>
+    <div class="field">
+        <label for="requestDelay">Delay between image downloads (seconds)</label>
+        <input type="text" id="requestDelay" name="requestDelay" class="short-input" maxlength="20"
+               th:value="${requestDelay}" th:classappend="${delayError != null} ? 'invalid'"
+               th:attr="aria-invalid=${delayError != null},aria-describedby=${delayError != null} ? 'requestDelayError'">
+        <p id="requestDelayError" class="field-error" th:if="${delayError}" th:text="${delayError}">error</p>
+        <p class="hint">
+            A number, or a range for a random wait, e.g. 0.4-0.65. e-hentai/exhentai: the wait before each
+            request for an image page (<code>--sleep-request</code>; it replaces gallery-dl's own 3-6
+            seconds). hitomi: the wait before each image download (<code>--sleep</code>). Too low a value
+            can get your IP temporarily banned (e-hentai bans for "excessive pageloads").
+        </p>
+    </div>
+</fieldset>
+
 </body>
 </html>

@@ -4,7 +4,9 @@ import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.net.URI;
+import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -110,6 +112,145 @@ class DataDownloaderRegistryTest
         assertThat(registry.favouritesSource("site")).contains(withFavourites);
         assertThat(registry.favouritesSource("mock")).isEmpty();
         assertThat(registry.favouritesSource(null)).isEmpty();
+    }
+
+    /** A subscription stores its site's key, so two sites with one key would have it search the wrong site. */
+    @Test
+    void shouldRefuseToStartWhenTwoSearchSitesShareAKey()
+    {
+        List<DataDownloader> clashing = List.of(new StubSearchSource("a", null, "site"),
+                new StubSearchSource("b", null, "site"));
+
+        assertThatThrownBy(() -> new DataDownloaderRegistry(clashing))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("'site'");
+    }
+
+    @Test
+    void shouldFindTheSourceOfEverySearchSite()
+    {
+        // GIVEN a source with two sites, and one with none
+        var twoSites = new StubSearchSource("eh", null, "e-hentai", "exhentai");
+        var registry = new DataDownloaderRegistry(List.of(new StubDownloader("mock", "mock:"), twoSites));
+
+        // WHEN + THEN
+        assertThat(registry.searchSources()).containsExactly(twoSites);
+        assertThat(registry.searchSites()).extracting(SearchSource.SearchSite::key)
+                .containsExactly("e-hentai", "exhentai");
+        assertThat(registry.searchSource("exhentai")).contains(twoSites);
+        assertThat(registry.searchSource("mock")).isEmpty();
+        assertThat(registry.searchSource(null)).isEmpty();
+    }
+
+    /** The worker leaves a subscription's rows of a source waiting while that source refuses every download. */
+    @Test
+    void shouldTellUntilWhenTheSourceOfAGalleryRefusesDownloads()
+    {
+        // GIVEN
+        Instant until = Instant.parse("2026-10-04T15:00:00Z");
+        var registry = new DataDownloaderRegistry(List.of(new StubDownloader("mock", "mock:"),
+                new StubSearchSource("eh", until, "e-hentai")));
+
+        // WHEN + THEN
+        assertThat(registry.refusingUntil("eh:1/abc")).contains(until);
+        assertThat(registry.refusingUntil("mock:1")).isEmpty();
+        assertThat(registry.refusingUntil("elsewhere:1")).isEmpty();
+        assertThat(registry.refusingUntil(null)).isEmpty();
+        assertThat(registry.refusals()).containsExactly("eh:");
+    }
+
+    /** @param refusing until when it refuses every download; null while it does not */
+    private record StubSearchSource(String prefix, Instant refusing, List<String> siteKeys)
+            implements SearchSource, PageDownloader
+    {
+        StubSearchSource(String prefix, Instant refusing, String... siteKeys)
+        {
+            this(prefix, refusing, List.of(siteKeys));
+        }
+
+        @Override
+        public String sourcePrefix()
+        {
+            return prefix;
+        }
+
+        @Override
+        public Optional<Instant> refusingUntil()
+        {
+            return Optional.ofNullable(refusing);
+        }
+
+        @Override
+        public boolean accepts(String link)
+        {
+            return false;
+        }
+
+        @Override
+        public String resourceId(String link)
+        {
+            return link;
+        }
+
+        @Override
+        public String link(String resourceId)
+        {
+            return resourceId;
+        }
+
+        @Override
+        public GalleryData downloadGalleryInfo(String id)
+        {
+            return GalleryData.builder().id(id).build();
+        }
+
+        @Override
+        public byte[] downloadPage(URI url) throws IOException
+        {
+            throw new IOException("not used");
+        }
+
+        @Override
+        public List<SearchSite> searchSites()
+        {
+            return siteKeys.stream().map(key -> new SearchSite(key, key, "")).toList();
+        }
+
+        @Override
+        public String normalizedQuery(String site, String query)
+        {
+            return query;
+        }
+
+        @Override
+        public Optional<String> notReady(String site)
+        {
+            return Optional.empty();
+        }
+
+        @Override
+        public SearchPage search(String site, String query, String after)
+        {
+            return SearchPage.end();
+        }
+
+        @Override
+        public String cursorAfter(String site, String after, List<String> resourceIds)
+        {
+            return resourceIds.getLast();
+        }
+
+        @Override
+        public long position(String resourceId)
+        {
+            return 0;
+        }
+
+        @Override
+        public String searchPageUrl(String site, String query)
+        {
+            return "";
+        }
     }
 
     private record StubFavouritesSource(String prefix) implements FavouritesSource, PageDownloader

@@ -1,14 +1,12 @@
 package io.github.mocchikon.hentie.scrapper.ehentai;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import io.github.mocchikon.hentie.scrapper.DataDownloader;
-import io.github.mocchikon.hentie.scrapper.EhTags;
-import io.github.mocchikon.hentie.scrapper.GalleryData;
-import io.github.mocchikon.hentie.scrapper.GalleryNotFoundException;
+import io.github.mocchikon.hentie.scrapper.*;
 import io.github.mocchikon.hentie.scrapper.gallerydl.GalleryDl;
 import io.github.mocchikon.hentie.scrapper.gallerydl.GalleryDlDownloader;
 import io.github.mocchikon.hentie.scrapper.gallerydl.GalleryDlException;
 import io.github.mocchikon.hentie.scrapper.gallerydl.GalleryDlOptions;
+import io.github.mocchikon.hentie.service.SettingsService;
 import io.github.mocchikon.hentie.service.download.PermanentDownloadException;
 import io.github.mocchikon.hentie.service.download.RetryLaterException;
 import jakarta.annotation.PreDestroy;
@@ -22,7 +20,9 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.*;
+import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -40,9 +40,12 @@ import static io.github.mocchikon.hentie.scrapper.JsonFields.text;
  * e-hentai hides), falling back once to e-hentai.org when exhentai refuses the account; without them e-hentai.org,
  * since exhentai shows nothing to a visitor. A re-download has no pasted link at all, so the domain could not come
  * from one anyway.
+ * <p>
+ * <b>Subscriptions search either domain</b> ({@link EhentaiSearchPages}), exhentai with the account cookies from
+ * Settings. Searches and downloads share the cooldown: a ban stops both.
  */
 @Component
-public class EhentaiDownloader implements GalleryDlDownloader
+public class EhentaiDownloader implements GalleryDlDownloader, SearchSource
 {
     private static final Logger log = LoggerFactory.getLogger(EhentaiDownloader.class);
 
@@ -65,22 +68,32 @@ public class EhentaiDownloader implements GalleryDlDownloader
 
     private static final Pattern RESOURCE_ID_SHAPE = Pattern.compile("(\\d{1,10})/([0-9a-f]{10})");
 
+    static final String EHENTAI_SITE = "e-hentai";
+    static final String EXHENTAI_SITE = "exhentai";
+
     private final EhentaiProperties properties;
     private final EhentaiApi api;
     private final GalleryDl galleryDl;
+    private final Supplier<EhentaiSearchPages.Account> account;
+    private final EhentaiSearchPages searchPages;
     private final EhentaiCooldown cooldown = new EhentaiCooldown();
 
-    public EhentaiDownloader(EhentaiProperties properties, GalleryDl galleryDl)
+    public EhentaiDownloader(EhentaiProperties properties, GalleryDl galleryDl, SettingsService settingsService)
     {
         this.properties = properties;
         this.api = new EhentaiApi(properties);
         this.galleryDl = galleryDl;
+        // Read on every search, so cookies saved in Settings apply at once.
+        this.account = () -> new EhentaiSearchPages.Account(settingsService.getEhentaiMemberId(),
+                settingsService.getEhentaiPassHash(), settingsService.getEhentaiIgneous());
+        this.searchPages = new EhentaiSearchPages(properties, account);
     }
 
     @PreDestroy
     void close()
     {
         api.close();
+        searchPages.close();
     }
 
     @Override
@@ -290,5 +303,113 @@ public class EhentaiDownloader implements GalleryDlDownloader
     public void clearCooldown()
     {
         cooldown.clear();
+    }
+
+    /** A subscription's rows wait for the cooldown's end instead of failing like a paste's. */
+    @Override
+    public Optional<Instant> refusingUntil()
+    {
+        return cooldown.until();
+    }
+
+    // ---- subscriptions -------------------------------------------------------------------------------------
+
+    @Override
+    public List<SearchSite> searchSites()
+    {
+        String help = "Paste a search's address from the site, or the part after its \"?\" "
+                + "(f_search=female%3Ablowjob%24+language%3Aenglish%24, with f_cats and the other f_ filters as you "
+                + "like), or just the search text, e.g. female:blowjob$ language:english$. Paging (next, page) is "
+                + "dropped: the subscription walks the pages itself.";
+        return List.of(new SearchSite(EHENTAI_SITE, "e-hentai", help),
+                new SearchSite(EXHENTAI_SITE, "exhentai", help + " exhentai also shows the galleries e-hentai hides; "
+                        + "it needs your e-hentai account's cookies in Settings."));
+    }
+
+    @Override
+    public String normalizedQuery(String site, String query)
+    {
+        return EhentaiSearchQuery.normalized(query);
+    }
+
+    @Override
+    public Optional<String> notReady(String site)
+    {
+        if (EXHENTAI_SITE.equals(site) && !account.get().complete())
+        {
+            return Optional.of("exhentai shows its search only to a logged-in account: set your e-hentai account's "
+                    + "cookies (ipb_member_id and ipb_pass_hash) in Settings.");
+        }
+        return Optional.empty();
+    }
+
+    /** exhentai's galleries download from exhentai.org only with the browser's cookies (see {@link #downloadPages}). */
+    @Override
+    public Optional<String> choicesProblem(String site, GalleryDlOptions galleryDl)
+    {
+        if (EXHENTAI_SITE.equals(site) && !galleryDl.usesCookies())
+        {
+            return Optional.of("exhentai's galleries download with your browser's cookies: choose the browser you "
+                    + "are logged in to e-hentai with under \"Use cookies when downloading\".");
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * @throws RetryLaterException during a cooldown, without asking the site: requests during a ban can extend it
+     */
+    @Override
+    public SearchPage search(String site, String query, String after)
+    {
+        Optional<Map.Entry<String, Instant>> refusal = cooldown.searchRefusal();
+        if (refusal.isPresent())
+        {
+            throw new RetryLaterException(refusal.get().getKey(), null, refusal.get().getValue());
+        }
+        boolean exhentai = EXHENTAI_SITE.equals(site);
+        Optional<String> missing = notReady(site);
+        if (missing.isPresent())
+        {
+            throw new UncheckedIOException(new IOException(missing.get()));
+        }
+        try
+        {
+            EhentaiSearchPages.Page page = searchPages.fetch(exhentai, query,
+                    after == null ? null : Long.parseLong(after));
+            return new SearchPage(page.resourceIds(), Set.of(), page.more(), page.total());
+        }
+        catch (EhentaiApi.BannedException e)
+        {
+            startCooldown(e.getMessage());
+            throw cooldown.searchRefusal()
+                    .map(refused -> new RetryLaterException(refused.getKey(), e, refused.getValue()))
+                    .orElseGet(() -> new RetryLaterException(e.getMessage(), e, null));
+        }
+        catch (IOException e)
+        {
+            throw new UncheckedIOException(e.getMessage(), e);
+        }
+    }
+
+    /**
+     * The page's last gid alone: {@code next=<gid>} lists exactly the galleries below it, whatever changed meanwhile,
+     * so where the page came from does not matter.
+     */
+    @Override
+    public String cursorAfter(String site, String after, List<String> resourceIds)
+    {
+        return Long.toString(position(resourceIds.getLast()));
+    }
+
+    @Override
+    public long position(String resourceId)
+    {
+        return Long.parseLong(parsed(resourceId).group(1));
+    }
+
+    @Override
+    public String searchPageUrl(String site, String query)
+    {
+        return "https://" + (EXHENTAI_SITE.equals(site) ? EXHENTAI : EHENTAI) + "/?" + query;
     }
 }

@@ -15,6 +15,8 @@ import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -185,7 +187,7 @@ public class DownloadWorker
         }
 
         int index = processed.get() + 1;
-        long total = processed.get() + queueService.pendingCount();
+        long total = processed.get() + queueService.runnableCount();
         currentItemId = item.getId();
         current = new Current(item.getLink(), "Starting");
         try
@@ -272,6 +274,18 @@ public class DownloadWorker
             sleep(appProperties.getDownload().getRetryBackoffMillis());
             return;
         }
+        // A subscription's row of a source now refusing every download (a ban it sits out, which this item may just
+        // have run into) waits for the ban to end: its failure says nothing about the gallery. nextPending skips it
+        // meanwhile. A row the user asked for (claimed by a paste while it ran, too) fails, saying why, and so does a
+        // gallery that is gone, which no ban explains.
+        var deferredUntil = failure instanceof GalleryNotFoundException
+                ? Optional.<Instant>empty() : queueService.deferredUntil(item.getId());
+        if (deferredUntil.isPresent())
+        {
+            log.info("Download of {} waits until {}, when its source is asked again: {}", item.getLink(),
+                    deferredUntil.get(), failure.getMessage());
+            return;
+        }
         boolean permanent = failure instanceof PermanentDownloadException
                 || failure instanceof GalleryNotFoundException;
         String message = failure.getMessage() == null ? failure.toString() : failure.getMessage();
@@ -331,8 +345,10 @@ public class DownloadWorker
     {
         int done = processed.get();
         long pending = queueService.pendingCount();
+        // The queue page asks every few seconds, and no source refusing is the usual case: one count, not two.
+        long runnable = queueService.anySourceRefusing() ? queueService.runnableCount() : pending;
         Current now = current;
-        return new DownloadProgress(done, done + pending, pending, queueService.failedCount(),
+        return new DownloadProgress(done, done + runnable, pending, runnable, queueService.failedCount(),
                 now == null ? null : now.link(), now == null ? null : now.phase(), isPaused());
     }
 

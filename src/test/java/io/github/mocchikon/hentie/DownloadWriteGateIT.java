@@ -53,6 +53,7 @@ class DownloadWriteGateIT
     private static final Path MOCK_DIR = Paths.get("./target/test-mock-server");
 
     @Autowired DownloadWorker worker;
+
     @Autowired DownloadQueueService queueService;
     @Autowired DownloadQueueRepository queueRepository;
     @Autowired ChapterRepository chapterRepository;

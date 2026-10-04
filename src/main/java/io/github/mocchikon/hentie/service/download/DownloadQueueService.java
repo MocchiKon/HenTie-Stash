@@ -11,13 +11,15 @@ import io.github.mocchikon.hentie.service.compress.ImageCompressionModeService;
 import lombok.RequiredArgsConstructor;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.data.domain.Limit;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
-import java.util.List;
-import java.util.Objects;
-import java.util.Optional;
+import java.util.*;
 
 /**
  * Every method is its own short transaction, so the long download between them never holds the SQLite
@@ -34,6 +36,9 @@ public class DownloadQueueService
      */
     public static final int LIST_LIMIT = 200;
 
+    /** What the user asked for first, then what subscriptions found, each oldest first. */
+    private static final Sort PENDING_ORDER = Sort.by("priority", "id");
+
     private final DownloadQueueRepository repository;
     private final DataDownloaderRegistry registry;
     private final GalleryImportService importService;
@@ -42,7 +47,8 @@ public class DownloadQueueService
 
     /**
      * A link already queued is never duplicated: a failed row is reset to pending. Either way the row takes
-     * this paste's choices, since the form is how the user says how the link should be downloaded.
+     * this paste's choices, since the form is how the user says how the link should be downloaded, and becomes the
+     * user's: a row a subscription queued moves up among the rows the user asked for.
      */
     @Transactional
     public EnqueueResult enqueue(List<String> links, DownloadChoices choices)
@@ -82,6 +88,7 @@ public class DownloadQueueService
                     item.setAvoidDuplicateTitles(avoidDuplicateTitles);
                     item.setReplacePages(false);
                     setGalleryDlOptions(item, galleryDl);
+                    claim(item);
                     repository.save(item);
                     requeued++;
                 }
@@ -90,12 +97,13 @@ public class DownloadQueueService
                     // A waiting row takes this paste's choices too; a running attempt keeps its own.
                     if (!mode.equals(item.getCompressionMode())
                             || item.isAvoidDuplicateTitles() != avoidDuplicateTitles || item.isReplacePages()
-                            || !StoredGalleryDl.of(item).equals(StoredGalleryDl.of(galleryDl)))
+                            || !StoredGalleryDl.of(item).equals(StoredGalleryDl.of(galleryDl)) || !isClaimed(item))
                     {
                         item.setCompressionMode(mode);
                         item.setAvoidDuplicateTitles(avoidDuplicateTitles);
                         item.setReplacePages(false);
                         setGalleryDlOptions(item, galleryDl);
+                        claim(item);
                         repository.save(item);
                     }
                     // Counted, or the page would say "Nothing to queue" about a link about to download.
@@ -115,6 +123,62 @@ public class DownloadQueueService
             accepted++;
         }
         return new EnqueueResult(accepted, requeued, alreadyQueued, rejected);
+    }
+
+    /**
+     * Queues the galleries a subscription found and nobody queued yet, at {@link DownloadQueueItem#FROM_SUBSCRIPTION}.
+     * <b>An existing row is never touched</b>, pending or failed: a paste chose its own way to download the gallery,
+     * and a failed row waits for the user's decision on the Failed list.
+     * <p>
+     * Part of the subscription's page transaction (MANDATORY), so the rows commit together with the walk moving
+     * past them, or neither does.
+     *
+     * @param links the source's own link for each gallery
+     * @return the gallery ids queued; the others had a row already
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public Set<String> queueForSubscription(int subscriptionId, Collection<String> links, DownloadChoices choices)
+    {
+        String mode = modeService.storableKey(choices.compressionMode());
+        var queued = new HashSet<String>();
+        for (String link : links)
+        {
+            Optional<ResourceLink> parsed = registry.parse(link);
+            if (parsed.isEmpty())
+            {
+                continue;
+            }
+            String galleryId = parsed.get().galleryId();
+            String trimmedLink = StringUtils.trimToEmpty(link);
+            if (repository.existsByGalleryIdOrLink(galleryId, trimmedLink))
+            {
+                continue;
+            }
+            var item = new DownloadQueueItem();
+            item.setLink(trimmedLink);
+            item.setGalleryId(galleryId);
+            item.setCompressionMode(mode);
+            item.setAvoidDuplicateTitles(choices.avoidDuplicateTitles());
+            setGalleryDlOptions(item, choices.galleryDl());
+            item.setPriority(DownloadQueueItem.FROM_SUBSCRIPTION);
+            item.setSubscriptionId(subscriptionId);
+            item.setQueuedAt(LocalDateTime.now());
+            repository.save(item);
+            queued.add(galleryId);
+        }
+        return queued;
+    }
+
+    /** The user's from now on: their request outranks the subscription that found the gallery. */
+    private static void claim(DownloadQueueItem item)
+    {
+        item.setPriority(DownloadQueueItem.ASKED_FOR);
+        item.setSubscriptionId(null);
+    }
+
+    private static boolean isClaimed(DownloadQueueItem item)
+    {
+        return item.getPriority() == DownloadQueueItem.ASKED_FOR && item.getSubscriptionId() == null;
     }
 
     /**
@@ -182,13 +246,78 @@ public class DownloadQueueService
         item.setAvoidDuplicateTitles(false);
         item.setReplacePages(true);
         setGalleryDlOptions(item, galleryDl);
+        claim(item);
         repository.save(item);
     }
 
+    /**
+     * Skips a subscription's rows of a source refusing every download meanwhile (a ban it sits out): they wait for it
+     * to end instead of failing one after the other. A row the user asked for still runs and fails at once, saying
+     * why: the user is there to read it and decide.
+     */
     @Transactional(readOnly = true)
     public Optional<DownloadQueueItem> nextPending()
     {
-        return repository.findFirstByErrorIsNullOrderByIdAsc();
+        return repository.findBy(pendingExceptSubscriptionRowsOf(registry.refusals()),
+                query -> query.sortBy(PENDING_ORDER).first());
+    }
+
+    /**
+     * Until when a row waits for its source instead of running (see {@link #nextPending}); empty for a row that runs.
+     * The worker, the queue page and {@link #nextPending} agree on it through here.
+     */
+    public Optional<Instant> deferredUntil(DownloadQueueItem item)
+    {
+        return item.isFromSubscription() ? registry.refusingUntil(item.getGalleryId()) : Optional.empty();
+    }
+
+    /**
+     * As {@link #deferredUntil(DownloadQueueItem)}, for the row as it is now: a paste may have claimed it while it ran,
+     * and then it fails for the user to see. Empty for a row removed meanwhile.
+     */
+    @Transactional(readOnly = true)
+    public Optional<Instant> deferredUntil(int itemId)
+    {
+        return repository.findById(itemId).flatMap(this::deferredUntil);
+    }
+
+    /**
+     * Pending rows that run now, without those {@link #nextPending} skips: a batch's progress and the queue page's
+     * refresh would otherwise wait for rows that cannot run until a ban ends.
+     */
+    @Transactional(readOnly = true)
+    public long runnableCount()
+    {
+        return repository.count(pendingExceptSubscriptionRowsOf(registry.refusals()));
+    }
+
+    /**
+     * Whether {@link #runnableCount} can differ from {@link #pendingCount}: only while a source refuses, so a caller
+     * needing both counts once otherwise.
+     */
+    public boolean anySourceRefusing()
+    {
+        return !registry.refusals().isEmpty();
+    }
+
+    /** The prefix is compared with {@code substring}, as the duplicate-title check does: a filter on each row. */
+    private static Specification<DownloadQueueItem> pendingExceptSubscriptionRowsOf(Set<String> prefixes)
+    {
+        return (root, query, cb) ->
+        {
+            if (prefixes.isEmpty())
+            {
+                return cb.isNull(root.get("error"));
+            }
+            var galleryId = root.<String>get("galleryId");
+            var ofRefusingSource = prefixes.stream()
+                    .map(prefix -> cb.equal(cb.substring(galleryId, 1, prefix.length()), prefix))
+                    .toArray(jakarta.persistence.criteria.Predicate[]::new);
+            return cb.and(cb.isNull(root.get("error")), cb.or(
+                    cb.notEqual(root.get("priority"), DownloadQueueItem.FROM_SUBSCRIPTION),
+                    cb.isNull(galleryId),
+                    cb.not(cb.or(ofRefusingSource))));
+        };
     }
 
     /**
@@ -271,16 +400,49 @@ public class DownloadQueueService
         return repository.countByErrorIsNotNull();
     }
 
+    /** In the order the worker takes them, so the list shows what runs next. */
     @Transactional(readOnly = true)
     public List<DownloadQueueItem> pending()
     {
-        return repository.findByErrorIsNullOrderByIdAsc(Limit.of(LIST_LIMIT));
+        return repository.findByErrorIsNullOrderByPriorityAscIdAsc(Limit.of(LIST_LIMIT));
     }
 
     @Transactional(readOnly = true)
     public List<DownloadQueueItem> failed()
     {
-        return repository.findByErrorIsNotNullOrderByIdAsc(Limit.of(LIST_LIMIT));
+        return repository.findByErrorIsNotNullOrderByPriorityAscIdAsc(Limit.of(LIST_LIMIT));
+    }
+
+    @Transactional(readOnly = true)
+    public long waitingFor(int subscriptionId)
+    {
+        return repository.countBySubscriptionIdAndErrorIsNull(subscriptionId);
+    }
+
+    @Transactional(readOnly = true)
+    public long failedFor(int subscriptionId)
+    {
+        return repository.countBySubscriptionIdAndErrorIsNotNull(subscriptionId);
+    }
+
+    /** Waiting rows per subscription id, every subscription in one query. */
+    @Transactional(readOnly = true)
+    public Map<Integer, Long> waitingBySubscription()
+    {
+        return byId(repository.waitingBySubscription());
+    }
+
+    @Transactional(readOnly = true)
+    public Map<Integer, Long> failedBySubscription()
+    {
+        return byId(repository.failedBySubscription());
+    }
+
+    private static Map<Integer, Long> byId(List<DownloadQueueRepository.SubscriptionRows> rows)
+    {
+        var counts = new HashMap<Integer, Long>();
+        rows.forEach(row -> counts.put(row.getSubscriptionId(), row.getRowCount()));
+        return counts;
     }
 
     /** The flag is assigned, not OR-ed, so a plain retry undoes an earlier lenient one. */

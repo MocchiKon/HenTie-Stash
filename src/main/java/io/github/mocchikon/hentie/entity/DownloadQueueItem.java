@@ -17,12 +17,22 @@ import java.time.LocalDateTime;
 @Entity
 @Table(name = "download_queue", indexes = {
         // Serves both the worker's pending-in-order query and the failed list.
-        @Index(name = "ix_download_queue__error_id", columnList = "error, id")
+        @Index(name = "ix_download_queue__error_priority_id", columnList = "error, priority, id"),
+        // Every enqueue looks its gallery up.
+        @Index(name = "ix_download_queue__gallery_id", columnList = "gallery_id"),
+        // A subscription's waiting and failed rows, which decide whether it may list more; also its foreign key.
+        @Index(name = "ix_download_queue__subscription_error", columnList = "subscription_id, error")
 })
 @Getter
 @Setter
 public class DownloadQueueItem
 {
+    /** {@link #priority} of a row the user asked for. Stored: never renumbered. */
+    public static final int ASKED_FOR = 0;
+
+    /** {@link #priority} of a row a subscription queued; it runs after every row the user asked for. */
+    public static final int FROM_SUBSCRIPTION = 1;
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Integer id;
@@ -92,4 +102,23 @@ public class DownloadQueueItem
 
     @Column(name = "queued_at", nullable = false)
     private LocalDateTime queuedAt = LocalDateTime.now();
+
+    /**
+     * Lower runs first: what the user asked for never waits behind what a subscription found. A paste of the
+     * gallery claims a subscription's row, so it moves up.
+     */
+    @Column(name = "priority", nullable = false, columnDefinition = "integer not null default 0")
+    private int priority = ASKED_FOR;
+
+    /**
+     * The subscription that queued the row, for its page and its queue-ahead limit. Null for a row the user asked
+     * for, and once the subscription is deleted: its rows stay queued, still at {@link #FROM_SUBSCRIPTION}.
+     */
+    @Column(name = "subscription_id")
+    private Integer subscriptionId;
+
+    public boolean isFromSubscription()
+    {
+        return priority == FROM_SUBSCRIPTION;
+    }
 }
