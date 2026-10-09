@@ -1,6 +1,8 @@
 package io.github.mocchikon.hentie;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -28,7 +30,7 @@ class SchemaMigrationIT
     void shouldMatchTheEntityMappingsWhenSchemaComesFromMigrations() // TODO After releasing change assert to contains
     {
         // Starting the context is the real check; this assertion keeps the test from passing vacuously.
-        assertThat(appliedMigrations()).containsExactly("1", "2", "3");
+        assertThat(appliedMigrations()).containsExactly("1", "2", "3", "4");
     }
 
     @Test
@@ -70,23 +72,23 @@ class SchemaMigrationIT
     {
         // Without these, matching scans both tables once per chapter - invisible until the library is large.
         assertThat(objectNames("type = 'index'")).contains(
-                "ix_chapter__match_key", "ix_chapter__series_match_key",
-                "ix_series__match_key", "ix_series__match_block");
-        // Chapters are sought by block through the spaceless-key expression index, not a column of their own.
-        assertThat(objectNames("type = 'index'")).doesNotContain("ix_chapter__match_block");
+                "ix_chapter__match_key", "ix_chapter__series_match_key", "ix_chapter__native_match_key",
+                "ix_series__match_key");
+        // Both tables are walked by nearest title through the spaceless-key expression index, not a block column.
+        assertThat(objectNames("type = 'index'")).doesNotContain("ix_chapter__match_block", "ix_series__match_block");
     }
 
     /**
      * SQLite uses an expression index only for the expression spelled as declared, so the expression is
      * asserted, not only the name.
      */
-    @Test
-    void shouldCreateTheCondensedMatchKeyIndexWhenMigrating()
+    @ParameterizedTest
+    @ValueSource(strings = {"ix_chapter__condensed_match_key", "ix_series__condensed_match_key"})
+    void shouldCreateTheCondensedMatchKeyIndexesWhenMigrating(String index)
     {
         // GIVEN + WHEN
         List<String> definitions = jdbc.queryForList(
-                "SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'ix_chapter__condensed_match_key'",
-                String.class);
+                "SELECT sql FROM sqlite_master WHERE type = 'index' AND name = ?", String.class, index);
 
         // THEN
         assertThat(definitions).singleElement()

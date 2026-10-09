@@ -193,8 +193,9 @@ class PerformanceIT
 
     // A bracket group matching ignores; series matching creates keep it, so one prefix cleans up both.
     private static final String MATCH_PREFIX = "[Perf Match ";
-    // SeriesCandidateFinder's caps, package-private there.
+    // SeriesCandidateFinder's caps, package-private there; the nearest-title walk makes up to four seeks.
     private static final int BLOCK_CANDIDATE_LIMIT = 200;
+    private static final int NEAREST_SEEKS = 4;
     private static final int ARTIST_FANOUT_LIMIT = 2_000;
     // The controllers' limits (MAX_MATCHES, AutocompleteController.LIMIT, ManageController.RECENT_LIMIT).
     private static final int ADD_TO_SERIES_MATCHES = 5;
@@ -1493,7 +1494,7 @@ class PerformanceIT
     //
     // Each scenario runs on RUNS families from different blocks, after a warm-up family. "Typical" sits in a
     // block as full as a typical series'; "crowded" in one of the fullest (~0.3-1% of series), the realistic
-    // worst case where a block seek fills its cap. Only families without a probe artist are probed, so every
+    // worst case where the nearest-title seeks fill their caps. Only families without a probe artist are probed, so every
     // artist seek is a real artist's.
     // ---------------------------------------------------------------------------------------------
 
@@ -1536,20 +1537,20 @@ class PerformanceIT
             results.add(measureOnFamilies("rank: misspelled sibling (artist seek)", typical, f ->
             {
                 List<ScoredSeries> ranked = rank(misspelled(f.index()) + " 3", familyArtistFor(f.index()));
-                assertThat(ranked).hasSizeBetween(1, ARTIST_FANOUT_LIMIT - 1);
+                assertThat(ranked).hasSizeBetween(1, ARTIST_FANOUT_LIMIT - 1 + NEAREST_SEEKS * BLOCK_CANDIDATE_LIMIT);
                 assertBest(ranked, f, threshold);
                 return ranked.size();
             }));
             results.add(measureOnFamilies("rank: new work by a known artist (artist seek)", typical, f ->
             {
                 List<ScoredSeries> ranked = rank(freshName(f.index()), familyArtistFor(f.index()));
-                assertThat(ranked).hasSizeBetween(1, ARTIST_FANOUT_LIMIT - 1);
+                assertThat(ranked).hasSizeBetween(1, ARTIST_FANOUT_LIMIT - 1 + NEAREST_SEEKS * BLOCK_CANDIDATE_LIMIT);
                 assertThat(ranked.getFirst().score()).isLessThan(threshold);   // nothing to join: a new series
                 return ranked.size();
             }));
-            results.add(measureOnFamilies("rank: new work, no artist (block seek)", typical,
+            results.add(measureOnFamilies("rank: new work, no artist (nearest titles)", typical,
                     f -> rankNewWorkByBlock(f, threshold)));
-            results.add(measureOnFamilies("rank: new work, no artist - crowded block (block seek, capped)", crowded,
+            results.add(measureOnFamilies("rank: new work, no artist - crowded block (nearest titles, capped)", crowded,
                     f -> rankNewWorkByBlock(f, threshold)));
 
             results.add(measureOnFamilies("Add to series page (chapter in no series)", typical, f ->
@@ -1670,7 +1671,7 @@ class PerformanceIT
     private long rankNewWorkByBlock(Family family, double threshold)
     {
         List<ScoredSeries> ranked = rank(freshName(family.index()), null);
-        assertThat(ranked).hasSize(Math.min(family.blockSize(), BLOCK_CANDIDATE_LIMIT));
+        assertThat(ranked).hasSizeBetween(1, NEAREST_SEEKS * BLOCK_CANDIDATE_LIMIT);
         assertThat(ranked.getFirst().score()).isLessThan(threshold);
         return ranked.size();
     }
@@ -1693,7 +1694,7 @@ class PerformanceIT
     private Map<String, Integer> blockSizes()
     {
         var sizes = new HashMap<String, Integer>();
-        jdbc.query("select match_block, count(*) from series group by match_block",
+        jdbc.query("select substr(replace(match_key, ' ', ''), 1, " + TitleKey.BLOCK_LENGTH + "), count(*) from series group by 1",
                 rs -> { sizes.put(rs.getString(1), rs.getInt(2)); });
         return sizes;
     }
@@ -1740,7 +1741,8 @@ class PerformanceIT
     /** From the middle of the block, so it is not simply the oldest. */
     private Optional<Family> familyIn(String block, int blockSize)
     {
-        List<Integer> ids = jdbc.queryForList("select id from series where match_block = ? order by id",
+        List<Integer> ids = jdbc.queryForList("select id from series where substr(replace(match_key, ' ', ''), 1, "
+                        + TitleKey.BLOCK_LENGTH + ") = ? order by id",
                 Integer.class, block);
         for (int j = 0; j < ids.size(); j++)
         {
@@ -1770,6 +1772,8 @@ class PerformanceIT
         ChapterForm form = crudChapterForm(0);
         form.setTitleFull(MATCH_PREFIX + row + "] " + title);
         form.setTitle(null);
+        // The CRUD form's native title is one for every row, which matching by native title would take for one work.
+        form.setNativeTitle(null);
         form.setGalleryId("perf-match-g-" + row);
         form.setArtistIds(new ArrayList<>(List.of(artistId)));
         return form;
@@ -1922,7 +1926,7 @@ class PerformanceIT
             String titleFull = "[Perf Series " + i + titleMarkers(i) + "] " + familyName(i);
             s.setTitleFull(titleFull);
             s.setTitle(titleFull);
-            SeriesService.applyMatchKeys(s);   // match_key + match_block, exactly as every series title write fills them
+            SeriesService.applyMatchKeys(s);   // match_key, exactly as every series title write fills it
             s.setStatus(Status.values()[statusOrdinalFor(i)]);
             s.setCreatedDate(dateFor(familyStart[i]));   // created when its first chapter arrived
             s.setScore(humanScore(i));

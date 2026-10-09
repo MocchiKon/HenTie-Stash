@@ -60,6 +60,57 @@ public interface ChapterRepository extends JpaRepository<Chapter, Integer>, JpaS
     @Query("select c.id, a.id from Chapter c join c.artists a where c.id in :chapterIds")
     List<Object[]> findArtistIdsByChapterIds(Collection<Integer> chapterIds);
 
+    /**
+     * {@code [series_id, native_match_key]} of the chapters in a series with this native key: matching by native
+     * title. Distinct, so a series' many chapters under one key take one place under the cap. {@code excludedId}
+     * ({@code null} excludes nothing) is in the predicate, as in the series seeks. JPQL, not native SQL: the sweep
+     * links chapters as it goes, and only JPQL auto-flushes them first.
+     */
+    @Query("""
+            select distinct c.series.id, c.nativeMatchKey from Chapter c
+            where c.nativeMatchKey = :key and c.series is not null
+              and (:excludedId is null or c.series.id <> :excludedId)
+            order by c.series.id
+            """)
+    List<Object[]> findSeriesByNativeKey(String key, Integer excludedId, Pageable pageable);
+
+    /** As {@link #findSeriesByNativeKey}, for native keys extending {@code key} by whole words. */
+    default List<Object[]> findSeriesByNativeKeyExtending(String key, Integer excludedId, Pageable pageable)
+    {
+        var lower = key + ' ';
+        return findSeriesByNativeKeyRange(lower, lower + SeriesRepository.MATCH_KEY_RANGE_END, excludedId, pageable);
+    }
+
+    /** Call {@link #findSeriesByNativeKeyExtending} instead. */
+    @Query("""
+            select distinct c.series.id, c.nativeMatchKey from Chapter c
+            where c.nativeMatchKey >= :lower and c.nativeMatchKey < :upper and c.series is not null
+              and (:excludedId is null or c.series.id <> :excludedId)
+            order by c.nativeMatchKey, c.series.id
+            """)
+    List<Object[]> findSeriesByNativeKeyRange(String lower, String upper, Integer excludedId, Pageable pageable);
+
+    /** As {@link #findSeriesByNativeKey}, for native keys that are bases of the chapter's; longest first. */
+    @Query("""
+            select distinct c.series.id, c.nativeMatchKey from Chapter c
+            where c.nativeMatchKey in :keys and c.series is not null
+              and (:excludedId is null or c.series.id <> :excludedId)
+            order by length(c.nativeMatchKey) desc, c.series.id
+            """)
+    List<Object[]> findSeriesByNativeKeyIn(Collection<String> keys, Integer excludedId, Pageable pageable);
+
+    /**
+     * What "Link chapters" looks for by native title: every native key among the series' chapters. Pinned to the
+     * index series_id leads: in a library where most chapters have no native key, SQLite would rather skip-scan
+     * {@code ix_chapter__native_match_key}, which walks every distinct native key once there are many.
+     */
+    @Query(value = """
+            select distinct native_match_key from chapter indexed by ix_chapter__series_match_key
+            where series_id = :seriesId and native_match_key <> ''
+            order by native_match_key
+            """, nativeQuery = true)
+    List<String> findNativeKeysBySeriesId(int seriesId, Pageable pageable);
+
     Optional<Chapter> findByGalleryId(String galleryId);
 
     /**

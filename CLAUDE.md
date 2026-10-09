@@ -40,7 +40,9 @@ Use Lombok for constructors and simple getters/setters.
 ```
 ./mvnw spring-boot:run                 # runs against ./db (real data); opens the browser
 ./mvnw test                            # unit + integration tests (PerformanceIT: -Dperf.enabled=true;
-                                       # ComfyUiLiveIT against a real ComfyUI: -Dcomfyui.live=true)
+                                       # ComfyUiLiveIT against a real ComfyUI: -Dcomfyui.live=true;
+                                       # MatchingAccuracyIT against a hand-matched library:
+                                       # -Dmatching.truth=<db file> [-Dmatching.compare=<db file>])
 ./mvnw test -Dtest='!*IT'              # unit tests only
 ./mvnw test -Dtest='*IT'               # integration tests only
 ./mvnw test -Pe2e                      # end-to-end tests (*E2E) against the real sites, and nothing else
@@ -351,34 +353,56 @@ code: `ChapterService.create` (in the service layer, so every way of adding a ch
 `matching.auto-link`) and Manage → **"Match chapters"** (`ChapterMatchingSweep`, unlinked chapters only).
 Normalization, scoring and seeks are documented in `TitleKey`, `MatchScore`, `SeriesCandidateFinder`.
 - **Matching uses `titleFull` on both entities** — the required, scraper-supplied title. The pretty `title`
-  is user-editable, so a cosmetic rename would move a chapter to another family. **`nativeTitle` takes no
-  part** — it is another script, not comparable with a Latin-script sibling. Search matches either title;
-  matching needs one canonical name.
+  is user-editable, so a cosmetic rename would move a chapter to another family.
+- **`nativeTitle` has a key of its own** (`chapter.native_match_key`, `TitleKey.nativeKey`), **compared only
+  with other native keys**: a romanized title shares no word with a Japanese one, but a translation, a second
+  romanization and the original all carry the same Japanese title. A chapter without a native title whose own
+  title is in Japanese, Chinese or Korean is keyed by that title. **Native keys live on chapters only**, so a
+  series is found through any of its chapters, whichever one started it. A native key under 4 characters
+  (`総集編`, "compilation") agrees with nothing, so it is never sought: circle names, which would tell such
+  titles apart, are bracketed and stripped, and these generic keys are the most crowded ones.
+- **A title is parsed in parts**, split at a standalone dash, bar or tilde (`-`, `|`, `~`), and markers come off the
+  tail of **each** part: `"Title 2 - Subtitle"` and `"Title 2 | Translation 2"` are chapter 2 and key like
+  their siblings. Stripping only the whole title's tail would keep the number in the key and split the family.
+  Numbers are also read from a bare `(5)` after the title, decimals (`3.5`), a number glued to Japanese text
+  (`日記12`) or an ellipsis, `第N` (`第3-2話` is chapter 3, part 2), and the number before an arc's name
+  (`2 Karaoke Hen`); a catalogue number (`DLO-19`), a range (`Ch. 1-24`, `第1-8話`) or a year in brackets
+  (`(2019)`) numbers nothing but leaves the key. Other punctuation (`&`, `/`) splits nothing: as a part of its
+  own, `"Him & Her 2"` would end in a stopword and keep its number. A chapter's number comes from its
+  title, else from its native title (`TitleKey.chapterNum`).
 - **Family members relate by token PREFIX, not key equality** — a prefix is a B-tree range seek, a
-  substring is not.
+  substring is not. **Every** token prefix is sought as a base: the base of an `"A | B"` title is its
+  shortest part, so dropping the short prefixes would make long titles start a duplicate series. A lone stopword or
+  marker word (`after`, from `after❤`) is no base.
 - **One score, one threshold** (`matching.threshold`, default 75). The artist veto is arithmetic, which is
-  why the artist weight stays ≤ 0.4 and a threshold below ~71 starts merging unrelated series.
+  why the artist weight stays ≤ 0.4 and a threshold below ~71 starts merging unrelated series. **From 5
+  artists on either side a disjoint set counts as unknown**: an anthology volume or magazine issue has a new
+  line-up every time. **A typo is one small edit of a Latin word of 4+ letters** (two from 10): a shared start
+  alone is no typo, and in Japanese one character is a word (`起きない妻` / `起きない子`).
 - **Candidates are seeked, never scanned**, and every seek is capped **and ordered**, so the survivors
-  never depend on the query plan. `match_block` exists on **`series` only**; chapters are found by block
-  through `ix_chapter__condensed_match_key`, an expression index on `replace(match_key, ' ', '')`. Don't
-  add a chapter `match_block` column: every write would have to fill it, and it could only be capped by id.
+  never depend on the query plan. Both directions find similar titles by **walking outward from the title** on
+  a spaceless-key expression index (`ix_chapter__condensed_match_key`, `ix_series__condensed_match_key`, both
+  `replace(match_key, ' ', '')`; `NearestTitles`): rows starting with its first 12 spaceless letters
+  (`MatchScore.MIN_SHARED_HEAD`), shorter starts of it (by equality), and the nearest ones on each side, where
+  misspellings sort. So a crowded block yields the nearest titles; a block column capped by id would yield
+  the oldest. These are **native SQL with `INDEXED BY`**: SQLite uses an expression index only for the exact
+  declared expression, and otherwise prefers another index over every row.
+- **Automatic matching and the series page make the same seeks**: by key (exact, extensions, every base), by
+  native key, by artist, by nearest title. **Keep the two finders in step** — a seek only one direction makes
+  is a pair "Link chapters" offers right after "Match chapters" passed it by. The difference is that
+  `SeriesCandidateFinder` **skips the native, artist and nearest-title seeks once a key candidate scores
+  a perfect 1** (the very key and a shared artist): the sweep stays cheap because nearly every chapter of a
+  known family meets its series that way, and nothing those seeks find could beat it. A base found by prefix
+  (0.98) does not skip them: a misspelled sequel meets its own series only through the artist (0.99).
 - **Add to series uses the same component**, so manual and automatic agree. It adds a floor and **excludes
   the chapter's current series** (with auto-linking it would score ~1.00 for a no-op link). **The exclusion
   is part of every seek's predicate** (`SeriesCandidateFinder.rank(chapter, excludedSeriesId)`), never a
-  filter on the ranking: as the exact seek's hit that series would switch off the fuzzy pass — the only one
-  that finds the family of a misspelled title. Auto-linking excludes nothing and skips the fuzzy pass on an
-  exact hit, which keeps the sweep cheap.
+  filter on the ranking: as a key hit that series would make the other seeks look unnecessary — and they are
+  the only ones that find the family of a misspelled or translated title.
 - **The series page's "Link chapters" is matching turned round** (`ChapterCandidateFinder`). `MatchScore`
-  is symmetric, so a chapter gets the same score as on its Add-to-series page. **The block and artist
-  seeks both always run**: here the chapter is what is searched for, so its artists cannot choose between
-  them, and it is one page view, not a sweep. The seeks **select a projection**, since `Chapter.series` is
-  an eager to-one and entities would cost a query each.
-  - **The block seek walks outward from the series' title** on the spaceless-key index: chapters starting
-    with its first 12 spaceless letters (`MatchScore.MIN_SHARED_HEAD`), shorter starts of it (by equality),
-    and the nearest ones on each side, where misspellings sort. So a crowded block yields the nearest
-    titles, not the first by id. These are **native SQL with `INDEXED BY`**: SQLite uses an expression
-    index only for the exact declared expression, and otherwise prefers `ix_chapter__series_match_key`
-    over every unlinked chapter.
+  is symmetric, so a chapter gets the same score as on its Add-to-series page. **All its seeks always run**:
+  it is one page view, not a sweep. It looks for the native keys of the series' chapters (up to 8). The seeks
+  **select a projection**, since `Chapter.series` is an eager to-one and entities would cost a query each.
   - **The scope (chapters in no series, the default, or all chapters) is part of every seek's predicate**
     (`ChapterSpecifications.linkableTo`), never a later filter — the series' own chapters would fill the
     cap. The name search uses the same scope.
@@ -393,9 +417,11 @@ Normalization, scoring and seeks are documented in `TitleKey`, `MatchScore`, `Se
     `Series`). `recomputeDerived` runs **once per touched series per slice**, not per chapter (that would
     be quadratic in family size). Since scoring reads effective artists, artists linked but not yet
     materialized are passed as `pendingArtists`; without them a fresh series looks artist-less and the
-    artist veto does not fire.
-- **Match keys are rewritten on every title write** (chapter create/update, series save). **Anything new
-  that writes a title must do the same.**
+    artist veto does not fire. **The artist seek takes its series from `pendingArtists` too**:
+    `series_effective_artists` does not hold them yet, and a family's siblings usually share its slice.
+- **Match keys are rewritten on every title write** (chapter create/update/retitle, series save) — on a
+  chapter both keys, since the native key may come from `titleFull`. **Anything new that writes a title or a
+  native title must do the same.**
 - **An auto-created series is bare** — `status = NEW`, no overrides — so everything stays `DERIVED` and
   grows with its chapters. Matching ignores language.
 - **Auto-linking defaults to `app.match-auto-link-default`**, so the tests can turn it off (see Tests).

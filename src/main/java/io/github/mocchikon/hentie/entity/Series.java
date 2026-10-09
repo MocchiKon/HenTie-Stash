@@ -34,9 +34,9 @@ import java.util.List;
         @Index(name = "ix_series__status_disk_size", columnList = "status, disk_size"),
         // The ids alone, far smaller than the table: what an exclusion-only search subtracts from.
         @Index(name = "ix_series__id", columnList = "id"),
-        // Candidate seeks for matching; without them lookup would load every series.
-        @Index(name = "ix_series__match_key", columnList = "match_key, id"),
-        @Index(name = "ix_series__match_block", columnList = "match_block, id")
+        // Candidate seeks for matching; without them lookup would load every series. The nearest-title walk uses
+        // ix_series__condensed_match_key (V4), an expression index @Index cannot declare.
+        @Index(name = "ix_series__match_key", columnList = "match_key, id")
 })
 @Getter
 @Setter
@@ -84,9 +84,6 @@ public class Series
     // Derived from titleFull and rewritten on every title write, so a renamed series matches under its new name.
     @Column(name = "match_key", nullable = false, columnDefinition = "varchar(255) not null default ''")
     private String matchKey = "";
-
-    @Column(name = "match_block", nullable = false, columnDefinition = "varchar(8) not null default ''")
-    private String matchBlock = "";
 
     @OneToMany(mappedBy = "series", cascade = {CascadeType.PERSIST, CascadeType.REFRESH, CascadeType.MERGE})
     // No orphanRemoval / REMOVE cascade: deleting a series or dropping a chapter only unlinks it.

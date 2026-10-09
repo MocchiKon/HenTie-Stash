@@ -63,6 +63,123 @@ class TitleKeyTest
         assertThat(parsed.getChapterNum()).isCloseTo(number, within(0.001f));
     }
 
+    @ParameterizedTest(name = "\"{0}\" -> key \"{1}\", chapter {2}")
+    @CsvSource(delimiter = '|', value = {
+            // A number in front of a subtitle or a translation numbers the chapter, and leaves the key: every part
+            // of the title loses its own tail.
+            "Isekai Yuusha 2 - The Return                       | isekai yuusha the return              | 2.0",
+            "'Isekai Yuusha 3 | Hero of Another World 3'         | isekai yuusha hero of another world   | 3.0",
+            "'Isekai Yuusha (4) | Hero of Another World (4)'     | isekai yuusha hero of another world   | 4.0",
+            "'Isekai Yuusha | Hero of Another World…2'           | isekai yuusha hero of another world   | 2.0",
+            // A part of markers only is the tail of the part before it.
+            "Isekai Yuusha ~ 2                                  | isekai yuusha                         | 2.0",
+            "Isekai Yuusha 5 -                                  | isekai yuusha                         | 5.0",
+            "Isekai Yuusha - Part 2                             | isekai yuusha                         | 2.0",
+            // Other punctuation does not split: as a part of its own, "& Her 2" would keep its number.
+            "Him & Her 2                                        | him her                               | 2.0",
+            // A bare number in brackets after the title is its number, not decoration.
+            "Isekai Yuusha (5) [Digital]                        | isekai yuusha                         | 5.0",
+            // ...but a year there is decoration.
+            "Isekai Yuusha (2019)                               | isekai yuusha                         | 1.0",
+            "Isekai Yuusha 3.5                                  | isekai yuusha                         | 3.5",
+            // A catalogue number numbers nothing, and the number before it does.
+            "Isekai Yuusha 2 DLO-19                             | isekai yuusha                         | 2.0",
+            "Isekai Yuusha DLO-16                               | isekai yuusha                         | 1.0",
+            // Several chapters in one: no single number, but the work's key.
+            "Isekai Yuusha Ch. 1-24                             | isekai yuusha                         | 1.0",
+            "Isekai Yuusha 7-24                                 | isekai yuusha                         | 1.0",
+            // The number before an arc's name, which leaves the key with it.
+            "Isekai Yuusha 2 Karaoke Hen                        | isekai yuusha                         | 2.0",
+            "Isekai Yuusha 4 Water Park Chapter                 | isekai yuusha                         | 4.0",
+            // An unnumbered position word does not count: chapter 1, not 1.01.
+            "Isekai Yuusha Hen Vol. 1                           | isekai yuusha                         | 1.0",
+            // A percentage is a quantity.
+            "Isekai Yuusha 100%                                 | isekai yuusha 100                     | 1.0",
+            // Japanese: a number glued on, an ordinal (the subtitle before it is the chapter's own), a counter.
+            "異世界勇者12                                         | 異世界勇者                             | 12.0",
+            "異世界勇者3.5                                        | 異世界勇者                             | 3.5",
+            "異世界勇者…3                                         | 異世界勇者                             | 3.0",
+            "異世界勇者 第3話                                      | 異世界勇者                             | 3.0",
+            "異世界勇者 旅立ち第五                                  | 異世界勇者                             | 5.0",
+            "異世界勇者 第十二話                                    | 異世界勇者                             | 12.0",
+            "異世界勇者 第1-8話                                    | 異世界勇者                             | 1.0",
+            "異世界勇者 第1000-2000話                              | 異世界勇者                             | 1.0",
+            // Not rising: the chapter and its part.
+            "異世界勇者 第3-2話                                    | 異世界勇者                             | 3.02",
+            "異世界勇者 3話                                       | 異世界勇者                             | 3.0",
+            "異世界勇者100%                                       | 異世界勇者100                          | 1.0",
+    })
+    void shouldFindTheNumberWhereverATitleWritesItWhenParsingATitle(String title, String key, float number)
+    {
+        // WHEN
+        var parsed = TitleKey.of(title);
+
+        // THEN
+        assertThat(parsed.getMatchKey()).isEqualTo(key);
+        assertThat(parsed.getChapterNum()).isCloseTo(number, within(0.001f));
+        assertThat(TitleKey.of(parsed.getBaseTitleFull()).getMatchKey())
+                .as("the series named after it keys the same")
+                .isEqualTo(key);
+    }
+
+    @Test
+    void shouldNotReadANumberGluedToALatinWordOrANumberThatIsPartOfAName()
+    {
+        // "R18", "am10" and "girlfriend-1.5" are names; only Japanese text or an ellipsis glues a number on.
+        assertThat(TitleKey.of("Isekai Yuusha R18").getMatchKey()).isEqualTo("isekai yuusha r18");
+        assertThat(TitleKey.of("Isekai Yuusha-2").getChapterNum()).isCloseTo(1.0f, within(0.001f));
+        // A falling pair is no range (it may be a date), and years are no range either.
+        assertThat(TitleKey.of("Comic Hero 06-05").getMatchKey()).isEqualTo("comic hero 06 05");
+        assertThat(TitleKey.of("Comic Hero 2024-2026").getMatchKey()).isEqualTo("comic hero 2024 2026");
+        // Without a separator a number before a subtitle stays where it is.
+        assertThat(TitleKey.of("Isekai Yuusha 2 Melonbooks Bonus").getMatchKey())
+                .isEqualTo("isekai yuusha 2 melonbooks bonus");
+        assertThat(TitleKey.of("Isekai Yuusha 2 Melonbooks Bonus").isNumbered()).isFalse();
+    }
+
+    @Test
+    void shouldDropTheNumberButKeepTheSeparatorsBetweenPartsInTheSeriesName()
+    {
+        assertThat(TitleKey.baseTitleFull("[Circle] Isekai Yuusha 3 | Hero of Another World 3 [English]"))
+                .isEqualTo("[Circle] Isekai Yuusha | Hero of Another World [English]");
+        // A separator nothing follows would end the name in punctuation.
+        assertThat(TitleKey.baseTitleFull("[Circle] Isekai Yuusha - Soushuuhen 5 - [Digital]"))
+                .isEqualTo("[Circle] Isekai Yuusha - Soushuuhen [Digital]");
+        assertThat(TitleKey.baseTitleFull("Him & Her 2")).isEqualTo("Him & Her");
+        assertThat(TitleKey.baseTitlePretty("Isekai Yuusha (5) [Digital]")).isEqualTo("Isekai Yuusha");
+        // The glued number goes, the word stays as written.
+        assertThat(TitleKey.baseTitlePretty("異世界勇者…3")).isEqualTo("異世界勇者…");
+    }
+
+    @Test
+    void shouldKeepAKanaWithItsVoicingMarkWhenBuildingTheKey()
+    {
+        // Stripping accents decomposes ギ into キ and a combining mark, which would otherwise become a word break.
+        assertThat(TitleKey.of("ギャルだくみ").getMatchKey()).isEqualTo("ギャルだくみ");
+        assertThat(TitleKey.of("ギャルだくみ").getTokens()).hasSize(1);
+        assertThat(TitleKey.of("Café Pokémon").getMatchKey()).isEqualTo("cafe pokemon");
+    }
+
+    @Test
+    void shouldKeyTheNativeTitleOrAJapaneseTitleWhenBuildingTheNativeKey()
+    {
+        assertThat(TitleKey.nativeKey("[サークル] 異世界勇者 2 [英訳]", TitleKey.of("[Circle] Isekai Yuusha 2 [English]")))
+                .isEqualTo("異世界勇者");
+        // Without a native title, a title in Japanese is its own native title; a romanized one has none.
+        assertThat(TitleKey.nativeKey("", TitleKey.of("[サークル] 異世界勇者 2"))).isEqualTo("異世界勇者");
+        assertThat(TitleKey.nativeKey(null, TitleKey.of("[Circle] Isekai Yuusha 2"))).isEmpty();
+    }
+
+    @Test
+    void shouldTakeTheNativeTitlesNumberOnlyWhenTheTitleHasNone()
+    {
+        TitleKey unnumbered = TitleKey.of("Hero of Another World");
+        assertThat(TitleKey.chapterNum(unnumbered, "異世界勇者 第3話")).isCloseTo(3.0f, within(0.001f));
+        assertThat(TitleKey.chapterNum(TitleKey.of("Hero of Another World 2"), "異世界勇者 第3話"))
+                .isCloseTo(2.0f, within(0.001f));
+        assertThat(TitleKey.chapterNum(unnumbered, null)).isCloseTo(1.0f, within(0.001f));
+    }
+
     @Test
     void shouldRelateAFamilyByTokenPrefixWhenTheMembersDifferByWords()
     {

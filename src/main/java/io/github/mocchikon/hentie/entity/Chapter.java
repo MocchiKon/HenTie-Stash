@@ -40,6 +40,8 @@ import java.util.List;
         @Index(name = "ix_chapter__match_key", columnList = "match_key, id"),
         // Also every lookup of a series' chapters: series_id leads it.
         @Index(name = "ix_chapter__series_match_key", columnList = "series_id, match_key, id"),
+        // Matching by native title wants the series of the chapters it finds: covered, no row read.
+        @Index(name = "ix_chapter__native_match_key", columnList = "native_match_key, series_id"),
         // gallery_id is in the index so the "same title from another source" check never reads the row.
         @Index(name = "ix_chapter__title_full_gallery_id", columnList = "title_full, gallery_id")
 })
@@ -106,6 +108,10 @@ public class Chapter
     // backfills it.
     @Column(name = "match_key", nullable = false, columnDefinition = "varchar(255) not null default ''")
     private String matchKey = "";
+
+    // Derived from nativeTitle (or a Japanese titleFull) by TitleKey.nativeKey, together with matchKey.
+    @Column(name = "native_match_key", nullable = false, columnDefinition = "varchar(255) not null default ''")
+    private String nativeMatchKey = "";
 
     @ManyToOne
     @JoinColumn(name = "series_id")

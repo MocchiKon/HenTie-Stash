@@ -140,6 +140,67 @@ class MatchScoreTest
     }
 
     @Test
+    void shouldNotTakeADifferentWordForATypoWhenOnlyItsStartAgrees()
+    {
+        // Jaro-Winkler gives these 0.91 for their shared start; five edits apart, they are two words.
+        assertThat(MatchScore.titleScore(List.of("oshiri"), List.of("oshiroibana"))).isLessThan(0.5);
+        assertThat(score(List.of("oshiri"), List.of("oshiroibana"), MatchScore.ARTIST_UNKNOWN)).isLessThan(THRESHOLD);
+        // Too short to carry a typo, and two letters apart.
+        assertThat(MatchScore.titleScore(List.of("iya", "naka"), List.of("iyada", "naka"))).isLessThan(0.5);
+        assertThat(MatchScore.titleScore(List.of("rikoteki", "emotion"), List.of("ritateki", "emotion")))
+                .isLessThan(0.5);
+        // In Japanese one character is a word: a sleeping wife is not a sleeping girl.
+        assertThat(MatchScore.titleScore(List.of("起きない妻"), List.of("起きない子"))).isLessThan(0.5);
+    }
+
+    @Test
+    void shouldStillTakeOneSmallEditForATypo()
+    {
+        // A swap of neighbours is one edit, as is a doubled letter.
+        assertThat(MatchScore.titleScore(List.of("kitsnue", "tales"), List.of("kitsune", "tales"))).isGreaterThan(0.9);
+        assertThat(MatchScore.titleScore(List.of("isekai", "yuushaa"), ISEKAI_YUUSHA)).isGreaterThan(0.9);
+    }
+
+    @Test
+    void shouldNotTakeAMarkerWordForTheBaseOfEveryTitleStartingWithIt()
+    {
+        // "after" is what "after❤" keys to; as a base it would claim "After-School Tutoring".
+        var after = List.of("after");
+        assertThat(MatchScore.titleScore(after, List.of("after", "school", "tutoring"))).isLessThanOrEqualTo(0.5);
+        assertThat(MatchScore.titleScore(after, List.of("afterschool"))).isZero();
+        assertThat(score(after, List.of("after", "school", "tutoring"), MatchScore.ARTIST_UNKNOWN))
+                .isLessThan(THRESHOLD);
+        // The same word is still the same title.
+        assertThat(MatchScore.titleScore(after, after)).isEqualTo(1.0);
+    }
+
+    @Test
+    void shouldNotVetoAWorkDrawnByManyWhenItsArtistsDiffer()
+    {
+        // An anthology volume or a magazine issue has a new line-up every time.
+        var anthology = Set.of(2, 3, 4, 5, 6);
+        assertThat(MatchScore.artistScore(Set.of(1), anthology)).isEqualTo(MatchScore.ARTIST_UNKNOWN);
+        assertThat(MatchScore.artistScore(anthology, Set.of(1))).isEqualTo(MatchScore.ARTIST_UNKNOWN);
+        assertThat(score(List.of("dungeon", "kouryaku"), List.of("dungeon", "kouryaku"),
+                MatchScore.artistScore(Set.of(1), anthology))).isGreaterThanOrEqualTo(THRESHOLD);
+        // A few artists still veto.
+        assertThat(MatchScore.artistScore(Set.of(1), Set.of(2, 3))).isEqualTo(MatchScore.ARTIST_DISJOINT);
+    }
+
+    @Test
+    void shouldIgnoreAgreeingNativeTitlesWhenTheyAreTooShortToNameAWork()
+    {
+        assertThat(MatchScore.nativeTitleScore(List.of("総集編"), List.of("総集編"))).isZero();
+        assertThat(MatchScore.nativeTitleScore(List.of("起きない子"), List.of("起きない子"))).isEqualTo(1.0);
+        assertThat(MatchScore.nativeTitleScore(List.of("異世界勇者"), List.of("異世界勇者", "まとめ")))
+                .isCloseTo(0.95, within(0.001));
+        // So the finders do not seek such keys at all; spaces do not count.
+        assertThat(MatchScore.isDistinctiveNative("総集編")).isFalse();
+        assertThat(MatchScore.isDistinctiveNative("総集 編")).isFalse();
+        assertThat(MatchScore.isDistinctiveNative("起きない子")).isTrue();
+    }
+
+    @Test
     void shouldScoreZeroWhenEitherTitleHasNoUsableTokens()
     {
         assertThat(MatchScore.titleScore(List.of(), ISEKAI_YUUSHA)).isZero();

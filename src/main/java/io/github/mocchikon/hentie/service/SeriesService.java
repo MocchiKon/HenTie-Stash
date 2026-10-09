@@ -418,7 +418,7 @@ public class SeriesService
             }
             else if (chapter.getChapterNum() == null)
             {
-                chapter.setChapterNum(TitleKey.of(chapter.getTitleFull()).getChapterNum());
+                chapter.setChapterNum(TitleKey.chapterNum(TitleKey.of(chapter.getTitleFull()), chapter.getNativeTitle()));
             }
         }
         chapterRepository.saveAll(chapters);
@@ -461,9 +461,7 @@ public class SeriesService
      */
     public static void applyMatchKeys(Series series)
     {
-        var key = TitleKey.of(series.getTitleFull());
-        series.setMatchKey(key.getMatchKey());
-        series.setMatchBlock(key.getMatchBlock());
+        series.setMatchKey(TitleKey.of(series.getTitleFull()).getMatchKey());
     }
 
     private void applyScore(Series series, Integer formScore)

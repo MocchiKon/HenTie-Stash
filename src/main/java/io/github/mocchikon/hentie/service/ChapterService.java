@@ -173,9 +173,9 @@ public class ChapterService
 
         Chapter chapter = new Chapter();
         chapter.setTitleFull(form.getTitleFull());
+        chapter.setNativeTitle(form.getNativeTitle());
         TitleKey key = applyMatchKeys(chapter);
         chapter.setTitle(prettyTitle(form, key));
-        chapter.setNativeTitle(form.getNativeTitle());
         chapter.setUploadDate(LocalDate.now());   // never user-editable
         chapter.setStatus(form.getStatus() != null ? form.getStatus() : Status.NEW);
         chapter.setGalleryId(galleryId);
@@ -209,9 +209,9 @@ public class ChapterService
 
         Chapter chapter = get(form.getId());
         chapter.setTitleFull(form.getTitleFull());
+        chapter.setNativeTitle(form.getNativeTitle());
         // A cleared pretty title is re-derived, not blanked: the column is NOT NULL.
         chapter.setTitle(prettyTitle(form, applyMatchKeys(chapter)));
-        chapter.setNativeTitle(form.getNativeTitle());
         chapter.setStatus(form.getStatus() != null ? form.getStatus() : Status.NEW);   // status is NOT NULL
         chapter.setGalleryId(galleryId);
         chapter.setLanguage(LanguageService.canonical(form.getLanguage()));
@@ -472,11 +472,15 @@ public class ChapterService
         return StringUtils.isNotBlank(form.getTitle()) ? form.getTitle() : key.getPrettyTitle();
     }
 
-    /** Returns the parse, so a caller that also matches the chapter does not parse the title twice. */
+    /**
+     * Both keys, from the titles already set. Returns the parse, so a caller that also matches the chapter does
+     * not parse the title twice.
+     */
     private static TitleKey applyMatchKeys(Chapter chapter)
     {
         var key = TitleKey.of(chapter.getTitleFull());
         chapter.setMatchKey(key.getMatchKey());
+        chapter.setNativeMatchKey(TitleKey.nativeKey(chapter.getNativeTitle(), key));
         return key;
     }
 
