@@ -14,8 +14,6 @@ import lombok.RequiredArgsConstructor;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.cache.Cache;
-import org.springframework.cache.CacheManager;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -46,7 +44,7 @@ public class ChapterService
     private final EntityMapper entityMapper;
     private final SeriesService seriesService;
     private final ChapterMatchingService chapterMatchingService;
-    private final CacheManager cacheManager;
+    private final SearchCountCache searchCountCache;
     private final ChapterRemoval chapterRemoval;
 
     @Transactional(readOnly = true)
@@ -315,7 +313,7 @@ public class ChapterService
         {
             chapter.setStatus(Status.REVIEWED);
             chapterRepository.save(chapter);
-            evictSearchCount();
+            searchCountCache.clear();
         }
     }
 
@@ -386,7 +384,7 @@ public class ChapterService
         if (outcome == StatsSync.REPAIRED)
         {
             seriesService.recomputeDerived(chapter.getSeries() == null ? null : chapter.getSeries().getId());
-            evictSearchCount();
+            searchCountCache.clear();
         }
         return outcome;
     }
@@ -411,7 +409,7 @@ public class ChapterService
         affectedSeries.forEach(seriesService::recomputeDerived);
         if (repaired > 0)
         {
-            evictSearchCount();
+            searchCountCache.clear();
         }
         return repaired;
     }
@@ -480,16 +478,6 @@ public class ChapterService
         var key = TitleKey.of(chapter.getTitleFull());
         chapter.setMatchKey(key.getMatchKey());
         return key;
-    }
-
-    /** Programmatic, for self-invoked paths where a {@code @CacheEvict} would not fire, and to evict only on a real change. */
-    private void evictSearchCount()
-    {
-        Cache cache = cacheManager.getCache(CacheConfig.SEARCH_COUNT);
-        if (cache != null)
-        {
-            cache.clear();
-        }
     }
 
     private void addGroup(List<ChipGroup> groups, String title, List<? extends Metadata> items, MetadataType type)

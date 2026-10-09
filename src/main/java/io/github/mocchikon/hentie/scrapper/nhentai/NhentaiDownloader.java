@@ -230,8 +230,8 @@ public class NhentaiDownloader implements FavouritesSource, PageDownloader, Sear
 
     /**
      * nhentai files "translated", "rewrite", "speechless" and the like as languages too, sometimes before the real
-     * one, so the first language the app knows wins. Without one, the first tag is kept, so the refusal to import
-     * names it.
+     * one, so the first language the app knows wins and the others are ignored. Without one, the first tag is kept,
+     * so the import's log names what the gallery has.
      */
     static String language(Collection<String> languageTags)
     {

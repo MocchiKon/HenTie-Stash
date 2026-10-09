@@ -258,14 +258,16 @@ class MetadataRuleIT
         flushAndClear();
 
         // WHEN the user tries to add that name back by hand.
-        var conflict = metadataService.add(MetadataType.TAG, "rule-readd");
+        var refusal = metadataService.add(MetadataType.TAG, "rule-readd");
         flushAndClear();
 
         // THEN it is refused with a reason; a row the rule strips from every import would only look present.
-        assertThat(conflict).isPresent();
-        assertThat(conflict.orElseThrow().name()).isEqualTo("rule-readd");
-        assertThat(conflict.orElseThrow().targetName()).isNull();
-        assertThat(conflict.orElseThrow().type()).isEqualTo(MetadataType.TAG);
+        assertThat(refusal).get().isInstanceOfSatisfying(MetadataService.RuleConflict.class, conflict ->
+        {
+            assertThat(conflict.name()).isEqualTo("rule-readd");
+            assertThat(conflict.targetName()).isNull();
+            assertThat(conflict.type()).isEqualTo(MetadataType.TAG);
+        });
         assertThat(tagRepository.findByNameIgnoreCase("rule-readd")).isEmpty();
     }
 
@@ -279,13 +281,15 @@ class MetadataRuleIT
         flushAndClear();
 
         // WHEN the user tries to add the source name back.
-        var conflict = metadataService.add(MetadataType.TAG, "rule-readd-src");
+        var refusal = metadataService.add(MetadataType.TAG, "rule-readd-src");
         flushAndClear();
 
         // THEN the refusal says what the name maps to, so the page can explain it.
-        assertThat(conflict).isPresent();
-        assertThat(conflict.orElseThrow().name()).isEqualTo("rule-readd-src");
-        assertThat(conflict.orElseThrow().targetName()).isEqualTo("rule-readd-dst");
+        assertThat(refusal).get().isInstanceOfSatisfying(MetadataService.RuleConflict.class, conflict ->
+        {
+            assertThat(conflict.name()).isEqualTo("rule-readd-src");
+            assertThat(conflict.targetName()).isEqualTo("rule-readd-dst");
+        });
         assertThat(tagRepository.findByNameIgnoreCase("rule-readd-src")).isEmpty();
     }
 

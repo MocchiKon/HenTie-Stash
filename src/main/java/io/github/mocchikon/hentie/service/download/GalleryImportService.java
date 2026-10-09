@@ -8,6 +8,7 @@ import io.github.mocchikon.hentie.entity.DownloadedGallery;
 import io.github.mocchikon.hentie.entity.Status;
 import io.github.mocchikon.hentie.repository.ChapterRepository;
 import io.github.mocchikon.hentie.repository.DownloadedGalleryRepository;
+import io.github.mocchikon.hentie.scrapper.EhTags;
 import io.github.mocchikon.hentie.scrapper.GalleryData;
 import io.github.mocchikon.hentie.scrapper.ResourceLink;
 import io.github.mocchikon.hentie.service.ChapterService;
@@ -15,6 +16,8 @@ import io.github.mocchikon.hentie.service.LanguageService;
 import io.github.mocchikon.hentie.service.MetadataService;
 import lombok.RequiredArgsConstructor;
 import org.apache.commons.lang3.StringUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Limit;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,6 +33,8 @@ import java.util.*;
 @RequiredArgsConstructor
 public class GalleryImportService
 {
+    private static final Logger log = LoggerFactory.getLogger(GalleryImportService.class);
+
     private final ChapterRepository chapterRepository;
     private final DownloadedGalleryRepository downloadedGalleryRepository;
     private final ChapterService chapterService;
@@ -113,7 +118,7 @@ public class GalleryImportService
     }
 
     /**
-     * @throws PermanentDownloadException when the gallery has no title or an unknown language
+     * @throws PermanentDownloadException when the gallery has no title
      */
     @Transactional
     public int importChapter(GalleryData data, String galleryId)
@@ -122,7 +127,7 @@ public class GalleryImportService
         form.setTitleFull(requireTitle(data, galleryId));
         form.setTitle(clean(data.getPrettyTitle()));           // blank -> derived from titleFull
         form.setNativeTitle(clean(data.getJapaneseTitle()));
-        form.setLanguage(requireLanguage(data, galleryId));
+        form.setLanguage(languageOf(data, galleryId));
         form.setGalleryId(galleryId);
         form.setStatus(Status.NEW);
         form.setTagIds(metadataService.resolveOrCreate(MetadataType.TAG, names(data.getTags())));
@@ -163,15 +168,20 @@ public class GalleryImportService
         return title;
     }
 
-    /** Never defaulted: language is searched by exact value, so a made-up one would be a facet of its own. */
-    private static String requireLanguage(GalleryData data, String galleryId)
+    /**
+     * A language the app does not know is taken for Japanese, what e-hentai takes a gallery without one for.
+     * Refusing it would keep the gallery from ever being downloaded; keeping it as sent would make it a facet of
+     * its own, since language is searched by exact value.
+     */
+    private static String languageOf(GalleryData data, String galleryId)
     {
-        if (!LanguageService.isKnown(data.getLanguage()))
+        if (LanguageService.isKnown(data.getLanguage()))
         {
-            throw new PermanentDownloadException("Gallery " + galleryId + " has no recognized language ("
-                    + data.getLanguage() + ").");
+            return LanguageService.canonical(data.getLanguage());
         }
-        return LanguageService.canonical(data.getLanguage());
+        log.info("Gallery {} has no language the app knows ({}); saving it as {}", galleryId, data.getLanguage(),
+                EhTags.DEFAULT_LANGUAGE);
+        return EhTags.DEFAULT_LANGUAGE;
     }
 
     private static Collection<String> names(Set<String> values)

@@ -1,7 +1,6 @@
 package io.github.mocchikon.hentie;
 
 import io.github.mocchikon.hentie.dto.MetadataType;
-import io.github.mocchikon.hentie.entity.Artist;
 import io.github.mocchikon.hentie.entity.Chapter;
 import io.github.mocchikon.hentie.entity.Character;
 import io.github.mocchikon.hentie.entity.MetadataRule;
@@ -24,8 +23,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Names written as e-hentai shows a tag with an alias, {@code "focalors | lady furina"}: nhentai stores that display
- * as the name. The name before the pipe is kept, and each alias becomes a rule to it, from every source and from the
- * Manage page alike.
+ * as the name. The name before the pipe is kept, and each alias becomes a rule to it, from every source. A name typed
+ * on the Manage page may not contain a pipe.
  */
 @SpringBootTest
 @Transactional
@@ -238,36 +237,36 @@ class MetadataAliasIT
     // --- the Manage page ---------------------------------------------------------------------------
 
     @Test
-    void shouldRuleTheAliasesWhenANameIsAddedByHand()
+    void shouldRefuseATypedNameWithAPipe()
     {
-        // WHEN one name is new and the other already there.
-        assertThat(metadataService.add(MetadataType.CHARACTER, "Focalors | Lady Furina")).isEmpty();
-        Artist kitaku = artist("kitaku");
-        assertThat(metadataService.add(MetadataType.ARTIST, "kitaku | nakamachi machi")).isEmpty();
+        // WHEN the user adds a name with an alias, and one with pipes of its own.
+        var aliased = metadataService.add(MetadataType.CHARACTER, " Alias-Typed | Alias-Typed-Other ");
+        var piped = metadataService.add(MetadataType.ARTIST, "|||alias-typed|||");
         flushAndClear();
 
-        // THEN each alias is ruled to its name, which is the only row added.
-        Integer focalors = characterRepository.findByNameIgnoreCase("focalors").orElseThrow().getId();
-        assertThat(rule(MetadataType.CHARACTER, "lady furina").getTargetId()).isEqualTo(focalors);
-        assertThat(characterRepository.findByNameIgnoreCase("lady furina")).isEmpty();
-        assertThat(rule(MetadataType.ARTIST, "nakamachi machi").getTargetId()).isEqualTo(kitaku.getId());
-        assertThat(artistRepository.findByNameIgnoreCase("nakamachi machi")).isEmpty();
+        // THEN both are refused as typed, and nothing was added or ruled.
+        assertThat(aliased).contains(new MetadataService.PipeInName(MetadataType.CHARACTER,
+                "Alias-Typed | Alias-Typed-Other"));
+        assertThat(piped).contains(new MetadataService.PipeInName(MetadataType.ARTIST, "|||alias-typed|||"));
+        assertThat(characterRepository.findByNameIgnoreCase("alias-typed")).isEmpty();
+        assertThat(artistRepository.findByNameIgnoreCase("|||alias-typed|||")).isEmpty();
+        assertThat(ruleRepository.findByTypeAndSourceNameLower(MetadataType.CHARACTER, "alias-typed-other")).isEmpty();
     }
 
     @Test
-    void shouldRuleTheAliasesToTheRowWhenItIsRenamed()
+    void shouldRefuseARenameToANameWithAPipe()
     {
         // GIVEN
         Character subject = character("alias-rename-old");
 
-        // WHEN the user renames it to a name with an alias, with "Add rule" cleared.
-        assertThat(metadataService.rename(MetadataType.CHARACTER, subject.getId(), "focalors | lady furina", false))
-                .isEmpty();
+        // WHEN the user renames it to a name with an alias.
+        var refusal = metadataService.rename(MetadataType.CHARACTER, subject.getId(), "alias-renamed | alias-other", true);
         flushAndClear();
 
-        // THEN the row takes the first name, and the alias is ruled to it all the same.
-        assertThat(characterRepository.findById(subject.getId()).orElseThrow().getName()).isEqualTo("focalors");
-        assertThat(rule(MetadataType.CHARACTER, "lady furina").getTargetId()).isEqualTo(subject.getId());
+        // THEN it is refused, and neither the row nor the rules changed.
+        assertThat(refusal).contains(new MetadataService.PipeInName(MetadataType.CHARACTER, "alias-renamed | alias-other"));
+        assertThat(characterRepository.findById(subject.getId()).orElseThrow().getName()).isEqualTo("alias-rename-old");
+        assertThat(ruleRepository.findByTypeAndSourceNameLower(MetadataType.CHARACTER, "alias-other")).isEmpty();
         assertThat(ruleRepository.findByTypeAndSourceNameLower(MetadataType.CHARACTER, "alias-rename-old")).isEmpty();
     }
 
@@ -281,13 +280,6 @@ class MetadataAliasIT
         Character c = new Character();
         c.setName(name);
         return characterRepository.save(c);
-    }
-
-    private Artist artist(String name)
-    {
-        Artist a = new Artist();
-        a.setName(name);
-        return artistRepository.save(a);
     }
 
     private void flushAndClear()

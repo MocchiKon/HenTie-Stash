@@ -8,8 +8,6 @@ import io.github.mocchikon.hentie.mapper.EntityMapper;
 import io.github.mocchikon.hentie.repository.*;
 import io.github.mocchikon.hentie.service.match.TitleKey;
 import org.apache.commons.lang3.StringUtils;
-import org.springframework.cache.Cache;
-import org.springframework.cache.CacheManager;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -34,14 +32,14 @@ public class SeriesService
     private final GroupRepository groupRepository;
     private final CategoryRepository categoryRepository;
     private final EntityMapper entityMapper;
-    private final CacheManager cacheManager;
+    private final SearchCountCache searchCountCache;
     private final ChapterRemoval chapterRemoval;
 
     public SeriesService(SeriesRepository seriesRepository, ChapterRepository chapterRepository,
                          ImageService imageService, TagRepository tagRepository,
                          ArtistRepository artistRepository, CharacterRepository characterRepository,
                          ParodyRepository parodyRepository, GroupRepository groupRepository,
-                         CategoryRepository categoryRepository, EntityMapper entityMapper, CacheManager cacheManager, ChapterRemoval chapterRemoval)
+                         CategoryRepository categoryRepository, EntityMapper entityMapper, SearchCountCache searchCountCache, ChapterRemoval chapterRemoval)
     {
         this.seriesRepository = seriesRepository;
         this.chapterRepository = chapterRepository;
@@ -53,7 +51,7 @@ public class SeriesService
         this.groupRepository = groupRepository;
         this.categoryRepository = categoryRepository;
         this.entityMapper = entityMapper;
-        this.cacheManager = cacheManager;
+        this.searchCountCache = searchCountCache;
         this.chapterRemoval = chapterRemoval;
     }
 
@@ -230,7 +228,7 @@ public class SeriesService
         {
             series.setStatus(Status.REVIEWED);
             seriesRepository.save(series);
-            evictSearchCount();
+            searchCountCache.clear();
         }
     }
 
@@ -453,17 +451,8 @@ public class SeriesService
             return false;
         }
         unlinkAndDelete(series);
-        evictSearchCount();
+        searchCountCache.clear();
         return true;
-    }
-
-    private void evictSearchCount()
-    {
-        Cache cache = cacheManager.getCache(CacheConfig.SEARCH_COUNT);
-        if (cache != null)
-        {
-            cache.clear();
-        }
     }
 
     /**

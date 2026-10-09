@@ -241,6 +241,9 @@ public class ManageController
             case MetadataService.GenderedName gendered ->
                     "%s: \"%s\" cannot be used: a tag is renamed without \u2640 or \u2642, and its \u2640 and \u2642 versions take the new name with their own symbol."
                             .formatted(kind, gendered.name());
+            case MetadataService.PipeInName piped ->
+                    "%s: \"%s\" cannot be used: a name cannot contain \"|\". To have one name stand for another, merge them with \"Add rule\" ticked."
+                            .formatted(kind, piped.name());
         };
         redirectAttributes.addFlashAttribute("refusal", message);
     }

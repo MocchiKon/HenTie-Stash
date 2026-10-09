@@ -104,7 +104,7 @@ class MetadataServiceUnitTest
     @Test
     void shouldKeepANameWholeWhenItsPipesSeparateNoNames()
     {
-        for (String name : List.of("|||naka|||", "a|b", "a |b", "a| b", "| naka |", "naka | ", "a || b", "x | | y"))
+        for (String name : List.of("|||naka|||", "|joe||", "a|b", "a |b", "a| b", "| naka |", "naka | ", "a || b", "x | | y"))
         {
             // WHEN + THEN
             assertThat(MetadataService.canonical(MetadataType.ARTIST, name)).as(name).isEqualTo(name.trim());

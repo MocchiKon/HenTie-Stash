@@ -449,6 +449,11 @@ the pipeline hands it (gallery-dl's run folder, see "gallery-dl").
 - **Chapters are created through `ChapterService.create`**, like a hand-added one, so pretty title,
   canonical language, match key and auto-linking cannot drift. Metadata arrives as names;
   `MetadataService.resolveOrCreate` matches them case-insensitively and creates only what is new.
+- **A download never fails over how its source spells things.** A language the app does not know is taken for
+  Japanese, e-hentai's language for a gallery without one, and logged (`GalleryImportService`). Refusing it would
+  keep the gallery from ever being downloaded; keeping it as sent would make it a facet of its own. A source picks
+  the first language the app knows and ignores the rest. Any name is accepted; the pipe refusal is for typed names
+  only. The one refusal for the data itself is a gallery without any title.
 - **The pipeline is not `@Transactional`**: it spans minutes of network and disk work. Each DB touch is its
   own short transaction.
 - **Pages are staged, not written straight into `data/`** — a crash would leave a half-written page that
@@ -600,8 +605,8 @@ Entirely through gallery-dl: hitomi computes image addresses from a script that 
 "Download originals" means nothing here; no login, so **no cookies are read** (reading a browser's store can
 fail, for nothing). Its type maps to the categories the other sources use (`artistcg` → `artist cg`); an
 `anime` gallery is a video and refused. gallery-dl already formats its tags (`Big Breasts ♀`). **A gallery
-without a language is Japanese**, as on e-hentai (game CGs and image sets often have none; the import would refuse
-them for good).
+without a language is Japanese**, as on e-hentai; game CGs and image sets often have none, so it is said here rather
+than logged by the import as a language it does not know.
 
 ### The chaika source (`scrapper/chaika`)
 panda.chaika.moe archives e-hentai galleries as zip files; its metadata is e-hentai's (`EhTags`, after
@@ -645,9 +650,9 @@ only class that speaks HTTP to it; `NhentaiDownloader` turns the answers into `G
   API client follows no redirect. A 401 is worded to send the user to Settings.
 - **nhentai's data quirks are handled here**, where the data is read. "translated", "rewrite" and the like are
   filed as languages, so the language is the first tag `LanguageService` knows; without one (a "speechless"
-  gallery) the first tag is kept, and the import's refusal names it. A name with an alias
-  (`"focalors | lady furina"`) is passed on as sent: `MetadataService` handles it for every source and for typed
-  names (see "Metadata management").
+  gallery) the first tag is kept for the import's log, and the import takes the gallery for Japanese. A name with
+  an alias (`"focalors | lady furina"`) is passed on as sent: `MetadataService` handles it for every source (see
+  "Metadata management").
 - **Search for subscriptions** (`GET /api/v2/search`, `sort=date`): 10 a minute without a key and 20 with one,
   its own pacer. Its pages move as galleries come and go, so a walk continues from a cursor that carries an upload
   time (see "Subscriptions"); times come from the galleries' own details, usually two requests a page.
@@ -1115,9 +1120,10 @@ clear "busy, nothing was changed" answer, and background writers wait instead of
 - **Long single holds stay atomic** (1.5M chapters): the title index rebuild (14 s warm, 32 s cold; FTS5
   `rebuild` cannot be sliced, since between slices the triggers would delete rows the index does not hold yet,
   corrupting an external-content index), merging or removing a tag on much of the library (13–30 s), deleting a
-  series with thousands of chapters. A request writing meanwhile gets the busy message after 10 s. A commit also runs
-  SQLite's automatic checkpoint, which the gate waits for (up to 10 s after such a transaction). Holds longer
-  than a request's budget are logged at INFO.
+  series with thousands of chapters, and an import merging a row its gallery's alias already has (once per alias,
+  as long as that row's links take; see "Metadata management"). A request writing meanwhile gets the busy message
+  after 10 s. A commit also runs SQLite's automatic checkpoint, which the gate waits for (up to 10 s after such a
+  transaction). Holds longer than a request's budget are logged at INFO.
 - **`busy_timeout=60000` in the JDBC URL covers what the gate does not**: Flyway and ANALYZE at startup, readers
   during a crash recovery. Each write transaction sets its own for its first statement (the request's remaining
   budget, 0 for `ifFree`, a minute at a time with a log line for background writers) and puts the connection's
@@ -1130,9 +1136,8 @@ on self-invocation.** Each rule below prevents a silently dead cache.
   `ImageDirectoryCache`). Don't use self-injection, and never put a cached list method back on
   `MetadataService`.
 - **A method reached by self-invocation must not rely on an annotation for correctness.** Evict
-  **programmatically** through the `CacheManager` (`ChapterService.evictSearchCount`,
-  `SeriesService.evictSearchCount`), which also evicts only on real change. `SeriesService.deleteIfEmpty`
-  is called from inside `SeriesService`, so a `@CacheEvict` there would be skipped.
+  **programmatically** through `SearchCountCache`, which also evicts only on real change.
+  `SeriesService.deleteIfEmpty` is called from inside `SeriesService`, so a `@CacheEvict` there would be skipped.
 - **Every public entry point that self-invokes a `@Transactional` method must itself be `@Transactional`**,
   so the self-call joins an open transaction.
 - **`@Transactional` on `@PostConstruct` never works** (runs on the raw bean, before the proxy exists), and
@@ -1167,10 +1172,12 @@ Per cache:
     filter.
   - **A name with aliases is the name before the pipe, for every kind but categories** (`canonical`,
     `aliasesOf`): `focalors | lady furina` is stored as `focalors`, and each alias becomes a rewrite rule to it
-    (`recordAliases`), from an import, `add` and `rename` alike, whatever the "Add rule" box says. It is how
-    e-hentai shows a tag with one of its aliases, and nhentai stores that display as the name (beside a plain
-    `focalors` of its own); e-hentai galleries carry the first name only. Only a pipe with whitespace on both
-    sides separates, and only between names, so `|||naka|||` stays whole. A name may have several aliases.
+    (`recordAliases`) on import. It is how e-hentai shows a tag with one of its aliases, and nhentai stores that
+    display as the name (beside a plain `focalors` of its own); e-hentai galleries carry the first name only. Only a
+    pipe with whitespace on both sides separates, and only between names, so `|||naka|||` stays whole. A name may
+    have several aliases.
+    - **A typed name may not contain a pipe** (`add` and `rename` refuse any, `PipeInName`): aliases from the
+      Manage page would merge rows inside a quick request. A merge with "Add rule" does the same by hand.
     - **Aliases are recorded before the names are resolved**, so a gallery that also names the alias alone gets
       one row. An alias is ruled to wherever its name lands, a rule on the name included; a tag's alias is ruled
       on its plain name, so its versions follow. A rule already on an alias stays (the user's, or an earlier

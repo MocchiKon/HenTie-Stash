@@ -185,6 +185,60 @@ class NhentaiDownloadIT
         }
     }
 
+    /** A download never fails over a language the app cannot map or a name with pipes of its own. */
+    @Test
+    void shouldIgnoreALanguageTheAppCannotMapAndKeepANameWithPipesOfItsOwn()
+    {
+        // GIVEN a pair of languages nhentai really sends, and an artist whose pipes belong to the name.
+        site.simpleGallery("180", 1, List.of("language:japanese | definition revised please read the wiki",
+                "language:japanese", "artist:|joe||"));
+        queueService.enqueue(List.of("nhentai:180"), TestDownloads.choices(NO_COMPRESSION, false));
+        Integer chapterId = null;
+        try
+        {
+            // WHEN
+            assertThat(worker.processNext()).isTrue();
+            em.flush();
+
+            // THEN the gallery is downloaded in the language the app could map, with the artist's name whole.
+            Chapter chapter = chapterRepository.findByGalleryId("nhentai:180").orElseThrow();
+            chapterId = chapter.getId();
+            assertThat(chapter.getDownloadStatus()).isEqualTo(DownloadStatus.SUCCESSFUL);
+            assertThat(chapter.getLanguage()).isEqualTo("Japanese");
+            assertThat(chapter.getArtists()).extracting("name").containsExactly("|joe||");
+        }
+        finally
+        {
+            cleanUp(chapterId);
+        }
+    }
+
+    @Test
+    void shouldSaveAGalleryWithNoLanguageTheAppKnowsAsJapanese()
+    {
+        // GIVEN a gallery nhentai files only as speechless.
+        site.simpleGallery("181", 1, List.of("language:speechless", "tag:full color"));
+        queueService.enqueue(List.of("nhentai:181"), TestDownloads.choices(NO_COMPRESSION, false));
+        Integer chapterId = null;
+        try
+        {
+            // WHEN
+            assertThat(worker.processNext()).isTrue();
+            em.flush();
+
+            // THEN it is downloaded all the same, in the language a gallery without one is taken for.
+            Chapter chapter = chapterRepository.findByGalleryId("nhentai:181").orElseThrow();
+            chapterId = chapter.getId();
+            assertThat(chapter.getDownloadStatus()).isEqualTo(DownloadStatus.SUCCESSFUL);
+            assertThat(chapter.getLanguage()).isEqualTo("Japanese");
+            assertThat(queueRepository.findByLink("nhentai:181")).isEmpty();
+        }
+        finally
+        {
+            cleanUp(chapterId);
+        }
+    }
+
     /** Files are not rolled back with the transaction. */
     private void cleanUp(Integer chapterId)
     {

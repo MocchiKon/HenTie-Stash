@@ -171,7 +171,7 @@ class GenderedTagsIT
         assertThat(imported("female:gtag-gone", "male:gtag-gone", "gtag-gone")).isEmpty();
         assertThat(idOf("gtag-gone ♀")).isNull();
         assertThat(metadataService.add(MetadataType.TAG, "gtag-gone ♀")).get()
-                .extracting(MetadataService.RuleConflict::name).isEqualTo("gtag-gone");
+                .extracting(MetadataService.Refusal::name).isEqualTo("gtag-gone");
     }
 
     @Test
@@ -318,7 +318,8 @@ class GenderedTagsIT
         assertThat(imported("female:gtag-strip", "male:gtag-strip")).containsExactly(plain);
         assertThat(idOf("gtag-strip ♀")).isNull();
         assertThat(metadataService.add(MetadataType.TAG, "gtag-strip ♂")).get()
-                .extracting(MetadataService.RuleConflict::targetName).isEqualTo("gtag-strip");
+                .isInstanceOfSatisfying(MetadataService.RuleConflict.class,
+                        conflict -> assertThat(conflict.targetName()).isEqualTo("gtag-strip"));
     }
 
     @Test

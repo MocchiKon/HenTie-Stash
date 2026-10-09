@@ -317,7 +317,11 @@ class NhentaiDownloaderTest
     {
         assertThat(NhentaiDownloader.language(List.of("translated", "english"))).isEqualTo("english");
         assertThat(NhentaiDownloader.language(List.of("japanese"))).isEqualTo("japanese");
-        // Kept, so the refusal to import names what the gallery has.
+        // A pair nhentai really sends: the tag the app cannot map is ignored, wherever it stands.
+        String revised = "japanese | definition revised please read the wiki";
+        assertThat(NhentaiDownloader.language(List.of("japanese", revised))).isEqualTo("japanese");
+        assertThat(NhentaiDownloader.language(List.of(revised, "japanese"))).isEqualTo("japanese");
+        // Kept, so the import's log names what the gallery has.
         assertThat(NhentaiDownloader.language(List.of("speechless"))).isEqualTo("speechless");
         assertThat(NhentaiDownloader.language(Set.of())).isNull();
     }

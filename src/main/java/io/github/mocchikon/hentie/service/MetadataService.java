@@ -15,8 +15,6 @@ import jakarta.persistence.criteria.Root;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.cache.Cache;
-import org.springframework.cache.CacheManager;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Caching;
 import org.springframework.stereotype.Service;
@@ -45,7 +43,8 @@ import java.util.stream.Collectors;
  * <p><b>A name with aliases, {@code "focalors | lady furina"}, is the name before the pipe</b>, and each alias
  * becomes a rule to it ({@link #recordAliases}). It is how e-hentai shows a tag with one of its aliases, and nhentai
  * stores that display as the name; e-hentai galleries carry the first name only. Kept whole, one character would be
- * two rows, and a search for either would miss the other's galleries.
+ * two rows, and a search for either would miss the other's galleries. Only imports bring aliases: a typed name may not
+ * contain a pipe ({@link PipeInName}).
  */
 @Service
 public class MetadataService
@@ -72,13 +71,13 @@ public class MetadataService
 
     private final MetadataRuleService ruleService;
 
-    private final CacheManager cacheManager;
+    private final SearchCountCache searchCountCache;
 
-    public MetadataService(MetadataCatalog catalog, MetadataRuleService ruleService, CacheManager cacheManager)
+    public MetadataService(MetadataCatalog catalog, MetadataRuleService ruleService, SearchCountCache searchCountCache)
     {
         this.catalog = catalog;
         this.ruleService = ruleService;
-        this.cacheManager = cacheManager;
+        this.searchCountCache = searchCountCache;
     }
 
     /** Returned rather than thrown, so the Manage page can say what stood in the way. */
@@ -86,8 +85,18 @@ public class MetadataService
     {
         MetadataType type();
 
-        /** Canonical ({@link #canonical}). */
+        /** Canonical ({@link #canonical}), except in {@link PipeInName}: the canonical name would hide the pipe. */
         String name();
+    }
+
+    /**
+     * A typed name has no aliases. An import reads {@code "name | alias"} as a name and its alias, and merges a
+     * row the alias already has into the name's ({@link #resolveOrCreate}); from the Manage page that merge would
+     * run inside a quick request. Every pipe is refused, not only one between spaces, so the rule is easy to state.
+     * Merging with a rule does what an alias does. {@code name} is as typed.
+     */
+    public record PipeInName(MetadataType type, String name) implements Refusal
+    {
     }
 
     /** {@code name} is the rule's own name, not what the user typed; {@code targetName} is null for a blocking rule. */
@@ -178,18 +187,22 @@ public class MetadataService
     /**
      * Refused when a rule rules the name out: such a row would be stripped from every import, so it would
      * look present and behave as if it were not. A tag's version comes with its plain tag, as from an import,
-     * or the Manage page could not reach it. Aliases are ruled to the name, as from an import.
+     * or the Manage page could not reach it.
      *
-     * @return the rule that refused the name, or empty when none did (added, blank or already there)
+     * @return what refused the name, or empty when nothing did (added, blank or already there)
      */
     @Transactional
     @CacheEvict(value = CacheConfig.METADATA, key = "#type")
-    public Optional<RuleConflict> add(MetadataType type, String name)
+    public Optional<Refusal> add(MetadataType type, String name)
     {
         String canonical = canonical(type, name);
         if (StringUtils.isBlank(canonical))
         {
             return Optional.empty();
+        }
+        if (name.contains("|"))
+        {
+            return Optional.of(new PipeInName(type, name.trim()));
         }
         var names = new ArrayList<>(List.of(canonical));
         if (type == MetadataType.TAG)
@@ -202,16 +215,10 @@ public class MetadataService
             Optional<RuleConflict> conflict = conflictFor(type, n);
             if (conflict.isPresent())
             {
-                return conflict;
+                return Optional.of(conflict.get());
             }
         }
         missing.forEach(n -> create(type, n));
-        List<String> aliases = aliasesOf(type, name);
-        if (!aliases.isEmpty())
-        {
-            String key = ruleKey(type, canonical);
-            recordAliases(type, idsOfName(type, key).getFirst(), key, aliases);
-        }
         return Optional.empty();
     }
 
@@ -378,8 +385,6 @@ public class MetadataService
      * A plain tag takes its versions along ({@code halo} to {@code ring} renames {@code halo ♀} to
      * {@code ring ♀}), so the new name is plain too, and is refused unless every version can follow. A rule
      * removing the tag's gender belongs to the tag, not to its old name, so it moves to the new one.
-     * <p>
-     * The new name's aliases are ruled to the row whatever {@code createRule} says: that box is about the old name.
      *
      * @return what refused the new name, or empty when nothing did (renamed, or blank)
      */
@@ -391,6 +396,10 @@ public class MetadataService
         {
             return Optional.empty();
         }
+        if (newName.contains("|"))
+        {
+            return Optional.of(new PipeInName(type, newName.trim()));
+        }
         Metadata entity = (Metadata) em.find(type.getEntityClass(), id);
         if (entity == null)
         {
@@ -398,19 +407,10 @@ public class MetadataService
         }
         String normalized = canonical(type, newName);
         String oldName = entity.getName();
-        Optional<Refusal> refusal = isPlainTag(type, oldName)
-                ? renameTag(type, id, oldName, normalized, createRule)
-                : renameRow(type, id, normalized, createRule);
-        if (refusal.isEmpty())
+        if (!isPlainTag(type, oldName))
         {
-            recordAliases(type, id, normalized, aliasesOf(type, newName));
+            return renameRow(type, id, normalized, createRule);
         }
-        return refusal;
-    }
-
-    private Optional<Refusal> renameTag(MetadataType type, Integer id, String oldName, String normalized,
-                                        boolean createRule)
-    {
         if (genderSymbolOf(normalized).isPresent())
         {
             return Optional.of(new GenderedName(type, normalized));
@@ -760,45 +760,45 @@ public class MetadataService
             return List.of();
         }
         // Before the names are resolved, so an alias the gallery also names on its own lands on its name too.
-        for (var named : aliasesByName(type, names).entrySet())
+        for (var named : aliasesByRuleKey(type, names).entrySet())
         {
-            String key = ruleKey(type, named.getKey());
-            Integer target = resolveNames(type, List.of(key)).stream().findFirst().orElse(null);
-            recordAliases(type, target, key, named.getValue());
+            Integer target = resolveNames(type, List.of(named.getKey())).stream().findFirst().orElse(null);
+            recordAliases(type, target, named.getKey(), named.getValue());
         }
         return resolveNames(type, names);
     }
 
-    /** Canonical name to its aliases, for the names that have any. */
-    private static Map<String, Set<String>> aliasesByName(MetadataType type, Collection<String> names)
+    /** A name's {@link #ruleKey} to its aliases, for the names that have any. */
+    private static Map<String, Set<String>> aliasesByRuleKey(MetadataType type, Collection<String> names)
     {
-        var byName = new LinkedHashMap<String, Set<String>>();
+        var byKey = new LinkedHashMap<String, Set<String>>();
         for (String name : names)
         {
             List<String> aliases = aliasesOf(type, name);
             if (!aliases.isEmpty())
             {
-                byName.computeIfAbsent(canonical(type, name), k -> new LinkedHashSet<>()).addAll(aliases);
+                byKey.computeIfAbsent(ruleKey(type, canonical(type, name)), k -> new LinkedHashSet<>()).addAll(aliases);
             }
         }
-        return byName;
+        return byKey;
     }
 
     /**
      * Rules each alias to the row its name came to, as a merge with "Add rule" leaves it, so an import naming the
-     * alias lands there too. A row the alias already has is merged in, since a ruled-out name has no row.
+     * alias lands there too. A row the alias already has is merged in, since a ruled-out name has no row. Like any
+     * merge it is one write, here inside the import's transaction, so it holds the lock as long as moving the
+     * alias's links takes (once per alias).
      * <p>
      * A rule already on an alias is a decision, the user's or an earlier alias's, and stays. Nothing is recorded
      * when a rule dropped the name ({@code targetId} null): a block on the alias would outlive the user taking the
      * name back.
      */
-    private void recordAliases(MetadataType type, Integer targetId, String name, Collection<String> aliases)
+    private void recordAliases(MetadataType type, Integer targetId, String nameKey, Collection<String> aliases)
     {
-        if (targetId == null || aliases.isEmpty())
+        if (targetId == null)
         {
             return;
         }
-        String nameKey = ruleKey(type, name);
         boolean merged = false;
         for (String alias : aliases)
         {
@@ -821,7 +821,7 @@ public class MetadataService
         if (merged)
         {
             evictAll(type);
-            evictSearchCount();
+            searchCountCache.clear();
         }
     }
 
@@ -1010,16 +1010,6 @@ public class MetadataService
     private void evictAll(MetadataType type)
     {
         catalog.evict(type);
-    }
-
-    /** Programmatic, so the paths that may merge an alias evict only when one was merged. */
-    private void evictSearchCount()
-    {
-        Cache cache = cacheManager.getCache(CacheConfig.SEARCH_COUNT);
-        if (cache != null)
-        {
-            cache.clear();
-        }
     }
 
     /**
