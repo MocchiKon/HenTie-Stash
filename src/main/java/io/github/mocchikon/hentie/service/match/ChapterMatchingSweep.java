@@ -133,7 +133,7 @@ public class ChapterMatchingSweep
             series += ids.size();
             matchingService.backfillSeriesKeys(ids);
         }
-        // On an imported library this pass can take minutes; without this line the sweep looks stuck.
+        // On a large library this pass can take minutes; without this line the sweep looks stuck.
         if (chapters > 0 || series > 0)
         {
             log.info("Match chapters: backfilled matching keys for {} chapter(s) and {} series", chapters, series);

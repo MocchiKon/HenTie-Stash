@@ -93,6 +93,24 @@ public class HitomiDownloader implements GalleryDlDownloader
         return "https://hitomi.la/doujinshi/title-english-123456.html";
     }
 
+    @Override
+    public Set<String> linkMarkers()
+    {
+        return Set.of("hitomi.la", PREFIX + ":");
+    }
+
+    @Override
+    public boolean readsCookies()
+    {
+        return false;
+    }
+
+    @Override
+    public boolean offersOriginals()
+    {
+        return false;
+    }
+
     private static String idIn(String link)
     {
         return DataDownloader.matchLink(link, PREFIXED_ID, GALLERY_URL).map(m -> m.group(1)).orElse(null);
@@ -127,8 +145,8 @@ public class HitomiDownloader implements GalleryDlDownloader
 
     /**
      * gallery-dl's metadata as it formats it: tags already carry hitomi's ♀/♂ ({@code "Big Breasts ♀"}). A gallery
-     * without a language (game CGs and image sets often have none) is Japanese, as on e-hentai, or the import would
-     * refuse it for good and it could never be downloaded.
+     * without a language (game CGs and image sets often have none) is Japanese, as on e-hentai. Said here, not left
+     * to the import, which logs every language it does not know: on hitomi a missing one is normal.
      */
     static GalleryData galleryData(String id, JsonNode gallery)
     {

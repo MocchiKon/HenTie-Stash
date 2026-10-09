@@ -139,7 +139,8 @@ class NhentaiDownloaderTest
         assertThat(data.getJapaneseTitle()).isEqualTo("作品");
         // "translated" is filed as a language too; the real one wins.
         assertThat(data.getLanguage()).isEqualTo("english");
-        assertThat(data.getArtists()).containsExactly("name1", "name2", "|||naka|||");
+        // A name with an alias comes as nhentai stores it; the import keeps the name before the pipe.
+        assertThat(data.getArtists()).containsExactly("name1 | name2", "|||naka|||");
         assertThat(data.getGroups()).containsExactly("grp");
         assertThat(data.getParodies()).containsExactly("original");
         assertThat(data.getCharacters()).containsExactly("a character");
@@ -311,27 +312,16 @@ class NhentaiDownloaderTest
 
     // ---- nhentai's data quirks --------------------------------------------
 
-    /** nhentai joins artists as "name1 | name2", but a pipe can also be part of a name. */
-    @Test
-    void shouldSplitJoinedArtistsButKeepNamesThatHavePipesOfTheirOwn()
-    {
-        assertThat(NhentaiDownloader.splitArtists(List.of("name1 | name2"))).containsExactly("name1", "name2");
-        assertThat(NhentaiDownloader.splitArtists(List.of("a | b | c"))).containsExactly("a", "b", "c");
-        // A duplicate of an artist the gallery lists anyway counts once.
-        assertThat(NhentaiDownloader.splitArtists(List.of("a | b", "b"))).containsExactly("a", "b");
-
-        for (String name : List.of("|||naka|||", "a|b", "a |b", "a| b", "| naka |", "naka | ", "a || b", "x | | y"))
-        {
-            assertThat(NhentaiDownloader.splitArtists(List.of(name))).as(name).containsExactly(name);
-        }
-    }
-
     @Test
     void shouldTakeTheFirstRealLanguageAndElseNameTheFirstTag()
     {
         assertThat(NhentaiDownloader.language(List.of("translated", "english"))).isEqualTo("english");
         assertThat(NhentaiDownloader.language(List.of("japanese"))).isEqualTo("japanese");
-        // Kept, so the refusal to import names what the gallery has.
+        // A pair nhentai really sends: the tag the app cannot map is ignored, wherever it stands.
+        String revised = "japanese | definition revised please read the wiki";
+        assertThat(NhentaiDownloader.language(List.of("japanese", revised))).isEqualTo("japanese");
+        assertThat(NhentaiDownloader.language(List.of(revised, "japanese"))).isEqualTo("japanese");
+        // Kept, so the import's log names what the gallery has.
         assertThat(NhentaiDownloader.language(List.of("speechless"))).isEqualTo("speechless");
         assertThat(NhentaiDownloader.language(Set.of())).isNull();
     }

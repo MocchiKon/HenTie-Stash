@@ -2,17 +2,13 @@
 -- Initial schema (SQLite).
 --
 -- This is the whole database as the app expects it: the file starts empty and Flyway builds every table,
--- index, virtual table and trigger from here, so no Hibernate DDL ever runs (ddl-auto=none). The library
--- itself arrives afterwards, as DATA, via migration/H2ToSqliteMigration (see migration/MIGRATION.md).
+-- index, virtual table and trigger from here, so no Hibernate DDL ever runs (ddl-auto=none).
 --
 -- The table/index statements were generated from the JPA mappings (jakarta.persistence.schema-generation,
--- Hibernate 7 + community SQLiteDialect), with three things worth knowing:
+-- Hibernate 7 + community SQLiteDialect), with two things worth knowing:
 --   * Every generated id is "integer primary key autoincrement" (hand-edited: the dialect writes a plain
 --     "primary key (id)"). Without AUTOINCREMENT SQLite gives max(rowid) + 1, so deleting the newest row
 --     hands its id to the next insert - and a chapter id names its image folder, scratch folders and URLs.
---   * Columns the H2 source does not have (page_num, disk_size, match_key, match_block, download_status)
---     carry an explicit NOT NULL DEFAULT, so the migrator's generic INSERT can leave them out. The app fills
---     them on every write; Manage -> Library maintenance backfills imported rows.
 --   * The join tables' foreign keys are hand-written (the dialect emits none, and SQLite cannot add one
 --     with ALTER). ON DELETE CASCADE, so no delete - Hibernate, a batch delete or native SQL - can leave a
 --     link to a missing row, which would make the native search inexact. Every one is backed by an index
@@ -20,8 +16,6 @@
 --     none on purpose: unlinking goes through SeriesService, which a SET NULL would bypass.
 --
 -- The FTS5 title index at the bottom is hand-written (Hibernate does not know about virtual tables).
--- Editable until the one-time H2 import has been run against a real database (nothing is deployed yet);
--- after that its checksum is recorded, so a column/index/entity change means a new V2__*.sql.
 -- ---------------------------------------------------------------------------------------------------
 
 -- ===== Tables =====
@@ -29,18 +23,23 @@
 --     groups removed, accents/case folded, punctuation collapsed and trailing sequence markers ("2",
 --     "part 2", "omake", ...) stripped. Family members relate by one key being a token PREFIX of the other,
 --     which is a B-tree range seek, unlike the substring match a LIKE '%...%' would need.
--- series.match_block - the first 4 characters of match_key with spaces removed: the blocking key of the
---     fuzzy fallback. Series only; chapters are found by block through ix_chapter__condensed_match_key.
+-- chapter.native_match_key - native_title normalized like match_key (TitleKey.nativeKey); for a chapter without a
+--     native title whose own title is written in Japanese, Chinese or Korean, that title's key. '' when there is
+--     nothing to compare. Through it a translated chapter finds its original, and two romanizations of one work
+--     find each other, through the Japanese title both carry.
 -- chapter.download_status - ORDINAL, 0 NONE / 1 PENDING / 2 SUCCESSFUL (entity/DownloadStatus). NONE is 0,
 --     so the default means "not from a download". No index: it is read one chapter at a time, after that
 --     chapter has been found by its gallery id.
 -- chapter.compression_mode - the key of the Image Compression mode that last re-encoded the chapter's
 --     pages (LOSSLESS, custom:7, ...), NULL while they are original. A key because it survives a rename.
 --     No index: it is read only for the one chapter a detail page shows.
+-- chapter.source_site - which of its source's websites a chapter's pages last came from, for a source with more
+--     than one (exhentai for e-hentai's galleries); null for the source's usual one. The chapter page links there:
+--     exhentai has galleries e-hentai hides.
 create table app_setting (setting_key varchar(100) not null, setting_value varchar(2000), primary key (setting_key));
 create table artist (id integer primary key autoincrement, name varchar(255) not null unique);
 create table category (id integer primary key autoincrement, name varchar(255) not null unique);
-create table chapter (id integer primary key autoincrement, chapter_num float, page_num integer not null default 0, score smallint, series_id integer, status tinyint not null check ((status between 0 and 2)), upload_date date not null, disk_size bigint not null default 0, gallery_id varchar(255) unique, language varchar(255) not null, native_title varchar(255), title_full varchar(255) not null, title_pretty varchar(255) not null, match_key varchar(255) not null default '', download_status tinyint not null default 0, compression_mode varchar(64));
+create table chapter (id integer primary key autoincrement, chapter_num float, page_num integer not null default 0, score smallint, series_id integer, status tinyint not null check ((status between 0 and 2)), upload_date date not null, disk_size bigint not null default 0, gallery_id varchar(255) unique, language varchar(255) not null, native_title varchar(255), title_full varchar(255) not null, title_pretty varchar(255) not null, match_key varchar(255) not null default '', download_status tinyint not null default 0, compression_mode varchar(64), native_match_key varchar(255) not null default '', source_site varchar(32));
 create table chapter_artists (artist_id integer not null references artist (id) on delete cascade, chapter_id integer not null references chapter (id) on delete cascade);
 create table chapter_categories (category_id integer not null references category (id) on delete cascade, chapter_id integer not null references chapter (id) on delete cascade);
 create table chapter_characters (chapter_id integer not null references chapter (id) on delete cascade, character_id integer not null references character (id) on delete cascade);
@@ -50,7 +49,7 @@ create table chapter_tags (chapter_id integer not null references chapter (id) o
 create table character (id integer primary key autoincrement, name varchar(255) not null unique);
 create table group_artists (id integer primary key autoincrement, name varchar(255) not null unique);
 create table parody (id integer primary key autoincrement, title varchar(255) not null unique);
-create table series (id integer primary key autoincrement, created_date date not null, page_num integer not null default 0, score smallint, score_source tinyint not null check ((score_source between 0 and 1)), status tinyint not null check ((status between 0 and 2)), disk_size bigint not null default 0, native_title varchar(255), title_full varchar(255) not null, title_pretty varchar(255) not null, match_key varchar(255) not null default '', match_block varchar(8) not null default '');
+create table series (id integer primary key autoincrement, created_date date not null, page_num integer not null default 0, score smallint, score_source tinyint not null check ((score_source between 0 and 1)), status tinyint not null check ((status between 0 and 2)), disk_size bigint not null default 0, native_title varchar(255), title_full varchar(255) not null, title_pretty varchar(255) not null, match_key varchar(255) not null default '');
 create table series_artists (artist_id integer not null references artist (id) on delete cascade, series_id integer not null references series (id) on delete cascade);
 create table series_categories (category_id integer not null references category (id) on delete cascade, series_id integer not null references series (id) on delete cascade);
 create table series_characters (character_id integer not null references character (id) on delete cascade, series_id integer not null references series (id) on delete cascade);
@@ -76,15 +75,51 @@ create table tag (id integer primary key autoincrement, name varchar(255) not nu
 --     MetadataService keeps it honest instead.
 create table metadata_rule (id integer primary key autoincrement, target_id integer, source_name_lower varchar(255) not null, type varchar(20) not null);
 
+-- subscription - a saved search on a site whose galleries are queued for download on their own, first all of
+--     them, then each new one (see CLAUDE.md "Subscriptions").
+--   source              - the search site's key (nhentai, e-hentai, exhentai). A key, not an ordinal, because the
+--                         sites come from the sources registered at startup.
+--   query               - as the site's search takes it, normalized by the source
+--   poll_minutes        - how often the newest page is checked, at least 10
+--   recheck_every_hours, recheck_depth_hours - how often galleries uploaded in the last recheck_depth_hours are
+--                         listed again (tags are added after upload); 0 = never
+--   compression_mode .. request_delay - what each queued row gets, as a paste on the Download page would
+--   revision            - bumped whenever the walk starts over, so a page fetched for the old walk is never applied
+--   newest_gallery_id, oldest_gallery_id - the walk's head and tail: every gallery the search listed between them
+--                         has been handled
+--   oldest_cursor       - the source's own way of continuing below the tail (nhentai: an id, an upload time and
+--                         the galleries of that second already had, so it can run long)
+--   reached_end         - the walk below the tail found nothing older
+--   catch_up_*          - a walk from the newest page down to catch_up_stop (NULL = the end of the search) under way;
+--                         catch_up_top becomes the head when it ends
+--   *_count             - galleries listed for the first time, by what became of them
+--   top_seen_at         - when a check last saw the top of the search (service/subscription/SubscriptionWalk): the
+--                         time a catch-up's checkpoint is recorded with, and how a check tells that the walk lost
+--                         sight of the search (the app was off, or the site failed, for longer than a re-check
+--                         reaches back). NULL before the first check.
+-- subscription_checkpoint - the head as it was at a time, so a re-check knows where "recheck_depth_hours ago" was
+--   in the search; at most one an hour, pruned past the oldest one a re-check still needs.
+create table subscription (id integer primary key autoincrement, name varchar(255), source varchar(32) not null, query varchar(1000) not null, poll_minutes integer not null, recheck_every_hours integer not null, recheck_depth_hours integer not null, compression_mode varchar(64) not null default 'NONE', avoid_duplicate_titles boolean not null default 0, cookies_browser varchar(32), download_originals boolean not null default 0, request_delay varchar(32) not null, enabled boolean not null default 1, created_at timestamp not null, revision integer not null default 0, newest_gallery_id varchar(255), oldest_gallery_id varchar(255), oldest_cursor varchar(2000), reached_end boolean not null default 0, catch_up_top varchar(255), catch_up_cursor varchar(2000), catch_up_stop varchar(255), last_checked_at timestamp, last_rechecked_at timestamp, result_total integer, queued_count integer not null default 0, in_library_count integer not null default 0, deleted_since_count integer not null default 0, already_queued_count integer not null default 0, blacklisted_count integer not null default 0, last_error varchar(2000), last_error_at timestamp, failed_steps integer not null default 0, top_seen_at timestamp);
+create table subscription_checkpoint (id integer primary key autoincrement, subscription_id integer not null references subscription (id) on delete cascade, recorded_at timestamp not null, gallery_id varchar(255) not null);
+
 -- download_queue - one row per pasted link, deleted only once the item has been carried all the way
 --     through (see CLAUDE.md "Chapter downloading"). No status column on purpose: an "in progress" flag
 --     written before a power cut would be a lie, so pending is `error is null` and failed is
 --     `error is not null`. ignore_image_errors, compression_mode, avoid_duplicate_titles and replace_pages
 --     are the choices a paste or retry made, on the row because the download runs later, on the worker
 --     thread, and has to survive a restart. Their defaults are an ordinary, strict, uncompressed download.
+--   cookies_browser    - the browser gallery-dl reads cookies from (--cookies-from-browser); null = no cookies
+--   download_originals - e-hentai's original files instead of the resampled ones
+--   request_delay      - seconds between two image requests, "0.4-0.65" or "2"; '' is no delay gallery-dl reads,
+--                        so a row holding it is refused rather than fetched without a delay
+--     These three are the gallery-dl choices (see CLAUDE.md "gallery-dl"); only gallery-dl sources read them.
+--   priority           - who asked: 0 the user (a paste, favourites, a retry of theirs), 1 a subscription. Lower
+--                        runs first. Stored values: never renumbered.
+--   subscription_id    - the subscription that queued the row; SET NULL when it is deleted, so its rows keep their
+--                        priority and still download. A paste of the same gallery claims the row (priority 0, NULL).
 -- downloaded_gallery - "this source gallery has been fetched", keyed by the namespaced gallery id
 --     ("mock:12"). Kept when the queue row goes, and outlives the chapter it created.
-create table download_queue (id integer primary key autoincrement, attempts integer not null, chapter_id integer, queued_at timestamp not null, error varchar(2000), gallery_id varchar(255), link varchar(1000) not null unique, ignore_image_errors boolean not null default 0, compression_mode varchar(64) not null default 'NONE', avoid_duplicate_titles boolean not null default 0, replace_pages boolean not null default 0);
+create table download_queue (id integer primary key autoincrement, attempts integer not null, chapter_id integer, queued_at timestamp not null, error varchar(2000), gallery_id varchar(255), link varchar(1000) not null unique, ignore_image_errors boolean not null default 0, compression_mode varchar(64) not null default 'NONE', avoid_duplicate_titles boolean not null default 0, replace_pages boolean not null default 0, cookies_browser varchar(32), download_originals boolean not null default 0, request_delay varchar(32) not null default '', priority integer not null default 0, subscription_id integer references subscription (id) on delete set null);
 create table downloaded_gallery (chapter_id integer not null, downloaded_at timestamp not null, gallery_id varchar(255) not null, primary key (gallery_id));
 
 -- image_compression_mode - the modes the user defines (see CLAUDE.md "Image compression"). The three
@@ -92,9 +127,6 @@ create table downloaded_gallery (chapter_id integer not null, downloaded_at time
 --     edited away and a fresh install has them without a seed. `name` is UNIQUE because the dropdown shows
 --     it. `encoder` is ORDINAL (0 JXL / 1 AVIF).
 create table image_compression_mode (id integer primary key autoincrement, name varchar(255) not null unique, encoder tinyint not null, encoder_args varchar(1000) not null, magick_args varchar(1000) not null, min_relative_reduction integer not null, min_absolute_reduction integer not null, formats varchar(255) not null);
-
--- The tables the H2 library does not have (metadata_rule, download_queue, downloaded_gallery,
--- image_compression_mode) are ignored by the one-time H2->SQLite import.
 
 -- ===== Indexes =====
 -- Sort and filter indexes for search (see CLAUDE.md "Indexing"):
@@ -131,19 +163,23 @@ create index ix_series__page_num_id_status on series (page_num, id, status);
 create index ix_series__disk_size_id_status on series (disk_size, id, status);
 create index ix_series__id on series (id);
 
--- Matching (see service/match): (match_key, id) covers the exact and "extends this key" range seeks,
--- (match_block, id) the fuzzy fallback. (series_id, match_key, id) lets the sweep walk the unlinked chapters
+-- Matching (see service/match): (match_key, id) covers the exact and "extends this key" range seeks.
+-- (series_id, match_key, id) lets the sweep walk the unlinked chapters
 -- in key order, which makes each family arrive together without a sort over the whole table.
 -- ix_chapter__condensed_match_key is match_key without spaces, for the series page's "Link chapters": the
 -- chapters sharing a series' block, as one range walked outward from the series' own title. An expression
 -- index rather than a column, so SQLite maintains it on every write and nothing has to backfill it. A query
 -- uses it only when it spells the expression exactly as declared here, which is why ChapterCandidateFinder
--- seeks it in native SQL, pinned with INDEXED BY.
+-- seeks it in native SQL, pinned with INDEXED BY. ix_series__condensed_match_key is the same walk over series
+-- (service/match/NearestTitles), so automatic matching finds what the series page offers.
+-- (native_match_key, series_id) - matching seeks chapters by this key for the series they are in, so the series
+-- comes off the index: a series' many chapters under one key cost index entries, not rows.
 create index ix_chapter__match_key on chapter (match_key, id);
 create index ix_chapter__series_match_key on chapter (series_id, match_key, id);
 create index ix_chapter__condensed_match_key on chapter (replace(match_key, ' ', ''), id);
 create index ix_series__match_key on series (match_key, id);
-create index ix_series__match_block on series (match_block, id);
+create index ix_series__condensed_match_key on series (replace(match_key, ' ', ''), id);
+create index ix_chapter__native_match_key on chapter (native_match_key, series_id);
 
 -- "Avoid duplicated titles from other sources": a chapter with exactly this title_full whose gallery id is
 -- not from this source. title_full leads so the equality is a seek; gallery_id rides along so the source
@@ -199,8 +235,13 @@ create unique index ux_metadata_rule__type_source on metadata_rule (type, source
 create index ix_metadata_rule__type_id on metadata_rule (type, id);
 create index ix_metadata_rule__type_target on metadata_rule (type, target_id);
 
--- Serves both halves of the queue: the worker's "next pending, in order" seek and the failed list.
-create index ix_download_queue__error_id on download_queue (error, id);
+-- (error, priority, id) serves the worker's pending-in-order query and both lists on the queue page.
+-- (gallery_id): every enqueue looks its gallery up.
+create index ix_download_queue__error_priority_id on download_queue (error, priority, id);
+create index ix_download_queue__gallery_id on download_queue (gallery_id);
+create index ix_download_queue__subscription_error on download_queue (subscription_id, error);
+
+create index ix_subscription_checkpoint__subscription_recorded on subscription_checkpoint (subscription_id, recorded_at);
 
 -- ===== FTS5 trigram title index =====
 -- Substring title search (LIKE '%term%') cannot use a B-tree index, so titles are also indexed as

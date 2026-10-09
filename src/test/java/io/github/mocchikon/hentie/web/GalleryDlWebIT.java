@@ -66,6 +66,11 @@ class GalleryDlWebIT
                 .andExpect(model().attribute("downloadOriginals", true))
                 .andExpect(model().attribute("requestDelay", "1.5-2"))
                 .andExpect(content().string(containsString("Use cookies when downloading")))
+                .andExpect(content().string(containsString(
+                        "data-shown-for-links=\"e-hentai.org ehentai: exhentai.org hitomi.la hitomi:\"")))
+                // hitomi reads neither cookies nor originals, so only e-hentai's links show those two.
+                .andExpect(content().string(containsString(
+                        "<div class=\"field\" data-shown-for-links=\"e-hentai.org ehentai: exhentai.org\">")))
                 .andExpect(content().string(containsString("https://hitomi.la/doujinshi/title-english-123456.html")));
     }
 

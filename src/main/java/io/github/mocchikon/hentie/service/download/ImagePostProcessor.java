@@ -1,6 +1,5 @@
 package io.github.mocchikon.hentie.service.download;
 
-import io.github.mocchikon.hentie.dto.CompressionProfile;
 import io.github.mocchikon.hentie.service.compress.ImageCompressionService;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
@@ -13,11 +12,12 @@ import java.util.function.Supplier;
 
 /**
  * The download pipeline's seam onto Image Compression: the download package decides <i>when</i> a page is
- * ready, the compress package <i>what</i> to do with it, and the mode key stays out of the compressor.
+ * ready and where it goes once processed, the compress package <i>what</i> to do with it, and the mode key stays
+ * out of the compressor.
  *
- * <p>It works on staged files, so a failed or interrupted processor never leaves half-processed images in
- * the data directory. The caller must reach {@link Run#close()} on every exit: an encoder still writing
- * while staging is published or discarded would lose a page.
+ * <p>It works on staged files and hands each back once processed, so the data directory only ever receives whole
+ * pages. The caller must reach {@link Run#close()} on every exit: an encoder still writing while staging is
+ * discarded would lose a page.
  */
 @Component
 @RequiredArgsConstructor
@@ -27,18 +27,30 @@ public class ImagePostProcessor
 
     private final ImageCompressionService compressionService;
 
-    /** Under mode "None" the run is a no-op that still has to be closed, so the caller needs no branch. */
-    public Run start(int chapterId, String modeKey)
+    /** What becomes of a page once processed; called on the thread that processed it. */
+    @FunctionalInterface
+    public interface Processed
     {
-        Optional<CompressionProfile> profile = compressionService.profileFor(modeKey);
-        profile.ifPresent(p -> log.info("Compressing images of chapter {} with mode {}", chapterId, p.name()));
-        return new Run(compressionService.open(chapterId, profile.orElse(null)), chapterId);
+        /**
+         * Must not throw: the page is the caller's from here, failures included.
+         *
+         * @param file the page as it is now, re-encoded or not
+         */
+        void page(Path file, boolean reEncoded);
     }
 
-    /** Decides where pages are staged: only a processed download gains from a RAM disk. */
-    public boolean compresses(String modeKey)
+    /**
+     * Empty when the mode leaves pages as they arrive ("None", a mode since deleted, compression switched off), so
+     * the caller stores them as fetched. Decided once, so one attempt never treats its pages two ways.
+     */
+    public Optional<Run> start(int chapterId, String modeKey, Processed processed)
     {
-        return compressionService.profileFor(modeKey).isPresent();
+        return compressionService.profileFor(modeKey).map(profile ->
+        {
+            log.info("Compressing images of chapter {} with mode {}", chapterId, profile.name());
+            return new Run(compressionService.open(chapterId, profile,
+                    page -> processed.page(page.file(), page.replaced())), chapterId);
+        });
     }
 
     /**
@@ -63,12 +75,6 @@ public class ImagePostProcessor
         public void page(Path stagedFile)
         {
             session.submitPage(stagedFile);
-        }
-
-        /** Pages replaced by a re-encoded version (originals kept when not smaller don't count); complete once closed. */
-        public int compressedPages()
-        {
-            return session.summary().replaced();
         }
 
         /** Waits for every page still being processed. Safe to call more than once. */

@@ -16,6 +16,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -24,6 +26,9 @@ import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.test.web.servlet.MockMvc;
 
+import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -257,6 +262,29 @@ class JxlTranscodeIT
         assertThat(second).isNotEqualTo(first);
         // ...and only the new version's decode is left in the cache.
         assertThat(cacheFiles()).singleElement().asString().matches(CACHE_ENTRY).isNotEqualTo(firstEntry);
+    }
+
+    /** Entries are not synced, so a power cut can keep an entry's name and lose its data. */
+    @ParameterizedTest
+    @EnumSource(Damage.class)
+    void shouldDecodeAgainRatherThanSendAnEntryAPowerCutDamaged(Damage damage) throws Exception
+    {
+        assumeTools();
+        // GIVEN a stored page whose decode, cached for this very version, a power cut damaged.
+        writeJxlPage();
+        Path entry = damagedEntry(damage.of(TestImages.png(SIZE, SIZE)));
+
+        // WHEN
+        MockHttpServletResponse response = mvc.perform(get(url()).with(user("user")))
+                .andExpect(status().isOk())
+                .andReturn().getResponse();
+
+        // THEN a fresh decode is sent, and it took the damaged entry's place.
+        assertThat(response.getContentType()).isEqualTo(MediaType.IMAGE_PNG_VALUE);
+        BufferedImage sent = ImageIO.read(new ByteArrayInputStream(response.getContentAsByteArray()));
+        assertThat(sent).isNotNull();
+        assertThat(sent.getWidth()).isEqualTo(SIZE);
+        assertThat(entry).hasBinaryContent(response.getContentAsByteArray());
     }
 
     /** Never into a chapter folder, where a numbered PNG would be taken for a page. */
@@ -500,6 +528,25 @@ class JxlTranscodeIT
         assertThat(cacheFiles()).isEmpty();
     }
 
+    /** The GET would decode it again, so its length is not the length of what the GET sends. */
+    @Test
+    void shouldNotGiveAHeadRequestTheLengthOfAnEntryAPowerCutEmptied() throws Exception
+    {
+        // GIVEN a stored page whose cached decode a power cut emptied.
+        writeUndecodableJxlPage();
+        Path entry = damagedEntry(new byte[0]);
+
+        // WHEN
+        MockHttpServletResponse response = mvc.perform(head(url()).with(user("user")))
+                .andExpect(status().isOk())
+                .andReturn().getResponse();
+
+        // THEN it is described as on a cold cache, and nothing was decoded.
+        assertThat(response.getContentType()).isEqualTo(MediaType.IMAGE_PNG_VALUE);
+        assertThat(response.getHeader(HttpHeaders.CONTENT_LENGTH)).isNull();
+        assertThat(entry).isEmptyFile();
+    }
+
     /** The stored file is served and the log says why; it must never be a failed request. */
     @Test
     void shouldServeTheStoredFileWhenThereIsNoDecoderToTranscodeWith() throws Exception
@@ -507,6 +554,25 @@ class JxlTranscodeIT
         assumeTools();
         // GIVEN a stored page, and no binaries anywhere.
         byte[] stored = writeJxlPage();
+        appProperties.getImageCompression().setBinDir("./target/test-compress/no-binaries");
+
+        // WHEN
+        MockHttpServletResponse response = mvc.perform(get(url()).with(user("user")))
+                .andExpect(status().isOk())
+                .andReturn().getResponse();
+
+        // THEN
+        assertThat(response.getContentAsByteArray()).isEqualTo(stored);
+        assertThat(response.getContentType()).isNotEqualTo(MediaType.IMAGE_PNG_VALUE);
+    }
+
+    /** An entry a power cut emptied is no decode, even when no decode can take its place. */
+    @Test
+    void shouldServeTheStoredFileRatherThanAnEntryAPowerCutEmptiedWhenThereIsNoDecoder() throws Exception
+    {
+        // GIVEN a stored page whose cached decode a power cut emptied, and no binaries to decode it again.
+        byte[] stored = writeUndecodableJxlPage();
+        damagedEntry(new byte[0]);
         appProperties.getImageCompression().setBinDir("./target/test-compress/no-binaries");
 
         // WHEN
@@ -575,6 +641,38 @@ class JxlTranscodeIT
                 CompressionProfile.splitArgs("-q 40 -e 1"), List.of(), 0, 0, Set.of());
         assertThat(compressor.compress(png, profile, chapterDir.resolve(".work")).replaced()).isTrue();
         return Files.readAllBytes(chapterDir.resolve("1.jxl"));
+    }
+
+    /** For tests that never decode the page, so they run without the binaries. */
+    private byte[] writeUndecodableJxlPage() throws IOException
+    {
+        byte[] stored = {(byte) 0xFF, 0x0A, 1, 2, 3, 4, 5, 6};
+        Files.write(chapterDir.resolve("1.jxl"), stored);
+        return stored;
+    }
+
+    /** The cache entry of page 1 as it is now, holding what a power cut left of its decode. */
+    private Path damagedEntry(byte[] left) throws IOException
+    {
+        Path entry = transcoder.cacheEntry(CHAPTER, "1.jxl").orElseThrow();
+        Files.createDirectories(entry.getParent());
+        return Files.write(entry, left);
+    }
+
+    /** What a power cut can leave of a file that was never synced: no data, or only its start. */
+    enum Damage
+    {
+        EMPTY, ZEROS, CUT_SHORT;
+
+        byte[] of(byte[] png)
+        {
+            return switch (this)
+            {
+                case EMPTY -> new byte[0];
+                case ZEROS -> new byte[png.length];
+                case CUT_SHORT -> Arrays.copyOf(png, png.length / 2);
+            };
+        }
     }
 
     /** Callers have just checked there is exactly one. */

@@ -5,10 +5,10 @@ echo   HenTie - starting up...
 echo ============================================
 echo.
 echo The app will open in your browser automatically.
-echo If it does not, open:  http://localhost:8080
+echo If it does not, open:  http://localhost:7395
 echo.
 echo To use it from your phone or another device on the
-echo same network, open:    http://THIS-PC-IP:8080
+echo same network, open:    http://THIS-PC-IP:7395
 echo (run `ipconfig` to find THIS-PC-IP)
 echo.
 echo Keep this window open while you use the app.

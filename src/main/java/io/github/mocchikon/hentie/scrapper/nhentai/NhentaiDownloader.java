@@ -58,9 +58,6 @@ public class NhentaiDownloader implements FavouritesSource, PageDownloader, Sear
     /** The filter a subscription adds itself, so the user's own would clash with it. */
     private static final Pattern UPLOADED_TERM = Pattern.compile("(?:^|[\\s-])uploaded:", Pattern.CASE_INSENSITIVE);
 
-    /** A pipe with whitespace on both sides. One that belongs to a name touches a letter or another pipe. */
-    private static final Pattern ARTIST_SEPARATOR = Pattern.compile("(?<=\\s)\\|(?=\\s)");
-
     private final NhentaiApi api;
     /** Per query, see {@link Place}. */
     private final Map<String, Place> places = new ConcurrentHashMap<>();
@@ -140,7 +137,7 @@ public class NhentaiDownloader implements FavouritesSource, PageDownloader, Sear
                     .japaneseTitle(text(title, "japanese"))
                     .language(language(tags.getOrDefault("language", Set.of())))
                     .tags(tags.getOrDefault("tag", Set.of()))
-                    .artists(splitArtists(tags.getOrDefault("artist", Set.of())))
+                    .artists(tags.getOrDefault("artist", Set.of()))
                     .groups(tags.getOrDefault("group", Set.of()))
                     .parodies(tags.getOrDefault("parody", Set.of()))
                     .characters(tags.getOrDefault("character", Set.of()))
@@ -233,8 +230,8 @@ public class NhentaiDownloader implements FavouritesSource, PageDownloader, Sear
 
     /**
      * nhentai files "translated", "rewrite", "speechless" and the like as languages too, sometimes before the real
-     * one, so the first language the app knows wins. Without one, the first tag is kept, so the refusal to import
-     * names it.
+     * one, so the first language the app knows wins and the others are ignored. Without one, the first tag is kept,
+     * so the import's log names what the gallery has.
      */
     static String language(Collection<String> languageTags)
     {
@@ -242,29 +239,6 @@ public class NhentaiDownloader implements FavouritesSource, PageDownloader, Sear
                 .filter(LanguageService::isKnown)
                 .findFirst()
                 .orElseGet(() -> languageTags.stream().findFirst().orElse(null));
-    }
-
-    /**
-     * nhentai sometimes files two artists as one, {@code "name1 | name2"}. Only a pipe with whitespace on both
-     * sides separates, and only when every part is a name, so a name with pipes of its own ({@code "|||naka|||"})
-     * stays whole.
-     */
-    static Set<String> splitArtists(Collection<String> names)
-    {
-        var artists = new LinkedHashSet<String>();
-        for (String name : names)
-        {
-            List<String> parts = Arrays.stream(ARTIST_SEPARATOR.split(name, -1)).map(String::strip).toList();
-            if (parts.size() > 1 && parts.stream().noneMatch(String::isEmpty))
-            {
-                artists.addAll(parts);
-            }
-            else
-            {
-                artists.add(name);
-            }
-        }
-        return artists;
     }
 
     // ---- favourites --------------------------------------------------------
@@ -325,6 +299,11 @@ public class NhentaiDownloader implements FavouritesSource, PageDownloader, Sear
             throw new IllegalArgumentException("Paste the address of a search (nhentai.net/search/?q=...), not of "
                     + "another nhentai page. For a tag's or an artist's page, type its search instead, e.g. "
                     + "tag:\"big breasts\" or artist:name.");
+        }
+        else if (QueryStrings.isAddress(text))
+        {
+            throw new IllegalArgumentException("That is not an address on nhentai.net. Paste the address of a search "
+                    + "there (nhentai.net/search/?q=...), or type the search itself, e.g. tag:\"big breasts\".");
         }
         text = StringUtils.normalizeSpace(text);
         if (text.isEmpty())

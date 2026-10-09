@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head('Guide')}"></head>
+<body>
+<nav th:replace="~{fragments/layout :: nav}"></nav>
+
+<main class="container narrow guide">
+    <h1>Guide</h1>
+    <p class="hint">How to reach HenTie from other devices, and how to set up ComfyUI.</p>
+
+    <nav class="guide-toc" aria-label="Contents">
+        <ol>
+            <li><a href="#access">Login and other devices</a>
+                <ol>
+                    <li><a href="#access-local-only">Allowing only this computer</a></li>
+                    <li><a href="#access-settings">Changing the address, the port and other start-up settings</a></li>
+                </ol>
+            </li>
+            <li><a href="#comfyui">Processing pages with ComfyUI</a>
+                <ol>
+                    <li><a href="#comfyui-requirements">What you need</a></li>
+                    <li><a href="#comfyui-install">Install ComfyUI</a></li>
+                    <li><a href="#comfyui-autostart">Let the app start ComfyUI</a></li>
+                    <li><a href="#comfyui-workflow">Build a workflow</a></li>
+                    <li><a href="#comfyui-export">Export it for the app</a></li>
+                    <li><a href="#comfyui-settings">Set up the app</a></li>
+                    <li><a href="#comfyui-reading">Reading with a workflow</a></li>
+                    <li><a href="#comfyui-disk">Keeping disk writes down</a></li>
+                    <li><a href="#comfyui-troubleshooting">Troubleshooting</a></li>
+                    <li><a href="#comfyui-security">Security note</a></li>
+                </ol>
+            </li>
+        </ol>
+    </nav>
+
+    <!-- ===================================================================================== -->
+    <h2 class="section-title" id="access">Login and other devices</h2>
+    <p>Out of the box there is <strong>no password</strong>: anyone on your network can use the app. To require
+        one, tick <strong>Require login to access the app</strong> in <a th:href="@{/settings}">Settings</a>; it
+        asks you to choose a password first. From then on the app asks only for that password.</p>
+    <p>Forgot it? Close the app, delete the file <code class="path" th:text="${passwordFile}">password-delete-to-reset.txt</code>
+        next to it, and start it again. The app then starts with login turned off; set a new password in Settings
+        to turn it back on.</p>
+
+    <h3>Opening the app from your phone or another device</h3>
+    <ol>
+        <li>Make sure the device is on the <strong>same Wi-Fi / network</strong> as the computer running the
+            app.</li>
+        <li>Find that computer's address: on Windows, run <code>ipconfig</code> in a terminal and look for the
+            "IPv4 Address", for example <code>192.168.1.20</code>; on Linux, <code>ip addr</code>.</li>
+        <li>In the other device's browser, open <code th:text="'http://192.168.1.20:' + ${port}">http://192.168.1.20:7395</code>
+            (with your own number).</li>
+    </ol>
+    <p>If it does not open, the computer's firewall may be blocking it. On Windows, the first start asks whether
+        to allow the app on your network; allow it for <em>private</em> networks.</p>
+
+    <h3 id="access-local-only">Allowing only this computer</h3>
+    <p>The app listens on every network connection of the computer (<code>server.address=0.0.0.0</code>), which
+        is what lets your phone in. To allow only the computer it runs on, set</p>
+    <pre><code>server.address=127.0.0.1</code></pre>
+    <p>Other devices then cannot reach the app at all, with or without a password, and
+        <code th:text="'http://localhost:' + ${port}">http://localhost:7395</code> still works on this computer.
+        Set it back to <code>0.0.0.0</code> (or remove the line) to let other devices in again.</p>
+
+    <h3 id="access-settings">Changing the address, the port and other start-up settings</h3>
+    <p>The address and the port (<code>server.port</code>, <span th:text="${port}">7395</span> right now) are
+        read once, when the app starts, so they are not on the Settings page. Change them in one of these ways,
+        then close the app and start it again:</p>
+    <ul>
+        <li><strong>A settings file next to the program</strong> — the usual way, since it is kept for every
+            start. Create a plain text file named <code class="path">application.properties</code> in the folder
+            that holds <code>HenTie.exe</code> / <code>HenTie.jar</code> (the same folder as <code>data</code> and
+            <code>db</code>), with one setting per line:
+            <pre><code>server.address=127.0.0.1
+server.port=7400</code></pre>
+            Only the lines you write change anything; everything else keeps its built-in value. Lines starting
+            with <code>#</code> are ignored. On Windows, make sure the name does not end in <code>.txt</code>
+            (turn on <em>View → File name extensions</em> in Explorer to check).</li>
+        <li><strong>On the command line</strong>, for one start only:
+            <pre><code>HenTie.exe --server.address=127.0.0.1 --server.port=7400
+java -jar HenTie.jar --server.address=127.0.0.1 --server.port=7400</code></pre>
+            This wins over the file.</li>
+        <li><strong>An environment variable</strong>: the name in capitals with <code>_</code> for
+            <code>.</code>, for example <code>SERVER_ADDRESS=127.0.0.1</code> or <code>SERVER_PORT=7400</code>.</li>
+    </ul>
+    <p>The file is read from the folder the app is started in. Double-clicking the program,
+        <code>start.bat</code> or <code>start.sh</code> starts it in its own folder; when you start it from a
+        terminal, first change to that folder. If the port is already used by another program, the app stops
+        at start-up and its window says <em>Port … was already in use</em>: pick another number.</p>
+
+    <!-- ===================================================================================== -->
+    <h2 class="section-title" id="comfyui">Processing pages with ComfyUI</h2>
+    <p>The image viewer can show every page through a <strong>ComfyUI workflow</strong> of your own — upscaling,
+        restoration, sharpening, colouring, edits with diffusion models: anything
+        <a href="https://github.com/comfyanonymous/ComfyUI">ComfyUI</a> can do to an image. You build the workflow
+        in ComfyUI once; the app then runs it on each page you read.</p>
+    <ul>
+        <li><strong>Nothing in your library is changed.</strong> The files in the data folder stay exactly as they
+            are; the viewer shows a processed copy. Pick <em>None</em> and you see the pages as stored again.</li>
+        <li><strong>A page is processed once per workflow.</strong> The result is kept (see
+            <a href="#comfyui-disk">Keeping disk writes down</a>), so turning back to a page is instant.</li>
+        <li><strong>ComfyUI runs on your own computer</strong> (or another machine you control). The app talks to
+            its local web API; your phone or tablet only ever talks to the app, behind the app's own login.</li>
+    </ul>
+    <p>ComfyUI is a separate program. It has to be installed once and <strong>running while you read with a
+        workflow</strong> — the app can <a href="#comfyui-autostart">start it for you</a>.</p>
+
+    <h3 id="comfyui-requirements">What you need</h3>
+    <div class="table-scroll">
+        <table>
+            <thead><tr><th>Your graphics card</th><th>Speed</th></tr></thead>
+            <tbody>
+            <tr><td>NVIDIA (GeForce / RTX / Quadro)</td><td>Fast</td></tr>
+            <tr><td>AMD Radeon or Intel Arc</td><td>Usually fast, depending on the workflow and drivers</td></tr>
+            <tr><td>None, or integrated graphics only</td><td>Upscaling works but is slow (from ~30 seconds to
+                minutes per page). Diffusion workflows are impractically slow.</td></tr>
+            </tbody>
+        </table>
+    </div>
+    <p class="hint">The integration was built against ComfyUI 0.37; any recent version should work.</p>
+
+    <h3 id="comfyui-install">Install ComfyUI</h3>
+    <p>Use whichever installation suits you — the app does not care how ComfyUI is installed, only at which
+        address it answers. The official instructions are at
+        <a href="https://github.com/comfyanonymous/ComfyUI#installing">github.com/comfyanonymous/ComfyUI</a>.</p>
+    <div class="table-scroll">
+        <table>
+            <thead><tr><th>Installation</th><th>Typical start</th><th>Address</th><th>User folder</th></tr></thead>
+            <tbody>
+            <tr><td><strong>Windows portable</strong> (a zip for NVIDIA, AMD or CPU)</td>
+                <td><code>run_nvidia_gpu.bat</code> / <code>run_cpu.bat</code></td>
+                <td><code>http://127.0.0.1:8188</code></td>
+                <td><code class="path">ComfyUI_windows_portable\ComfyUI\user\</code></td></tr>
+            <tr><td><strong>Manual install</strong> (git + Python venv), Windows or Linux</td>
+                <td><code>python main.py</code></td>
+                <td><code>http://127.0.0.1:8188</code></td>
+                <td><code class="path">ComfyUI/user/</code></td></tr>
+            <tr><td><strong>comfy-cli</strong> (<code>pip install comfy-cli</code>)</td>
+                <td><code>comfy launch</code></td>
+                <td><code>http://127.0.0.1:8188</code></td>
+                <td><code class="path">&lt;workspace&gt;/ComfyUI/user/</code></td></tr>
+            <tr><td><strong>ComfyUI Desktop</strong> (Windows / macOS app)</td>
+                <td>its own window</td>
+                <td><code>http://127.0.0.1:8000</code></td>
+                <td><code>user\</code> inside the folder you chose when installing</td></tr>
+            </tbody>
+        </table>
+    </div>
+    <p>Start ComfyUI once by hand and open its address in a browser: that is where you build workflows.</p>
+
+    <h3 id="comfyui-autostart">Let the app start ComfyUI (optional)</h3>
+    <p>In <a th:href="@{/settings#comfyui}">Settings → ComfyUI</a>, tick <strong>Start ComfyUI when the app
+        starts</strong> and enter the <strong>start script</strong> — a script in your ComfyUI installation that
+        starts it. The app then:</p>
+    <ul>
+        <li>starts it in the background when the app starts, <strong>unless something already answers</strong> at
+            the address (a ComfyUI you started yourself is used as it is and never touched);</li>
+        <li><strong>stops it when the app exits</strong> — the script and everything it started, so no Python
+            process is left holding your GPU. If the app was killed rather than closed, it stops that ComfyUI the
+            next time it starts;</li>
+        <li>shows its status and its last lines of output under <strong>Settings → ComfyUI status</strong>, with
+            <em>Start</em> and <em>Stop</em> buttons. That is where a start that fails explains itself.</li>
+    </ul>
+    <p>Any <code>.bat</code>, <code>.cmd</code>, <code>.ps1</code> or <code>.exe</code> works on Windows, and on
+        Linux an executable script with a <code>#!</code> line (<code>chmod +x run_for_hentie.sh</code>) — the app
+        runs it directly, never through a shell. The script runs in its own folder, and it <strong>must not be
+        inside the app's data folder or a temporary-files folder</strong>: those hold what is uploaded and
+        downloaded, and nothing there is ever run.</p>
+    <p><strong>Write a script of your own for the app</strong> rather than using the launcher you
+        double-click:</p>
+    <ul>
+        <li>add <code>--disable-auto-launch</code>, or every start opens a browser tab (the Windows portable
+            launchers pass <code>--windows-standalone-build</code>, which opens one);</li>
+        <li>keep ComfyUI <strong>in the foreground</strong>: no <code>start</code> on Windows, no <code>&amp;</code>
+            or <code>nohup</code> on Linux. The app can only stop what the script is still running — a script that
+            returns while ComfyUI goes on is shown as <em>Running, but the start script let go of it</em>, and you
+            stop that ComfyUI yourself;</li>
+        <li>add the flags from <a href="#comfyui-disk">Keeping disk writes down</a> if you want to spare your
+            SSD.</li>
+    </ul>
+    <p>A <code>pause</code> at the end is harmless.</p>
+
+    <p><strong>Windows portable</strong> — <code>run_for_hentie.bat</code>, next to
+        <code>run_nvidia_gpu.bat</code> (add <code>--cpu</code> for a computer without a supported graphics
+        card):</p>
+    <pre>@echo off
+.\python_embeded\python.exe -s ComfyUI\main.py --windows-standalone-build --disable-auto-launch</pre>
+
+    <p><strong>Windows, manual install with a venv</strong> — <code>run_for_hentie.bat</code> in the ComfyUI
+        folder:</p>
+    <pre>@echo off
+call venv\Scripts\activate.bat
+python main.py --disable-auto-launch</pre>
+
+    <p><strong>Linux</strong> — <code>run_for_hentie.sh</code> in the ComfyUI folder, made executable with
+        <code>chmod +x</code>:</p>
+    <pre>#!/bin/sh
+cd "$(dirname "$0")"
+. venv/bin/activate
+exec python main.py --listen 127.0.0.1 --port 8188</pre>
+    <p><code>exec</code> lets ComfyUI take the script's place, so stopping it is exact. With conda, replace the
+        two middle lines by
+        <code class="path">exec conda run --no-capture-output -n &lt;env&gt; python main.py ...</code>.</p>
+
+    <p><strong>ComfyUI Desktop</strong> starts its own server when its window opens; point the start script at
+        <code>ComfyUI.exe</code> if you want the app to open it, or leave autostart off and open it yourself.
+        Either way, set the address to <code>http://127.0.0.1:8000</code>.</p>
+
+    <h3 id="comfyui-workflow">Build a workflow</h3>
+    <p>A workflow is a chain of nodes: one loads the image, others process it, one shows the result. The app puts
+        its page into your workflow and takes the result back. It needs to know where:</p>
+    <ul>
+        <li><strong>Input:</strong> the <strong>Load Image</strong> node. If the workflow has more than one, rename
+            the one that should receive the page to <strong><code>Input</code></strong> (double-click a node's
+            title to rename it).</li>
+        <li><strong>Output:</strong> the <strong>Save Image</strong> or <strong>Preview Image</strong> node. If there
+            is more than one, rename the one with the final result to <strong><code>Output</code></strong>.</li>
+    </ul>
+    <p>Everything else runs <strong>exactly as you exported it</strong>: models, strengths, prompts — and seeds.
+        A <em>randomize</em> seed setting only applies inside ComfyUI, so the same page always gives the same
+        result (which is also what makes keeping results correct). Only the branch that leads to the Output node is
+        run, so extra Preview nodes you keep for looking at intermediate steps cost nothing. A workflow that
+        produces several images (a batch) shows the first.</p>
+    <p>For a simple upscaler: double-click the empty canvas to search for nodes and connect <strong>Load Image →
+        Load Upscale Model → Upscale Image (using Model) → Save Image</strong>. Put the model files into the
+        matching folder of ComfyUI's <code>models</code> folder (upscale models such as ESRGAN or DAT from
+        <a href="https://openmodeldb.info">openmodeldb.info</a> go into <code>models/upscale_models/</code>,
+        checkpoints into <code>models/checkpoints/</code>, LoRAs into <code>models/loras/</code>) and press
+        <kbd>R</kbd> in ComfyUI to see them. Pick any test image in the Load Image node and <strong>Run</strong> it
+        once in ComfyUI to check that it works.</p>
+    <p>Pages stored as JPEG XL are sent to ComfyUI as PNG, since ComfyUI cannot read JPEG XL. Every other format
+        the app stores is sent as it is.</p>
+
+    <h3 id="comfyui-export">Export it for the app</h3>
+    <p>In ComfyUI's menu choose <strong>File → Export (API)</strong> (older versions: enable <em>Dev mode</em> in
+        the settings, then use <em>Save (API Format)</em>). Use the API export — a normal <em>Save</em> or
+        <em>Export</em> produces a file the app cannot run, and Settings says so.</p>
+    <p>Put the exported <code>.json</code> file into the <strong>workflow folder</strong>, which by default is
+        <code>api_workflows</code> in ComfyUI's user folder for the <code>default</code> user:</p>
+    <div class="table-scroll">
+        <table>
+            <thead><tr><th>Installation</th><th>Folder</th></tr></thead>
+            <tbody>
+            <tr><td>Windows portable</td>
+                <td><code class="path">ComfyUI_windows_portable\ComfyUI\user\default\api_workflows\</code></td></tr>
+            <tr><td>Manual install / comfy-cli</td>
+                <td><code class="path">ComfyUI/user/default/api_workflows/</code></td></tr>
+            <tr><td>ComfyUI Desktop</td>
+                <td><code class="path">user\default\api_workflows\</code> inside the folder you chose when
+                    installing</td></tr>
+            <tr><td>Started with <code>--user-directory &lt;dir&gt;</code></td>
+                <td><code class="path">&lt;dir&gt;/default/api_workflows/</code></td></tr>
+            </tbody>
+        </table>
+    </div>
+    <p>Create the folder if it does not exist. The app reads it through ComfyUI's API, so it works the same when
+        ComfyUI runs on another machine.</p>
+    <ul>
+        <li>The file name without <code>.json</code> is the workflow's name. Subfolders are listed too:
+            <code class="path">api_workflows/upscale/4x.json</code> appears as <code>upscale/4x</code>.</li>
+        <li>To change a workflow, export it again under the same name. Pages processed with the old version are
+            processed again when you view them.</li>
+        <li><strong>Settings → ComfyUI</strong> lists every workflow found, with the reason next to any the app
+            cannot run — click the <em>Workflows</em> line, which says how many are ready, to see the list. A
+            different folder (for example <code>api_workflows/hentie</code>) can be set there.</li>
+    </ul>
+
+    <h3 id="comfyui-settings">Set up the app</h3>
+    <p>In <a th:href="@{/settings#comfyui}">Settings → ComfyUI</a>:</p>
+    <div class="table-scroll">
+        <table>
+            <thead><tr><th>Setting</th><th></th></tr></thead>
+            <tbody>
+            <tr><td>ComfyUI address</td><td>Where ComfyUI answers. <code>http://127.0.0.1:8188</code> by default;
+                <code>http://127.0.0.1:8000</code> for ComfyUI Desktop.</td></tr>
+            <tr><td>Workflow folder</td><td>The folder from <a href="#comfyui-export">Export it for the app</a>,
+                relative to ComfyUI's <code>user/default</code> folder.</td></tr>
+            <tr><td>Default workflow for the image viewer</td><td>What the viewer starts with. <em>None</em> shows
+                pages as stored.</td></tr>
+            <tr><td>Start ComfyUI when the app starts / Start script</td><td>See
+                <a href="#comfyui-autostart">Let the app start ComfyUI</a>.</td></tr>
+            </tbody>
+        </table>
+    </div>
+    <p><strong>Settings → ComfyUI status</strong> shows whether ComfyUI answers, which version on which device,
+        whether the app started it, and its recent output (click <em>ComfyUI output</em> to open it). It also says
+        whether results reach the app without being written to ComfyUI's disk (see
+        <a href="#comfyui-disk">Keeping disk writes down</a>) and how much space the processed pages take, with a
+        button to clear them.</p>
+
+    <h3 id="comfyui-reading">Reading with a workflow</h3>
+    <p>In the viewer, open the <strong>cogwheel</strong> and pick a <strong>Workflow</strong> — or set a default in
+        Settings. Then:</p>
+    <ul>
+        <li>the page is shown as stored at once, and replaced by the processed page when it is ready. A line in the
+            top right corner says what ComfyUI is doing (<em>Queued</em>, <em>Waiting for ComfyUI to start</em>,
+            <em>Upscale Image 45%, ~20 s left</em>). How long is left is judged from the last pages processed with
+            the same workflow, and scaled to the size of the page as far as the pages processed so far show that
+            the size matters: an upscaler takes about four times as long on a page with four times the pixels,
+            while a workflow that resizes every page first takes as long on any. The first page after the app
+            starts, or after a workflow is exported again, only shows how far ComfyUI's current step has got;</li>
+        <li>the next pages are prepared while you read — <span th:text="${pagesAhead}">6</span> by default, set
+            under <strong>Settings → Pages prepared ahead while reading</strong>, with the previous page after the
+            first four — one at a time, and only while the viewer is open. Turning or jumping to another page makes
+            that page next, and a page ComfyUI is still working on for the page you left is stopped — pages you
+            skipped are not processed for nothing. Going back to the chapter, to Settings or anywhere else, or
+            picking <em>None</em>, stops it too. A page is left to finish while the viewer merely waits, though — a
+            tab in the background or a phone put down still gets its page;</li>
+        <li>press <kbd>S</kbd>, or the button next to Back, to see the page on screen as stored and compare; press
+            it again, or turn the page, to see the processed pages again. Processing carries on meanwhile;</li>
+        <li>if something goes wrong, the line says what, and the page is shown as stored.</li>
+    </ul>
+    <p>Processed pages are PNG files and can be large — a 4x upscale is often tens of megabytes. If that is slow
+        on a phone, end the workflow with a node that scales the result down to the size you need.</p>
+
+    <h3 id="comfyui-disk">Keeping disk writes down</h3>
+    <p>Processing writes files: the page going into ComfyUI and the result coming out. On an SSD, many large
+        short-lived files add wear. Each can be kept off the SSD:</p>
+    <div class="table-scroll">
+        <table>
+            <thead><tr><th>What is written</th><th>Where</th><th>How to keep it off the SSD</th></tr></thead>
+            <tbody>
+            <tr><td>The page sent to ComfyUI</td>
+                <td>ComfyUI's temp folder, <strong>once per page</strong>: the app names it after its content, so
+                    running a second workflow on the same page writes nothing new</td>
+                <td>Start ComfyUI with <code>--temp-directory</code> on a RAM disk</td></tr>
+            <tr><td>The result, inside ComfyUI</td>
+                <td><strong>Nothing</strong>, when the <em>SaveImageWebsocket</em> node is installed: the result is
+                    sent to the app directly. Otherwise ComfyUI's temp folder</td>
+                <td>The node comes with the Windows portable build and a git install
+                    (<code class="path">custom_nodes/websocket_image_save.py</code>). If Settings → ComfyUI status
+                    says it is missing, copy that file from
+                    <a href="https://github.com/comfyanonymous/ComfyUI/tree/master/custom_nodes">ComfyUI's
+                    repository</a> into your <code>custom_nodes</code> folder and restart ComfyUI — or put the temp
+                    folder on a RAM disk</td></tr>
+            <tr><td>The result, in the app</td>
+                <td><strong>Settings → Temporary files → ComfyUI results cache</strong>. On Linux a RAM disk
+                    (<code>/dev/shm</code>) is used automatically; elsewhere a <code>.comfyui</code> folder in the
+                    data folder</td>
+                <td>On Windows, enter a folder on a RAM disk there. The cache is pruned oldest-first past
+                    <span th:text="${comfyResultCacheMaxMb} + ' MB'">2048 MB</span>
+                    (<code>app.comfyui.result-cache-max-mb</code>), and held to a quarter of an automatic RAM
+                    disk</td></tr>
+            <tr><td>The result, in your browser</td>
+                <td>Nothing: processed pages are sent with <code>Cache-Control: no-store</code>, so the browser
+                    keeps them in memory only</td>
+                <td>—</td></tr>
+            <tr><td>ComfyUI's database, <code>user/comfyui.db</code></td>
+                <td>Created and migrated at every ComfyUI start</td>
+                <td><code class="path">--database-url sqlite:///:memory:</code></td></tr>
+            <tr><td>ComfyUI's output folder</td>
+                <td>Never used: the app replaces the Save Image node and runs no other output node</td>
+                <td>—</td></tr>
+            </tbody>
+        </table>
+    </div>
+    <p>A start script with all of it (Windows portable, RAM disk <code>R:</code>):</p>
+    <pre>@echo off
+.\python_embeded\python.exe -s ComfyUI\main.py --windows-standalone-build --disable-auto-launch --temp-directory R:\ --database-url sqlite:///:memory:</pre>
+    <p>On Linux: <code class="path">--temp-directory /dev/shm/comfyui --database-url sqlite:///:memory:</code>.</p>
+    <p>ComfyUI puts its temp files into a <code>temp</code> folder inside the one given (<code>R:\temp\</code>),
+        and <strong>empties it only when it starts</strong>, so the folder grows while ComfyUI runs: the pages you
+        processed, plus the results when SaveImageWebsocket is missing. 2–4 GB is plenty for a long session;
+        restart ComfyUI (Settings → ComfyUI status → Stop, then Start) if the RAM disk fills up.</p>
+    <p><strong>A RAM disk on Windows:</strong> Windows has none built in. Free tools such as
+        <a href="https://sourceforge.net/projects/imdisk-toolkit/">ImDisk Toolkit</a>,
+        <a href="https://sourceforge.net/projects/aim-toolkit/">AIM Toolkit</a> or OSFMount create one: choose a
+        size and a drive letter, and let it be created at Windows startup — a RAM disk is gone after a restart, and
+        it must exist before ComfyUI starts. Its contents use your computer's memory.</p>
+    <p class="hint">Also written, but rarely: ComfyUI's own settings and workflows when you use its browser
+        interface, and Python's <code>__pycache__</code> files once after installing or updating.</p>
+
+    <h3 id="comfyui-troubleshooting">Troubleshooting</h3>
+    <div class="table-scroll">
+        <table>
+            <thead><tr><th>The viewer or Settings says…</th><th>What to do</th></tr></thead>
+            <tbody>
+            <tr><td><strong>Cannot connect to ComfyUI … Is ComfyUI running?</strong></td>
+                <td>Start it (or tick <a href="#comfyui-autostart">autostart</a>) and wait until its window or the
+                    Settings output shows <code>To see the GUI go to</code>. Check the address in Settings — ComfyUI
+                    Desktop uses port <code>8000</code>.</td></tr>
+            <tr><td><strong>Workflow '…' is not in ComfyUI's '…' folder</strong></td>
+                <td>The file is not in the <a href="#comfyui-export">workflow folder</a>, or has another name, or
+                    does not end in <code>.json</code>.</td></tr>
+            <tr><td><strong>…saved in ComfyUI's regular format</strong></td>
+                <td>Export it again with <strong>File → Export (API)</strong>.</td></tr>
+            <tr><td><strong>…has several nodes that could be the input / output</strong></td>
+                <td>Rename the right Load Image node to <code>Input</code> and the right output node to
+                    <code>Output</code> (see <a href="#comfyui-workflow">Build a workflow</a>), then export
+                    again.</td></tr>
+            <tr><td><strong>ComfyUI rejected workflow '…': … Value not in list: …</strong></td>
+                <td>The workflow uses a model file this ComfyUI does not have. Put it into the right
+                    <code>models</code> folder; the message lists the models ComfyUI can see.</td></tr>
+            <tr><td><strong>ComfyUI rejected workflow '…': … not found. The custom node may not be
+                installed</strong></td>
+                <td>Install the custom node (for example with ComfyUI-Manager), then restart ComfyUI.</td></tr>
+            <tr><td><strong>ComfyUI failed to run workflow '…': … out of memory</strong></td>
+                <td>The page is too large for your graphics card. Close other GPU-heavy programs, scale the image
+                    down first in the workflow, or start ComfyUI with <code>--lowvram</code> or
+                    <code>--cpu</code>.</td></tr>
+            <tr><td><strong>ComfyUI failed to run workflow '…'</strong> (anything else)</td>
+                <td>Run the workflow in ComfyUI's browser interface on the same page: it highlights the node that
+                    fails. Settings → ComfyUI status shows ComfyUI's full error if the app started it.</td></tr>
+            <tr><td><strong th:text="'…did not finish within ' + ${comfyJobTimeoutSeconds} + ' s, so it was cancelled'">…did
+                not finish within 600 s, so it was cancelled</strong></td>
+                <td>Common without a graphics card or with heavy workflows. Use a lighter workflow, or raise
+                    <code>app.comfyui.job-timeout-seconds</code>.</td></tr>
+            <tr><td><strong>ComfyUI was started but does not answer at …</strong></td>
+                <td>The start script runs, but ComfyUI listens elsewhere — compare the address in Settings with the
+                    <code>To see the GUI go to</code> line in the output.</td></tr>
+            <tr><td><strong>The start script returned …</strong></td>
+                <td>The script started ComfyUI in the background, so the app cannot stop it. Keep ComfyUI in the
+                    foreground in the script (see <a href="#comfyui-autostart">Let the app start
+                    ComfyUI</a>).</td></tr>
+            <tr><td><strong>ComfyUI exited with code …</strong></td>
+                <td>Read the last lines of output under Settings → ComfyUI status. A GPU/CUDA error usually means a
+                    graphics driver update, or <code>--cpu</code>.</td></tr>
+            <tr><td><strong>No space left on device</strong> with a RAM disk</td>
+                <td>The RAM disk is full: stop and start ComfyUI to empty its temp folder, or make the RAM disk
+                    larger.</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <h3 id="comfyui-security">Security note</h3>
+    <p>Keep ComfyUI listening on <code>127.0.0.1</code> — its default. ComfyUI has no password; the app is the only
+        thing that needs to reach it, and it puts its own login in front of every processed page. Starting ComfyUI
+        with <code>--listen 0.0.0.0</code>, or forwarding its port, lets anyone on the network run jobs on your
+        computer.</p>
+</main>
+<script th:src="@{/js/app.js}"></script>
+</body>
+</html>

@@ -4,6 +4,7 @@ import io.github.mocchikon.hentie.scrapper.DataDownloader;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.Set;
 import java.util.SortedSet;
 
 /**
@@ -13,6 +14,28 @@ import java.util.SortedSet;
  */
 public interface GalleryDlDownloader extends DataDownloader
 {
+    /**
+     * Lower-case text of which every link {@link #accepts} accepts holds at least one. The Download page shows
+     * gallery-dl's choices only while the pasted text contains one, so a missing marker hides them from a link that
+     * reads them; a broad one only shows them for nothing.
+     */
+    Set<String> linkMarkers();
+
+    /**
+     * Whether {@link GalleryDlOptions#cookiesBrowser} reaches the site. The Download page offers the choice only for
+     * links of sources that read it; true by default, since a source wrongly saying false hides it from the user.
+     */
+    default boolean readsCookies()
+    {
+        return true;
+    }
+
+    /** Whether {@link GalleryDlOptions#originals} changes what is fetched; as {@link #readsCookies}, for its choice. */
+    default boolean offersOriginals()
+    {
+        return true;
+    }
+
     /**
      * Fetches {@code pages} (numbered from 1 in the gallery's order) into {@code folder}, handing each page to
      * {@code sink} as soon as it is whole. A page that fails is simply not handed over; the pipeline decides what

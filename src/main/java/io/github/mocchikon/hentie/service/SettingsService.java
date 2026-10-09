@@ -38,6 +38,8 @@ public class SettingsService
     private static final Logger log = LoggerFactory.getLogger(SettingsService.class);
 
     public static final String LOGIN_REQUIRED = "login.required";
+    /** Shut the app down after too many wrong passwords in a row (see {@code FailedLoginGuard}). */
+    public static final String SHUT_DOWN_ON_FAILED_LOGINS = "login.shut-down-on-failed";
     public static final String VIEW_MODE = "default.view.mode";
     /** How many next pages the viewer prepares (JPEG XL decode or ComfyUI run) while one is read. */
     public static final String VIEWER_PAGES_AHEAD = "viewer.pages-ahead";
@@ -75,7 +77,7 @@ public class SettingsService
     /** {@code <pid>:<start epoch millis>} of the ComfyUI the app launched, blank when none. */
     public static final String COMFYUI_LAUNCHED = "comfyui.launched-process";
 
-    /** The folder {@code COMFYUI.md} tells the user to export workflows into. */
+    /** The folder the guide page tells the user to export workflows into. */
     public static final String DEFAULT_COMFYUI_WORKFLOW_DIR = "api_workflows";
 
     public static final int DEFAULT_SEARCH_PAGE_SIZE = 36;
@@ -206,6 +208,12 @@ public class SettingsService
     public boolean isLoginRequired()
     {
         return hasPassword() && Boolean.parseBoolean(cache.getOrDefault(LOGIN_REQUIRED, "false"));
+    }
+
+    /** On by default: a password that can be guessed at leisure protects little. */
+    public boolean isShutDownOnFailedLogins()
+    {
+        return Boolean.parseBoolean(cache.getOrDefault(SHUT_DOWN_ON_FAILED_LOGINS, "true"));
     }
 
     public boolean hasPassword()
@@ -470,6 +478,12 @@ public class SettingsService
     public void setTitleDisplayMode(TitleDisplayMode mode)
     {
         put(TITLE_DISPLAY_MODE, mode.name());
+    }
+
+    @Transactional
+    public void setShutDownOnFailedLogins(boolean enabled)
+    {
+        put(SHUT_DOWN_ON_FAILED_LOGINS, Boolean.toString(enabled));
     }
 
     @Transactional

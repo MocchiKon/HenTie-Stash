@@ -15,7 +15,7 @@ public class BrowserLauncher
     private final AppProperties appProperties;
     private final int port;
 
-    public BrowserLauncher(AppProperties appProperties, @Value("${server.port:8080}") int port)
+    public BrowserLauncher(AppProperties appProperties, @Value("${server.port:7395}") int port)
     {
         this.appProperties = appProperties;
         this.port = port;

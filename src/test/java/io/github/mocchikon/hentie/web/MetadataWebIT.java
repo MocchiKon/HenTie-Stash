@@ -303,6 +303,23 @@ class MetadataWebIT
         assertHasLabel("mweb-ungendered-name");
     }
 
+    @Test
+    void shouldExplainTheRefusalWhenATypedNameHasAPipe() throws Exception
+    {
+        // WHEN a name is added the way a source writes a name with its alias
+        mvc.perform(post("/manage/add").with(user("user")).with(csrf())
+                        .param("type", "character").param("name", "mweb-piped | mweb-piped-alias"))
+                .andExpect(status().is3xxRedirection())
+                // THEN the message names the kind, the name as typed and what to do instead.
+                .andExpect(redirectedUrl("/manage#section-title"))
+                .andExpect(flash().attribute("refusal", containsString("Characters")))
+                .andExpect(flash().attribute("refusal", containsString("mweb-piped | mweb-piped-alias")))
+                .andExpect(flash().attribute("refusal", containsString("merge")));
+
+        // AND nothing was added.
+        assertThatNoLabel(MetadataType.CHARACTER, "mweb-piped");
+    }
+
     // --- Autocomplete ----------------------------------------------------------
 
     /**

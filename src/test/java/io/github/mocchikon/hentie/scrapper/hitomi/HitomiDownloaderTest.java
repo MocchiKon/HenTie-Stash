@@ -8,6 +8,8 @@ import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.List;
+import java.util.Locale;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -30,6 +32,20 @@ class HitomiDownloaderTest
         assertThat(downloader.galleryId("42")).isEqualTo("hitomi:42");
         assertThat(downloader.accepts("https://hitomi.la/tag/female%3Abig%20breasts-all.html")).isFalse();
         assertThat(downloader.accepts("https://nothitomi.la.example.com/galleries/1.html")).isFalse();
+    }
+
+    @Test
+    void shouldMarkEveryKindOfGalleryLink()
+    {
+        // GIVEN
+        var links = List.of("https://hitomi.la/doujinshi/neechan-no-musuko-english-670237.html",
+                "hitomi.la/reader/1000000.html#4", "https://HITOMI.la/gamecg/title-2-japanese-0123.html?x=1",
+                "HITOMI: 42", downloader.link("42"));
+
+        // WHEN + THEN the Download page shows gallery-dl's choices for each.
+        assertThat(links).allSatisfy(link -> assertThat(downloader.accepts(link)).isTrue())
+                .allSatisfy(link -> assertThat(link.toLowerCase(Locale.ROOT))
+                        .containsAnyOf(downloader.linkMarkers().toArray(String[]::new)));
     }
 
     @Test

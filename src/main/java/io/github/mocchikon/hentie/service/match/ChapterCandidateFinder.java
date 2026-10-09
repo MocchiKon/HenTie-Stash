@@ -10,6 +10,7 @@ import io.github.mocchikon.hentie.repository.spec.ChapterSpecifications;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.criteria.Subquery;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,9 +21,9 @@ import java.util.*;
  * {@link SeriesCandidateFinder} turned round, for the Link chapters page. {@link MatchScore} is symmetric, so
  * a chapter is offered here with the same score the series gets on that chapter's Add-to-series page.
  *
- * <p>Seeks by exact key, extensions, bases, block and artist, each capped and ordered. Unlike the other
- * direction, the block and artist seeks always both run: the chapter is what is being searched for, so the
- * choice between them cannot be made, and this is one page view, not a sweep.
+ * <p>Seeks by key (exact, extensions, bases), by native title, by artist and by the titles nearest in key order
+ * ({@link NearestTitles}), each capped and ordered - the seeks the other direction makes. Unlike it, all of them
+ * always run: this is one page view, not a sweep.
  * <p>
  * The seeks select a projection: {@code Chapter.series} is an eager to-one, so loading entities would cost a
  * query per candidate.
@@ -41,16 +42,10 @@ public class ChapterCandidateFinder
     static final int ARTIST_FANOUT_LIMIT = 2000;
 
     /**
-     * Spelled exactly as {@code ix_chapter__condensed_match_key} declares it: SQLite uses an expression index
-     * only for that exact expression. Native SQL, because Criteria may bind the literals as parameters.
+     * Native keys of the series' chapters looked for. Most series have one or two (a work, its compilations);
+     * more are variants of those, and each costs three seeks.
      */
-    private static final String CONDENSED = "replace(match_key, ' ', '')";
-
-    private static final String IN_RANGE = CONDENSED + " >= ? and " + CONDENSED + " < ?";
-
-    private static final String ASCENDING = CONDENSED + ", id";
-
-    private static final String DESCENDING = CONDENSED + " desc, id desc";
+    private static final int NATIVE_KEY_LIMIT = 8;
 
     private final EntityManager entityManager;
     private final ChapterRepository chapterRepository;
@@ -66,15 +61,25 @@ public class ChapterCandidateFinder
         }
         var artistIds = new HashSet<Integer>();
         series.getEffectiveArtists().forEach(artist -> artistIds.add(artist.getId()));
+        List<List<String>> nativeKeys = chapterRepository
+                .findNativeKeysBySeriesId(series.getId(), PageRequest.of(0, NATIVE_KEY_LIMIT)).stream()
+                .filter(MatchScore::isDistinctiveNative)
+                .map(TitleKey::tokensOf)
+                .toList();
 
-        Map<Integer, Candidate> candidates = candidates(key, artistIds, scope, series.getId());
+        Map<Integer, Candidate> candidates = candidates(key, nativeKeys, artistIds, scope, series.getId());
         Map<Integer, Set<Integer>> chapterArtists = artistsOf(candidates.keySet());
 
         var ranked = new ArrayList<ScoredChapter>(candidates.size());
         for (Candidate candidate : candidates.values())
         {
             Set<Integer> theirArtists = chapterArtists.getOrDefault(candidate.id(), Set.of());
-            double titleScore = MatchScore.titleScore(key.getTokens(), candidate.tokens());
+            double titleScore = MatchScore.titleScore(key.getTokens(), TitleKey.tokensOf(candidate.matchKey()));
+            List<String> theirNative = TitleKey.tokensOf(candidate.nativeMatchKey());
+            for (List<String> ours : nativeKeys)
+            {
+                titleScore = Math.max(titleScore, MatchScore.nativeTitleScore(ours, theirNative));
+            }
             double score = MatchScore.combined(titleScore, MatchScore.artistScore(artistIds, theirArtists));
             ranked.add(new ScoredChapter(candidate.id(), score, titleScore,
                     MatchScore.sharedArtists(artistIds, theirArtists)));
@@ -86,20 +91,37 @@ public class ChapterCandidateFinder
         return ranked;
     }
 
-    private Map<Integer, Candidate> candidates(TitleKey key, Set<Integer> artistIds, CandidateScope scope,
-                                               int seriesId)
+    private Map<Integer, Candidate> candidates(TitleKey key, List<List<String>> nativeKeys, Set<Integer> artistIds,
+                                               CandidateScope scope, int seriesId)
     {
         Specification<Chapter> inScope = ChapterSpecifications.linkableTo(seriesId, scope);
         var candidates = new LinkedHashMap<Integer, Candidate>();
-        collect(candidates, seek(inScope.and(keyEquals(key.getMatchKey())), CANDIDATE_LIMIT));
-        collect(candidates, seek(inScope.and(keyExtends(key.getMatchKey())), CANDIDATE_LIMIT));
-
+        collect(candidates, seek(inScope.and(keyEquals("matchKey", key.getMatchKey())), CANDIDATE_LIMIT));
+        collect(candidates, seek(inScope.and(keyExtends("matchKey", key.getMatchKey())), CANDIDATE_LIMIT));
         List<String> prefixes = SeriesCandidateFinder.prefixKeys(key.getTokens());
         if (!prefixes.isEmpty())
         {
-            collect(candidates, seek(inScope.and(keyIn(prefixes)), CANDIDATE_LIMIT));
+            collect(candidates, seek(inScope.and(keyIn("matchKey", prefixes)), CANDIDATE_LIMIT));
         }
-        collect(candidates, byBlock(key, scope, seriesId));
+
+        for (List<String> nativeKey : nativeKeys)
+        {
+            String joined = String.join(" ", nativeKey);
+            collect(candidates, seek(inScope.and(keyEquals("nativeMatchKey", joined)), CANDIDATE_LIMIT));
+            collect(candidates, seek(inScope.and(keyExtends("nativeMatchKey", joined)), CANDIDATE_LIMIT));
+            List<String> nativePrefixes = SeriesCandidateFinder.prefixKeys(nativeKey).stream()
+                    .filter(MatchScore::isDistinctiveNative)
+                    .toList();
+            if (!nativePrefixes.isEmpty())
+            {
+                collect(candidates, seek(inScope.and(keyIn("nativeMatchKey", nativePrefixes)), CANDIDATE_LIMIT));
+            }
+        }
+
+        for (NearestTitles.Seek nearest : NearestTitles.seeks(key))
+        {
+            collect(candidates, condensedSeek(nearest, scope, seriesId));
+        }
         if (!artistIds.isEmpty())
         {
             List<Candidate> byArtist = seek(inScope.and(carryingAnyOf(artistIds)), ARTIST_FANOUT_LIMIT);
@@ -117,73 +139,24 @@ public class ChapterCandidateFinder
         var cb = entityManager.getCriteriaBuilder();
         var query = cb.createQuery(Object[].class);
         var chapter = query.from(Chapter.class);
-        query.multiselect(chapter.get("id"), chapter.get("matchKey"))
+        query.multiselect(chapter.get("id"), chapter.get("matchKey"), chapter.get("nativeMatchKey"))
                 .where(spec.toPredicate(chapter, query, cb));
         return candidatesOf(entityManager.createQuery(query).setMaxResults(limit).getResultList());
-    }
-
-    /**
-     * Walks outward from where the series' spaceless title sorts in the spaceless-key index, so a crowded
-     * block (every title starting "Isekai") yields the chapters nearest the title, not the first by id. Four
-     * seeks, with the head being the first {@value MatchScore#MIN_SHARED_HEAD} letters:
-     * <ol>
-     *   <li>chapters starting with the head;</li>
-     *   <li>chapters whose whole key is a shorter start of the head, by equality, since in key order they sit
-     *       below every chapter extending them;</li>
-     *   <li>the nearest ones below the head, and</li>
-     *   <li>the nearest ones above it - where a title misspelled past the block sorts.</li>
-     * </ol>
-     */
-    private List<Candidate> byBlock(TitleKey key, CandidateScope scope, int seriesId)
-    {
-        String block = key.getMatchBlock();
-        String title = key.getMatchKey().replace(" ", "");
-        if (block.length() < TitleKey.BLOCK_LENGTH)
-        {
-            return condensedSeek(CONDENSED + " = ?", List.of(title), ASCENDING, scope, seriesId);
-        }
-        String head = head(title);
-        String pastHead = head + SeriesRepository.MATCH_KEY_RANGE_END;
-        var starts = new ArrayList<Object>();
-        for (int length = block.length(); length < head.length(); length++)
-        {
-            starts.add(head.substring(0, length));
-        }
-
-        var found = new ArrayList<>(condensedSeek(IN_RANGE, List.of(head, pastHead), ASCENDING, scope, seriesId));
-        if (!starts.isEmpty())
-        {
-            String anyOf = CONDENSED + " in (" + String.join(", ", Collections.nCopies(starts.size(), "?")) + ")";
-            found.addAll(condensedSeek(anyOf, starts, "length(" + CONDENSED + ") desc, id", scope, seriesId));
-        }
-        found.addAll(condensedSeek(IN_RANGE, List.of(block, head), DESCENDING, scope, seriesId));
-        found.addAll(condensedSeek(IN_RANGE, List.of(pastHead, block + SeriesRepository.MATCH_KEY_RANGE_END),
-                ASCENDING, scope, seriesId));
-        return found;
-    }
-
-    /** Never splits a surrogate pair: half of one would bind as text no index entry holds. */
-    private static String head(String title)
-    {
-        int end = Math.min(title.length(), MatchScore.MIN_SHARED_HEAD);
-        return end > 0 && Character.isHighSurrogate(title.charAt(end - 1)) ? title.substring(0, end - 1)
-                : title.substring(0, end);
     }
 
     /**
      * The scope must match {@link ChapterSpecifications#linkableTo}. {@code indexed by} is needed because
      * otherwise the planner walks every unlinked chapter, nearly the whole table after an import.
      */
-    private List<Candidate> condensedSeek(String condition, List<Object> values, String order,
-                                          CandidateScope scope, int seriesId)
+    private List<Candidate> condensedSeek(NearestTitles.Seek seek, CandidateScope scope, int seriesId)
     {
-        String sql = "select id, match_key from chapter indexed by ix_chapter__condensed_match_key where "
-                + condition
+        String sql = "select id, match_key, native_match_key from chapter indexed by ix_chapter__condensed_match_key"
+                + " where " + seek.condition()
                 + (scope == CandidateScope.UNLINKED ? " and series_id is null" : " and (series_id is null or series_id <> ?)")
-                + " order by " + order;
+                + " order by " + seek.order();
         var query = entityManager.createNativeQuery(sql);   // NOSONAR - fixed fragments only, every value is bound
         int position = 1;
-        for (Object value : values)
+        for (Object value : seek.values())
         {
             query.setParameter(position++, value);
         }
@@ -201,27 +174,27 @@ public class ChapterCandidateFinder
         var found = new ArrayList<Candidate>(rows.size());
         for (Object[] row : rows)
         {
-            found.add(new Candidate(((Number) row[0]).intValue(), (String) row[1]));
+            found.add(new Candidate(((Number) row[0]).intValue(), (String) row[1], (String) row[2]));
         }
         return found;
     }
 
-    private static Specification<Chapter> keyEquals(String key)
+    private static Specification<Chapter> keyEquals(String attribute, String key)
     {
         return (chapter, query, cb) ->
         {
             query.orderBy(cb.asc(chapter.get("id")));
-            return cb.equal(chapter.get("matchKey"), key);
+            return cb.equal(chapter.get(attribute), key);
         };
     }
 
     /** The trailing space stops {@code "ohayo"} taking in {@code "ohayoo"}. */
-    private static Specification<Chapter> keyExtends(String key)
+    private static Specification<Chapter> keyExtends(String attribute, String key)
     {
         var lower = key + ' ';
         return (chapter, query, cb) ->
         {
-            var matchKey = chapter.<String>get("matchKey");
+            var matchKey = chapter.<String>get(attribute);
             query.orderBy(cb.asc(matchKey), cb.asc(chapter.get("id")));
             return cb.and(cb.greaterThanOrEqualTo(matchKey, lower),
                     cb.lessThan(matchKey, lower + SeriesRepository.MATCH_KEY_RANGE_END));
@@ -229,11 +202,11 @@ public class ChapterCandidateFinder
     }
 
     /** Longest key first: a one-token prefix may be shared by thousands of chapters that would fill the cap. */
-    private static Specification<Chapter> keyIn(Collection<String> keys)
+    private static Specification<Chapter> keyIn(String attribute, Collection<String> keys)
     {
         return (chapter, query, cb) ->
         {
-            var matchKey = chapter.<String>get("matchKey");
+            var matchKey = chapter.<String>get(attribute);
             query.orderBy(cb.desc(cb.length(matchKey)), cb.asc(chapter.get("id")));
             return matchKey.in(keys);
         };
@@ -276,11 +249,7 @@ public class ChapterCandidateFinder
         return byChapter;
     }
 
-    private record Candidate(int id, String matchKey)
+    private record Candidate(int id, String matchKey, String nativeMatchKey)
     {
-        List<String> tokens()
-        {
-            return matchKey == null || matchKey.isEmpty() ? List.of() : List.of(matchKey.split(" "));
-        }
     }
 }

@@ -27,6 +27,14 @@ Use Lombok for constructors and simple getters/setters.
   genuinely hard to follow.
 - Short, plain English (B2/C1 level). Say each thing once, where it belongs.
 
+## User instructions (the Guide page)
+- **Instructions for the user live on the Guide page** (`/guide`, `templates/guide.html`, linked in the
+  navbar), never in Markdown files. `README.md` keeps only what is needed before the app runs (getting and
+  starting it) and building it. A message or hint that needs explaining points there (`see Guide → ComfyUI`,
+  a link to `/guide#<section>`); a new feature that needs instructions gets a section there.
+- **Configurable values on it come from the configuration in effect** (`GuideController`), so it never names
+  a default an install has overridden.
+
 ## The premise everything follows from
 - **Read and search dominate.** The user browses and searches far more than they write, so read latency
   wins every trade-off against write cost.
@@ -40,7 +48,9 @@ Use Lombok for constructors and simple getters/setters.
 ```
 ./mvnw spring-boot:run                 # runs against ./db (real data); opens the browser
 ./mvnw test                            # unit + integration tests (PerformanceIT: -Dperf.enabled=true;
-                                       # ComfyUiLiveIT against a real ComfyUI: -Dcomfyui.live=true)
+                                       # ComfyUiLiveIT against a real ComfyUI: -Dcomfyui.live=true;
+                                       # MatchingAccuracyIT against a hand-matched library:
+                                       # -Dmatching.truth=<db file> [-Dmatching.compare=<db file>])
 ./mvnw test -Dtest='!*IT'              # unit tests only
 ./mvnw test -Dtest='*IT'               # integration tests only
 ./mvnw test -Pe2e                      # end-to-end tests (*E2E) against the real sites, and nothing else
@@ -98,12 +108,6 @@ Flyway history.
   delete scans the join table. **`chapter.series_id` has none on purpose**: unlinking must go through
   `SeriesService` (recompute, `deleteIfEmpty`), which a `SET NULL` would skip. A new join table needs the
   same keys and indexes (`SchemaMigrationIT` checks both). Links are inserted after the rows they name.
-- **`migration/` is the one-time H2→SQLite import**, not the Flyway history. `H2ToSqliteMigration.java`
-  copies the old H2 library into the empty Flyway schema with plain `java.sql`, with foreign keys enforced
-  and tables in dependency order read from the schema (parents before join tables). It is idempotent, never
-  runs automatically, and is the **only** supported way to fill the database. It also repairs text on the
-  way: blank or literal `"null"` becomes SQL NULL (only in nullable columns) and `language` is written in
-  its canonical spelling, because language is searched by exact value.
 
 ## Data model
 - **`Series` is a free-form bucket of chapters**, curated by the user or created by matching.
@@ -128,7 +132,7 @@ Flyway history.
     `ChapterService`**, or the effective sets go stale. Display still derives on the fly (it needs
     per-value chip counts), so keep both paths.
 - **Image stats are only correct if they are resynced.** The scraper writes images straight into
-  `<data-dir>/<id>/`, and imported rows keep `DEFAULT 0`. A stale `0` breaks search silently (every row
+  `<data-dir>/<id>/`. A stale `0` breaks search silently (every row
   ties, so a `page_num` sort looks ignored). Everything goes through `ChapterService.syncImageStats`:
   upload/delete, "Rescan images", Manage → Library maintenance resync, and **opening the chapter detail
   page**. Anything new that puts images on disk must call it too.
@@ -210,8 +214,8 @@ Flyway history.
     `sqlite_stat4`, and several searches go back to sorting every match. The app's xerial build has it.
   - `temp_store=MEMORY` is in the JDBC URL for the same searches; see `application.properties`.
 - **Metadata join tables have both directions indexed.** `(meta_id, owner_id)` is covering and drives the
-  search semi-join; `(owner_id, meta_id)` drives loading and rebuilding an owner's metadata. SQLite, unlike
-  H2, creates no index for a foreign key, so without it `where chapter_id = ?` scans the whole join table.
+  search semi-join; `(owner_id, meta_id)` drives loading and rebuilding an owner's metadata. SQLite
+  creates no index for a foreign key, so without it `where chapter_id = ?` scans the whole join table.
   A composite PK `(owner_id, meta_id)` would do the same but needs `List`→`Set`.
 
 ## Search (`repository/spec`, `service/SearchService`)
@@ -285,8 +289,7 @@ Flyway history.
     keeps it current. The update triggers fire only when a title or the id changes (`UPDATE OF` + `WHEN`):
     unconditional, they would re-index an unchanged title on every status, page count or series change
     (182 ms against 8 ms per 20k updates), and every `recomputeDerived` its series' title. Manage →
-    **"Rebuild title search index"** repairs what triggers cannot see. The H2 import copies into a schema that
-    already has the triggers.
+    **"Rebuild title search index"** repairs what triggers cannot see.
   - Input is always **literal**: a `MATCH` phrase neutralizes FTS5 operators; the `LIKE` path escapes
     `%`/`_`.
 - **The pagination count is cached, not skipped** (the UI shows total pages): content query plus an exact
@@ -351,34 +354,56 @@ code: `ChapterService.create` (in the service layer, so every way of adding a ch
 `matching.auto-link`) and Manage → **"Match chapters"** (`ChapterMatchingSweep`, unlinked chapters only).
 Normalization, scoring and seeks are documented in `TitleKey`, `MatchScore`, `SeriesCandidateFinder`.
 - **Matching uses `titleFull` on both entities** — the required, scraper-supplied title. The pretty `title`
-  is user-editable, so a cosmetic rename would move a chapter to another family. **`nativeTitle` takes no
-  part** — it is another script, not comparable with a Latin-script sibling. Search matches either title;
-  matching needs one canonical name.
+  is user-editable, so a cosmetic rename would move a chapter to another family.
+- **`nativeTitle` has a key of its own** (`chapter.native_match_key`, `TitleKey.nativeKey`), **compared only
+  with other native keys**: a romanized title shares no word with a Japanese one, but a translation, a second
+  romanization and the original all carry the same Japanese title. A chapter without a native title whose own
+  title is in Japanese, Chinese or Korean is keyed by that title. **Native keys live on chapters only**, so a
+  series is found through any of its chapters, whichever one started it. A native key under 4 characters
+  (`総集編`, "compilation") agrees with nothing, so it is never sought: circle names, which would tell such
+  titles apart, are bracketed and stripped, and these generic keys are the most crowded ones.
+- **A title is parsed in parts**, split at a standalone dash, bar or tilde (`-`, `|`, `~`), and markers come off the
+  tail of **each** part: `"Title 2 - Subtitle"` and `"Title 2 | Translation 2"` are chapter 2 and key like
+  their siblings. Stripping only the whole title's tail would keep the number in the key and split the family.
+  Numbers are also read from a bare `(5)` after the title, decimals (`3.5`), a number glued to Japanese text
+  (`日記12`) or an ellipsis, `第N` (`第3-2話` is chapter 3, part 2), and the number before an arc's name
+  (`2 Karaoke Hen`); a catalogue number (`DLO-19`), a range (`Ch. 1-24`, `第1-8話`) or a year in brackets
+  (`(2019)`) numbers nothing but leaves the key. Other punctuation (`&`, `/`) splits nothing: as a part of its
+  own, `"Him & Her 2"` would end in a stopword and keep its number. A chapter's number comes from its
+  title, else from its native title (`TitleKey.chapterNum`).
 - **Family members relate by token PREFIX, not key equality** — a prefix is a B-tree range seek, a
-  substring is not.
+  substring is not. **Every** token prefix is sought as a base: the base of an `"A | B"` title is its
+  shortest part, so dropping the short prefixes would make long titles start a duplicate series. A lone stopword or
+  marker word (`after`, from `after❤`) is no base.
 - **One score, one threshold** (`matching.threshold`, default 75). The artist veto is arithmetic, which is
-  why the artist weight stays ≤ 0.4 and a threshold below ~71 starts merging unrelated series.
+  why the artist weight stays ≤ 0.4 and a threshold below ~71 starts merging unrelated series. **From 5
+  artists on either side a disjoint set counts as unknown**: an anthology volume or magazine issue has a new
+  line-up every time. **A typo is one small edit of a Latin word of 4+ letters** (two from 10): a shared start
+  alone is no typo, and in Japanese one character is a word (`起きない妻` / `起きない子`).
 - **Candidates are seeked, never scanned**, and every seek is capped **and ordered**, so the survivors
-  never depend on the query plan. `match_block` exists on **`series` only**; chapters are found by block
-  through `ix_chapter__condensed_match_key`, an expression index on `replace(match_key, ' ', '')`. Don't
-  add a chapter `match_block` column: every write would have to fill it, and it could only be capped by id.
+  never depend on the query plan. Both directions find similar titles by **walking outward from the title** on
+  a spaceless-key expression index (`ix_chapter__condensed_match_key`, `ix_series__condensed_match_key`, both
+  `replace(match_key, ' ', '')`; `NearestTitles`): rows starting with its first 12 spaceless letters
+  (`MatchScore.MIN_SHARED_HEAD`), shorter starts of it (by equality), and the nearest ones on each side, where
+  misspellings sort. So a crowded block yields the nearest titles; a block column capped by id would yield
+  the oldest. These are **native SQL with `INDEXED BY`**: SQLite uses an expression index only for the exact
+  declared expression, and otherwise prefers another index over every row.
+- **Automatic matching and the series page make the same seeks**: by key (exact, extensions, every base), by
+  native key, by artist, by nearest title. **Keep the two finders in step** — a seek only one direction makes
+  is a pair "Link chapters" offers right after "Match chapters" passed it by. The difference is that
+  `SeriesCandidateFinder` **skips the native, artist and nearest-title seeks once a key candidate scores
+  a perfect 1** (the very key and a shared artist): the sweep stays cheap because nearly every chapter of a
+  known family meets its series that way, and nothing those seeks find could beat it. A base found by prefix
+  (0.98) does not skip them: a misspelled sequel meets its own series only through the artist (0.99).
 - **Add to series uses the same component**, so manual and automatic agree. It adds a floor and **excludes
   the chapter's current series** (with auto-linking it would score ~1.00 for a no-op link). **The exclusion
   is part of every seek's predicate** (`SeriesCandidateFinder.rank(chapter, excludedSeriesId)`), never a
-  filter on the ranking: as the exact seek's hit that series would switch off the fuzzy pass — the only one
-  that finds the family of a misspelled title. Auto-linking excludes nothing and skips the fuzzy pass on an
-  exact hit, which keeps the sweep cheap.
+  filter on the ranking: as a key hit that series would make the other seeks look unnecessary — and they are
+  the only ones that find the family of a misspelled or translated title.
 - **The series page's "Link chapters" is matching turned round** (`ChapterCandidateFinder`). `MatchScore`
-  is symmetric, so a chapter gets the same score as on its Add-to-series page. **The block and artist
-  seeks both always run**: here the chapter is what is searched for, so its artists cannot choose between
-  them, and it is one page view, not a sweep. The seeks **select a projection**, since `Chapter.series` is
-  an eager to-one and entities would cost a query each.
-  - **The block seek walks outward from the series' title** on the spaceless-key index: chapters starting
-    with its first 12 spaceless letters (`MatchScore.MIN_SHARED_HEAD`), shorter starts of it (by equality),
-    and the nearest ones on each side, where misspellings sort. So a crowded block yields the nearest
-    titles, not the first by id. These are **native SQL with `INDEXED BY`**: SQLite uses an expression
-    index only for the exact declared expression, and otherwise prefers `ix_chapter__series_match_key`
-    over every unlinked chapter.
+  is symmetric, so a chapter gets the same score as on its Add-to-series page. **All its seeks always run**:
+  it is one page view, not a sweep. It looks for the native keys of the series' chapters (up to 8). The seeks
+  **select a projection**, since `Chapter.series` is an eager to-one and entities would cost a query each.
   - **The scope (chapters in no series, the default, or all chapters) is part of every seek's predicate**
     (`ChapterSpecifications.linkableTo`), never a later filter — the series' own chapters would fill the
     cap. The name search uses the same scope.
@@ -386,16 +411,18 @@ Normalization, scoring and seeks are documented in `TitleKey`, `MatchScore`, `Se
     deletes it if empty; `app.js` asks first, naming how many series would go.
 - **The sweep's order is its algorithm.** Walking unlinked chapters by `(match_key, id)` makes a family
   arrive **together, base first**: the base creates the series, the siblings match it moments later — no
-  clustering, no lookahead. A backfill pass first computes missing keys (imported rows).
+  clustering, no lookahead. A backfill pass first computes missing keys.
   - **Deliberately unbounded and not a background job.** Each slice commits on its own, so the user can
     keep working in another tab. No per-run cap, no job/progress machinery.
   - The persistence context is cleared after every chapter (candidate lookup can load thousands of
     `Series`). `recomputeDerived` runs **once per touched series per slice**, not per chapter (that would
     be quadratic in family size). Since scoring reads effective artists, artists linked but not yet
     materialized are passed as `pendingArtists`; without them a fresh series looks artist-less and the
-    artist veto does not fire.
-- **Match keys are rewritten on every title write** (chapter create/update, series save). **Anything new
-  that writes a title must do the same.**
+    artist veto does not fire. **The artist seek takes its series from `pendingArtists` too**:
+    `series_effective_artists` does not hold them yet, and a family's siblings usually share its slice.
+- **Match keys are rewritten on every title write** (chapter create/update/retitle, series save) — on a
+  chapter both keys, since the native key may come from `titleFull`. **Anything new that writes a title or a
+  native title must do the same.**
 - **An auto-created series is bare** — `status = NEW`, no overrides — so everything stays `DERIVED` and
   grows with its chapters. Matching ignores language.
 - **Auto-linking defaults to `app.match-auto-link-default`**, so the tests can turn it off (see Tests).
@@ -406,7 +433,7 @@ decides what to keep** — a `DataDownloader` never touches the database, and th
 the pipeline hands it (gallery-dl's run folder, see "gallery-dl").
 - **A new source is one class**, of one of two kinds: a **`PageDownloader`** fetches one page at a time from
   the addresses `GalleryData.pageUrls` lists (nhentai, chaika, mock), and the pipeline owns the loop, the
-  retries and the staging; a **`GalleryDlDownloader`** has gallery-dl fetch many pages into a folder
+  retries and where each page goes; a **`GalleryDlDownloader`** has gallery-dl fetch many pages into a folder
   (hitomi, e-hentai) and gives `GalleryData.pageCount` instead. `ChapterDownloadService` switches on the kind.
   `DataDownloaderRegistry` asks every bean whether it `accepts(link)`; two sources sharing a prefix fail at
   startup.
@@ -432,33 +459,49 @@ the pipeline hands it (gallery-dl's run folder, see "gallery-dl").
   missing pages on purpose — so re-queueing is a clean no-op. `NONE` never came from the pipeline and its
   images are never touched. Every skip path still calls `syncImageStats`. The status is **not** on
   `ChapterForm`: an edit must never promote a half-downloaded chapter.
-  - **A chapter is `PENDING` before its first page is published**, also one filled from empty (`NONE`, or
-    `SUCCESSFUL` with every page deleted). Otherwise a crash while publishing would leave it half-filled for
+  - **A chapter is `PENDING` before its first page lands**, also one filled from empty (`NONE`, or
+    `SUCCESSFUL` with every page deleted). Otherwise a crash or a failed attempt would leave it half-filled for
     good. The full-quality re-download is exempt: its queue row repeats the whole replacement.
 - **Nothing becomes `SUCCESSFUL` without pages.** A source listing no pages is a **transient** failure (it
   may serve metadata before images), so the item ends in the Failed list with the chapter still
   `PENDING`, where the user can see and retry it.
 - **The worker owns the staging folder of the item it runs.** Remove goes through `DownloadWorker.remove`,
-  because only the worker knows what is in flight; deleting staging from a request thread would let it
-  publish the remainder as `SUCCESSFUL`. For the in-flight item the folder is left alone, and
-  `ChapterDownloadService` checks its row still exists **right before publishing**. The chapter is found
-  by **gallery id**, never `download_queue.chapter_id` alone (written only by `recordFailure`).
-  - **Deleting a chapter cancels its download** (`ChapterRemoval`). Otherwise the worker would publish into
-    `data/<id>` of a deleted row, where the pages sit orphaned with nothing ever cleaning them up. The
-    pre-publish check also confirms the **chapter** still exists.
+  because only the worker knows what is in flight: an encoder may be reading a page there, and a full-quality
+  re-download keeps every page there until it publishes. For the in-flight item the folder is left alone, and
+  `ChapterDownloadService` checks its row still exists **before each page** fetched one at a time (a gallery-dl
+  run only once it ends) **and before finishing**: a download called off keeps what landed, but never finishes
+  its chapter, since a partial set marked `SUCCESSFUL` could never be completed. The chapter is found by
+  **gallery id**, never `download_queue.chapter_id` alone (written only by `recordFailure`).
+  - **Deleting a chapter cancels its download** (`ChapterRemoval` deletes the queue row). A page landing meanwhile
+    goes into the folder the delete just removed, so the worker deletes that folder again once it stops: nothing
+    else ever would. The checks also confirm the **chapter** still exists, for a delete path that forgets the row.
 - **Chapters are created through `ChapterService.create`**, like a hand-added one, so pretty title,
   canonical language, match key and auto-linking cannot drift. Metadata arrives as names;
   `MetadataService.resolveOrCreate` matches them case-insensitively and creates only what is new.
+- **A download never fails over how its source spells things.** A language the app does not know is taken for
+  Japanese, e-hentai's language for a gallery without one, and logged (`GalleryImportService`). Refusing it would
+  keep the gallery from ever being downloaded; keeping it as sent would make it a facet of its own. A source picks
+  the first language the app knows and ignores the rest. Any name is accepted; the pipe refusal is for typed names
+  only. The one refusal for the data itself is a gallery without any title.
 - **The pipeline is not `@Transactional`**: it spans minutes of network and disk work. Each DB touch is its
   own short transaction.
-- **Pages are staged, not written straight into `data/`** — a crash would leave a half-written page that
-  the next run (fetching only absent pages) takes as complete. Staging is discarded before every attempt.
-  **The staging folder is chosen per run** (see "Temporary image files") and kept in `StagedRun`, because
-  the automatic choice follows the compression mode and RAM disk free space; discards look in
-  **every** folder staging could have used (`ScratchSpace.everyRoot`).
-  - **Publishing is atomic per page**: an `ATOMIC_MOVE` on the same filesystem, otherwise copy to a `.part`
-    beside the target, fsync, rename. A plain `Files.move` across filesystems copies onto the final name —
-    the torn page this avoids. Don't simplify it.
+- **Each page lands in `data/<id>/` as soon as it is whole**, so a crash, an abort or a failed attempt loses only
+  the pages in flight: the chapter is `PENDING`, and the next attempt fetches what is still absent. A page stored
+  as fetched never touches staging; one to compress waits there only until its encoder is done, and moves in from
+  the encoder's thread (`ImagePostProcessor.Processed`). So such an attempt discards staging before and after
+  itself, looking in **every** folder staging could have used (`ScratchSpace.everyRoot`).
+  - **Only the full-quality re-download stages every page until the end** (see "Image compression"). Its folder
+    is kept in `StagedRun`, because the automatic choice follows RAM disk free space, and an in-process retry
+    inherits what it staged; its first attempt in a process discards staging, which a killed run may have torn.
+  - **A page appears whole or not at all**, because the next run fetches only absent page *numbers*: a torn page
+    under its own name would read as complete for ever. Fetched bytes are written as `<n>.<ext>.part` (no page
+    name) and renamed; a file is moved by an `ATOMIC_MOVE` on the same filesystem, otherwise copied to a `.part`
+    beside the target and renamed. **Every page is fsynced before its rename**, since nothing that writes one
+    (staging, gallery-dl, an encoder) syncs it: after a power cut the renamed page could be empty. A plain
+    `Files.move` across filesystems copies onto the final name — the torn page this avoids. Don't simplify it.
+  - **Only the worker's thread touches the database**; the encoder's thread and gallery-dl's move files only.
+    Hence the compression mode is recorded before fetching (see "Image compression"), and a gallery-dl run is not
+    checked for a removed row between its pages.
 - **"Avoid duplicated titles from other sources" is an opt-in, per-paste check**
   (`download_queue.avoid_duplicate_titles`). A gallery **new to the library** is refused when a chapter
   with **exactly** its `titleFull` comes from a **different** source (another prefix, or no gallery id).
@@ -483,7 +526,7 @@ the pipeline hands it (gallery-dl's run folder, see "gallery-dl").
   ever an explicit user action, so a network blip never quietly produces a chapter missing pages. A
   skipped page **keeps its position** (a gap), so it can drop into its slot later.
   - **It skips a failed fetch, never a failed write.** Keep fetch and write in separate `try` blocks:
-    together, a full staging disk would skip every page and still mark the chapter `SUCCESSFUL`.
+    together, a full disk would skip every page and still mark the chapter `SUCCESSFUL`.
 - **One worker thread**, started on `ApplicationReadyEvent` — that start *is* the resume. Single-threaded
   because matching runs on create and SQLite has one writer; no job framework. `processNext()` is public
   as the test seam. Pause is a **persisted** setting (the user's choice survives a restart).
@@ -500,10 +543,22 @@ the pipeline hands it (gallery-dl's run folder, see "gallery-dl").
     cooldown is not counted. Otherwise a routine image limit would put a subscription's whole backlog on the
     Failed list, and the subscription would list more to fail the same way. A pasted row still fails at once,
     saying why.
+- **"Abort current download" interrupts the worker's thread** (`DownloadWorker.abortCurrent`), which every step
+  answers (a fetch, gallery-dl, which is killed, a backoff; the pipeline also checks the flag before each page and
+  before finishing). The item goes to the Failed list as a **permanent** failure whatever the interrupt broke, staging
+  is discarded, and the flag is **cleared before recording it** (it would fail those writes; the pipeline's own
+  tidying up sets it aside the same way) and after the item, so it never reaches the next one. The pages that
+  landed stay, with the chapter `PENDING`, as after a crash. **"Clear all"**
+  deletes every waiting row and aborts the running one, whose staging the worker discards itself; its row is gone, so
+  it does not land on the Failed list. **Failed rows stay**: they wait for the user's retry or removal.
 - **Progress is `[done/total]` for the current batch** — successful rows are deleted, so no lifetime total.
-- **The queue page's two lists are capped (200) with no pagination — don't add it.** Counts are exact;
+- **The queue page's two lists are capped (25) with no pagination — don't add it.** Counts are exact;
   only rows are cut, and the page says so. The queue empties itself: the waiting list is in execution
   order, bulk actions cover **every** matching row, and paging a self-refreshing list makes no sense.
+- **A failed row's Retry and Remove post in place** (`app.js`, `queue-in-place` forms, `inPlace` → 204, like the
+  page delete), so working down a long list keeps its scroll position. The row goes and the counts follow; a
+  retry then reloads the page shortly (a reload keeps the scroll), since the row is waiting now. A list emptied
+  this way reloads at once: the cap may hide more rows.
 - Queueing redirects to the **queue**, the only page that shows the outcome. Unrecognized links are refused
   at enqueue. Re-pasting a failed link revives its row **by parsed `gallery_id`, not link text** (the
   registry accepts many spellings of one gallery, while `link` is UNIQUE under BINARY collation). The link
@@ -551,9 +606,9 @@ to repeat. **`GalleryDlTool` is the only class that starts it; `GalleryDl` is ho
   `-j` always exits 0 and reports an error as `[-1, {error, message}]`.
 - **Pages are one run** with `--range` for exactly the missing pages (`1-3,7`), into **a run folder inside the
   chapter's staging folder** (`-D`, `-f {num}.{extension}`). gallery-dl writes `.part` files and prints a
-  file's path only once it is whole; each printed page is **moved** into staging (a rename) and handed to
-  compression at once. The run folder is per run, so a gallery-dl left running by a killed app writes only
-  where nothing reads; discarding staging removes it.
+  file's path only once it is whole; each printed page is **moved** on at once: into the chapter's folder, or
+  into staging for the encoder when the download compresses. The run folder is per run, so a gallery-dl left
+  running by a killed app writes only where nothing reads; discarding staging removes it.
 - **Failures are read from the exit status bits and gallery-dl's words** (`GalleryDl.classify`), the only
   things it reports, words first: a ban and a refused account share a bit. A failed page is no failure of the
   run (gallery-dl goes on); the pipeline sees it as missing. An error the extractor logs ends the run there, so it
@@ -568,7 +623,10 @@ to repeat. **`GalleryDlTool` is the only class that starts it; `GalleryDl` is ho
 - **The Download page's choices** (`GalleryDlOptions`): cookies (`--cookies-from-browser <browser>`), originals
   and the delay, on the queue row like the compression mode (re-paste replaces, retry keeps; a full-quality
   re-download takes Settings' defaults). The form starts at Settings' defaults every visit; an unreadable delay
-  is shown on the form with the links kept, never replaced. **The delay maps per source**: e-hentai gets
+  is shown on the form with the links kept, never replaced. The Download page hides each of them (JS, hidden not
+  disabled) until the pasted text contains a `GalleryDlDownloader.linkMarkers` of a source that reads it
+  (`readsCookies`, `offersOriginals`; the delay every source), **which every link it accepts must hold**, or its
+  choices are hidden from it. **The delay maps per source**: e-hentai gets
   `--sleep-request` (each image needs one page/API request there, which its ban counts), hitomi `--sleep`
   (its extractor makes one request per gallery, so a request delay would never fall between images).
 
@@ -584,6 +642,11 @@ either is `ehentai:<gid>/<token>`. The token is in the id because nothing can be
 - **Pages through gallery-dl, on the domain the cookies decide**, not the pasted one: with cookies
   exhentai.org (it also has what e-hentai hides), falling back **once** to e-hentai.org when exhentai refuses
   the account; without them e-hentai.org. `link()` is always e-hentai.org.
+- **The chapter page links to the domain the pages came from** (`chapter.source_site`, from `GalleryDl.Outcome.site`,
+  through `DataDownloader.pageLinkTemplate(site)`): a gallery from exhentai may be hidden on e-hentai, and one from
+  e-hentai (no cookies, or exhentai refused the account) may not open on exhentai. Written by the pipeline whenever
+  a run delivered pages, so it follows the last fetch; not on `ChapterForm`. A subscription's head and tail link to
+  its own site.
 - **A ban or a used-up image limit starts a cooldown** (`app.download.ehentai.cooldown-minutes`, in memory):
   every e-hentai item then fails at once, saying until when, without asking the API or starting gallery-dl —
   requests during an IP ban can extend it. Other sources keep running. Subscriptions' searches share it: a ban
@@ -600,8 +663,8 @@ Entirely through gallery-dl: hitomi computes image addresses from a script that 
 "Download originals" means nothing here; no login, so **no cookies are read** (reading a browser's store can
 fail, for nothing). Its type maps to the categories the other sources use (`artistcg` → `artist cg`); an
 `anime` gallery is a video and refused. gallery-dl already formats its tags (`Big Breasts ♀`). **A gallery
-without a language is Japanese**, as on e-hentai (game CGs and image sets often have none; the import would refuse
-them for good).
+without a language is Japanese**, as on e-hentai; game CGs and image sets often have none, so it is said here rather
+than logged by the import as a language it does not know.
 
 ### The chaika source (`scrapper/chaika`)
 panda.chaika.moe archives e-hentai galleries as zip files; its metadata is e-hentai's (`EhTags`, after
@@ -643,11 +706,11 @@ only class that speaks HTTP to it; `NhentaiDownloader` turns the answers into `G
 - **The API key** (Settings, `apikey.nhentai`) is read per call. It goes to the API only (`Authorization: Key
   …`), **never to the image servers**, whose addresses come from nhentai's answers; for the same reason the
   API client follows no redirect. A 401 is worded to send the user to Settings.
-- **nhentai's data quirks are handled here**, where the data is read. Artists joined as `"a | b"` are split,
-  only at a pipe with whitespace on both sides and only when every part is a name, so `"|||naka|||"` stays
-  whole. "translated", "rewrite" and the like are filed as languages, so the language is the first tag
-  `LanguageService` knows; without one (a "speechless" gallery) the first tag is kept, and the import's
-  refusal names it.
+- **nhentai's data quirks are handled here**, where the data is read. "translated", "rewrite" and the like are
+  filed as languages, so the language is the first tag `LanguageService` knows; without one (a "speechless"
+  gallery) the first tag is kept for the import's log, and the import takes the gallery for Japanese. A name with
+  an alias (`"focalors | lady furina"`) is passed on as sent: `MetadataService` handles it for every source (see
+  "Metadata management").
 - **Search for subscriptions** (`GET /api/v2/search`, `sort=date`): 10 a minute without a key and 20 with one,
   its own pacer. Its pages move as galleries come and go, so a walk continues from a cursor that carries an upload
   time (see "Subscriptions"); times come from the galleries' own details, usually two requests a page.
@@ -710,13 +773,21 @@ decides** — a `SearchSource` never touches the database. Manage → Chapters �
 - **Its rows run after what the user asks for** (priority 1, see "Chapter downloading"). Deleting a subscription
   keeps them (`ON DELETE SET NULL`, the priority stays); pausing stops only the listing.
 - **Listing follows the downloads**: beyond its check a subscription lists only while fewer than
-  `app.subscriptions.queue-ahead` (100) of its rows wait and fewer than `failed-limit` (100) failed. A broad search
+  `app.subscriptions.queue-ahead` (50) of its rows wait and fewer than `failed-limit` (50) failed. A broad search
   would otherwise fill the queue with rows chosen before an edit, and downloads that fail at once (no gallery-dl,
   unreadable cookies) would page a whole site into the Failed list. Edited choices apply to what is queued from
   then on.
 - **Re-checks catch tags added after upload**: every `recheck_every_hours` a check stops not at the head but at the
   head as it was `recheck_depth_hours` ago. The search lists no upload times, so `subscription_checkpoint` keeps
   the head with a time when it grows (at most one an hour), pruned past the one a re-check stops at.
+  - **"Ago" counts from when the re-check was due, not from now** (`SubscriptionWalk.recheckCutoff`), so a re-check
+    after the app was off still lists what was uploaded just before it stopped.
+  - **A catch-up's checkpoint takes the time its top was seen** (`top_seen_at`), not the time it ended, which may be
+    days later and would send the next re-check down the whole catch-up again.
+  - **A check after the walk lost sight of the search** (no top seen for longer than the depth: the app off, the site
+    failing) **deletes the older checkpoints**, once its own stop is taken. What it finds was uploaded over that whole
+    time and is listed in one go; a re-check reaching below it would list a year again. The price: what was uploaded
+    just before the walk came back and tagged after it is not listed again.
 - **Counters count a gallery the first time it is listed** (above the head or below the tail); one listed again
   counts only if it gets queued.
 - **The runner** (`SubscriptionRunner`): one platform daemon thread per `SearchSource`, so a site sitting out a 429
@@ -735,6 +806,8 @@ decides** — a `SearchSource` never touches the database. Manage → Chapters �
   they set in memory per account, and asks for the search again. Search pages go out with a browser User-Agent
   (`app.download.ehentai.browser-user-agent`) and one pacer for both domains (`search-request-interval-millis`,
   5 s, as gallery-dl paces e-hentai).
+- **Another site's address is refused** (`QueryStrings.isAddress`), by every source: it would be searched for as
+  text and find nothing, for good. A bare `host.tld` without a path stays text (a search may hold `vol.2`).
 - **Queries are the source's** (`normalizedQuery`): nhentai's search text (a pasted search address gives its `q`,
   another page's address is refused; `uploaded:` is refused, the walk adds its own); for e-hentai the part after "?" (a pasted address, a tag page, or
   plain search text as `f_search`), keeping only `f_*` filters and `advsearch`, dropping paging and `inline_set`
@@ -757,14 +830,17 @@ downloaded and uploaded images. Default mode is **None**: bytes are stored as th
     only by JS, and SQLite does not enforce `VARCHAR(n)`. Custom keys are canonicalized on the way in.
 - **`chapter.compression_mode` is the key of the mode that last re-encoded the chapter's pages; null while
   the pages are original.** It drives the "Compressed: <mode>" label and the full-quality re-download
-  offer. It is written **only when a run replaced a page** (`Summary.replaced() > 0`), by all four paths
-  (download, upload, per-chapter button, sweep); **anything new that re-encodes pages must record it**
-  (`ChapterService.setCompressionMode`). A download also counts pages an earlier in-process attempt
-  compressed (in `StagedRun`). A deleted custom mode reads "a mode since deleted". Not on `ChapterForm`.
+  offer. It is written **only when a run replaced a page** (`Summary.replaced() > 0`) by upload,
+  per-chapter button and sweep; **anything new that re-encodes pages must record it**
+  (`ChapterService.setCompressionMode`). A download records it **before fetching** and takes it back
+  (`ChapterService.restoreCompressionMode`, only while the chapter still names that mode) when its attempt
+  re-encoded no page. A deleted custom mode reads "a mode since deleted". Not on `ChapterForm`.
   - **Never written late.** Nothing rebuilds it from the files, and a rerun finds no input left in an
     encoded page, so a crash between the files and the label shows compressed pages as full quality for
-    good. A download writes it before publishing, the sweep after each chapter (not per slice). A label
-    ahead of its pages is harmless: a full-quality re-download clears it.
+    good. A download writes it before its first page could be re-encoded (the pages land from the encoder's
+    thread, which never touches the database), the sweep after each chapter (not per slice). A label ahead of
+    its pages is harmless: a full-quality re-download clears it. A crash before a download re-encoded its first
+    page leaves one.
 - **"Re-download in full quality" is a queue row with `replace_pages`**, offered only for a compressed
   chapter whose gallery id names a known source. `DataDownloaderRegistry.linkFor` rebuilds the link via
   `DataDownloader.link` and returns it only if it parses back to the same gallery id.
@@ -793,8 +869,8 @@ downloaded and uploaded images. Default mode is **None**: bytes are stored as th
   re-download's publish.)
 - **Uploads use the Settings mode; downloads carry theirs on the queue row** (it runs later and must
   survive a restart). The download form **starts at the Settings mode**, never at the last paste's choice,
-  via `storableKey` (a deleted mode starts at None). Re-pasting **replaces** the row's mode. An in-process
-  retry reuses staged pages **only under the same mode** (`StagedRun`), or a chapter would be half in each.
+  via `storableKey` (a deleted mode starts at None). Re-pasting **replaces** the row's mode. Pages an earlier
+  attempt saved stay as they were saved: a mode chosen afterwards applies to the pages still missing.
 - **Any failure keeps the original image and logs it** (missing binary, codec error, timeout, unknown
   mode). A download never fails because of a codec, and a page is never lost to one.
 - **The timeout works only because tool output is drained on its own thread** (`ImageToolRunner`). Reading
@@ -816,6 +892,8 @@ downloaded and uploaded images. Default mode is **None**: bytes are stored as th
   other images with **that base name** only — never `03.png` (a different page) or `3.json`. An interrupted
   run leaves both, so **`ImageDirectory.list`/`stats` skip a file superseded by an encoder output with the
   same base name**. `jxl` is in `IMAGE_EXTENSIONS` so the app's own output is listed.
+  - **The encoder's output is fsynced before it takes the page's name** (`ImageService.publishPage`): the
+    original is deleted next, and a power cut could keep the rename but not the bytes.
 - **Intermediates go in the compression work folder** (`ScratchSpace.compressionWork()`, `<root>/<chapterId>`)
   for every kind of run. A run resolves the folder once and removes its `<id>` folder (and the root)
   **only if empty** afterwards.
@@ -827,9 +905,10 @@ downloaded and uploaded images. Default mode is **None**: bytes are stored as th
     areas sharing a root.
   - **`discardStagedPages` leaves the work folder alone** (a sweep may be using it); `deleteAll` removes
     it. Leftovers from a killed process are cleared at startup (`ScratchSpace.removeLeftovers`).
-- **Downloads hand over each page as it lands**: `ImagePostProcessor.Run` wraps the fetch loop and
-  `close()` waits for the rest. It must close on **every** exit (try-with-resources), or an encoder could
-  still be writing while staging is discarded or published.
+- **Downloads hand over each page as it arrives** and get it back on the encoder's thread, re-encoded or kept
+  (even after an unexpected failure, or it would never reach its chapter), to move it into the chapter's folder
+  at once. `ImagePostProcessor.Run` wraps the fetch loop and `close()` waits for the rest. It must close on
+  **every** exit (try-with-resources), or an encoder could still be writing while staging is discarded.
 - **Compression never runs inside a transaction** (seconds to minutes per page, one SQLite writer).
   `ChapterImageService` saves, compresses, then calls `ChapterService.rescanImages` on another bean so its
   `@Transactional` applies. The sweep commits per slice.
@@ -866,6 +945,9 @@ downloaded and uploaded images. Default mode is **None**: bytes are stored as th
   - **An entry is named after the exact source version** — `3.jxl.<mtime>-<size>.png` — and valid if it
     exists; never "newer than the page" (a copied file can keep an older timestamp). Older versions are
     deleted once the current one is cached.
+  - **Entries are not synced** (an fsync per decode would slow the hottest read path), so a power cut can
+    leave one empty, zeroed or cut short: this cache and ComfyUI's serve only a whole PNG
+    (`CacheFolder.isWholePng`).
   - **The decoded variant uses an `ETag` (the entry name) and no `Last-Modified`.** A `Last-Modified` would
     be the decode time, and after switching delivery to Never the resource handler would answer the PNG's
     revalidation with 304 forever. Each variant carries a validator only its own path honours. 304s and
@@ -897,8 +979,8 @@ choice. They are separate because they differ: staging only benefits from RAM fo
 intermediates always do, and the two caches live for weeks and need **their own size cap** each (a quarter
 of an automatic RAM disk each), so one cannot prune the other away.
 - **Automatic = a RAM disk if usable, else a dot-named folder in the data folder** — except **uncompressed
-  staging always stays in the data folder**, so publishing is a free atomic rename
-  (`ImagePostProcessor.compresses(mode)` decides).
+  staging always stays in the data folder** (gallery-dl's folder, a full-quality re-download), so moving a page
+  on is a free atomic rename (whether `ImagePostProcessor.start` gives a run decides).
 - **RAM disk detection is Linux-only** (`RamDiskDetector`): only there is it standard, identifiable
   (`tmpfs`) and size-limited. Windows/macOS RAM disks look like NTFS/APFS; the user sets folders by hand.
   `ramfs` is rejected (no limit). Candidates: `/dev/shm`, then `/tmp` (never aged out by
@@ -940,9 +1022,9 @@ of an automatic RAM disk each), so one cannot prune the other away.
 - A run keeps the folder it started with. **A replaced explicit root stays in `everyRoot` for the rest of
   the process**, so discards still reach pages staged there.
 
-## ComfyUI processing (`service/comfy`, `COMFYUI.md`)
+## ComfyUI processing (`service/comfy`)
 The viewer can show pages through the user's own ComfyUI workflows. **Viewer-only: nothing in `data/` is
-ever written** — a result is a cached derivative. `COMFYUI.md` is the user guide. **`ComfyUiClient` is the
+ever written** — a result is a cached derivative. The Guide page's ComfyUI section explains it to the user. **`ComfyUiClient` is the
 only class that speaks ComfyUI's protocol; `PageProcessingService` decides what runs when**;
 `WorkflowCatalog` lists and checks workflows, `ComfyResultCache` keeps results, `ComfyUiLauncher` owns the
 process.
@@ -1115,9 +1197,10 @@ clear "busy, nothing was changed" answer, and background writers wait instead of
 - **Long single holds stay atomic** (1.5M chapters): the title index rebuild (14 s warm, 32 s cold; FTS5
   `rebuild` cannot be sliced, since between slices the triggers would delete rows the index does not hold yet,
   corrupting an external-content index), merging or removing a tag on much of the library (13–30 s), deleting a
-  series with thousands of chapters. A request writing meanwhile gets the busy message after 10 s. A commit also runs
-  SQLite's automatic checkpoint, which the gate waits for (up to 10 s after such a transaction). Holds longer
-  than a request's budget are logged at INFO.
+  series with thousands of chapters, and an import merging a row its gallery's alias already has (once per alias,
+  as long as that row's links take; see "Metadata management"). A request writing meanwhile gets the busy message
+  after 10 s. A commit also runs SQLite's automatic checkpoint, which the gate waits for (up to 10 s after such a
+  transaction). Holds longer than a request's budget are logged at INFO.
 - **`busy_timeout=60000` in the JDBC URL covers what the gate does not**: Flyway and ANALYZE at startup, readers
   during a crash recovery. Each write transaction sets its own for its first statement (the request's remaining
   budget, 0 for `ifFree`, a minute at a time with a log line for background writers) and puts the connection's
@@ -1130,9 +1213,8 @@ on self-invocation.** Each rule below prevents a silently dead cache.
   `ImageDirectoryCache`). Don't use self-injection, and never put a cached list method back on
   `MetadataService`.
 - **A method reached by self-invocation must not rely on an annotation for correctness.** Evict
-  **programmatically** through the `CacheManager` (`ChapterService.evictSearchCount`,
-  `SeriesService.evictSearchCount`), which also evicts only on real change. `SeriesService.deleteIfEmpty`
-  is called from inside `SeriesService`, so a `@CacheEvict` there would be skipped.
+  **programmatically** through `SearchCountCache`, which also evicts only on real change.
+  `SeriesService.deleteIfEmpty` is called from inside `SeriesService`, so a `@CacheEvict` there would be skipped.
 - **Every public entry point that self-invokes a `@Transactional` method must itself be `@Transactional`**,
   so the self-call joins an open transaction.
 - **`@Transactional` on `@PostConstruct` never works** (runs on the raw bean, before the proxy exists), and
@@ -1165,6 +1247,22 @@ Per cache:
     writes `X ♀`) or typed by hand is one row. Only those namespaces: a colon may belong to a name. It is
     idempotent (an existing symbol is kept). **Not for search needles**: a half-typed `female:ha` must still
     filter.
+  - **A name with aliases is the name before the pipe, for every kind but categories** (`canonical`,
+    `aliasesOf`): `focalors | lady furina` is stored as `focalors`, and each alias becomes a rewrite rule to it
+    (`recordAliases`) on import. It is how e-hentai shows a tag with one of its aliases, and nhentai stores that
+    display as the name (beside a plain `focalors` of its own); e-hentai galleries carry the first name only. Only a
+    pipe with whitespace on both sides separates, and only between names, so `|||naka|||` stays whole. A name may
+    have several aliases.
+    - **A typed name may not contain a pipe** (`add` and `rename` refuse any, `PipeInName`): aliases from the
+      Manage page would merge rows inside a quick request. A merge with "Add rule" does the same by hand.
+    - **Aliases are recorded before the names are resolved**, so a gallery that also names the alias alone gets
+      one row. An alias is ruled to wherever its name lands, a rule on the name included; a tag's alias is ruled
+      on its plain name, so its versions follow. A rule already on an alias stays (the user's, or an earlier
+      alias's). A row the alias already has is **merged in** with the rule, since a ruled-out name has no row.
+      Nothing is recorded for a name a rule drops: a block on the alias would outlive the user taking the name back.
+    - **Only the sites' aliases are joined.** Names that are not marked as aliases stay apart: e-hentai keeps
+      `saber` and `artoria pendragon` as separate tags on purpose, as different versions of one character.
+      Joining them is the user's merge.
   - **An imported gendered tag brings its plain tag along** (`resolveOrCreate`, `plainTagOf`): `halo ♀` is
     stored with `halo`, so searching `halo` finds a gallery whether its source tags by gender (e-hentai, chaika,
     hitomi) or not (nhentai). **Stored, not expanded at search time**: one link more per gendered tag keeps every
@@ -1227,15 +1325,17 @@ is ticked (default on; clearing it makes a rename a one-off).
   - **"Remove ♀/♂" rules are on the versions' names** (`halo ♀ → halo`, `halo ♂ → halo`) and belong to the tag:
     a rename moves them to the new names (a one-off rename too), a merge retargets them like any rule, a removal
     turns them into blocks. So the gender stays removed whatever the tag is called.
-- **Invariant: a ruled-out name has no row.** Delete/merge/rename free the name they record; `resolveOrCreate`
-  never creates one; `add` and `rename` **refuse** a ruled-out name (`RuleConflict`), and a version is ruled out
-  by its plain tag's rule too. Exception: a rule pointing at the row being renamed — the rename proceeds and the
+- **Invariant: a ruled-out name has no row.** Delete/merge/rename free the name they record, and an alias's row is
+  merged into its name; `resolveOrCreate` never creates one; `add` and `rename` **refuse** a ruled-out name
+  (`RuleConflict`), and a version is ruled out by its plain tag's rule too. Exception: a rule pointing at the row being renamed — the rename proceeds and the
   rule is deleted. A case-only rename records nothing. Recording is an **upsert** on (type, name).
 - A refused action **redirects to the section title**, so the message at the top is visible; the message
   names the metadata kind.
-- **Removing a rule takes a name back** (the rules page). Rules are only created by delete/merge/rename and
-  "Remove ♀/♂" — no add form. The page shows each target's **current** name. **No rule counts** on the Manage page or tab
-  bar — six queries for a number nothing uses.
+- **Removing a rule takes a name back** (the rules page). Rules are only created by delete/merge/rename,
+  "Remove ♀/♂" and aliases (see "Metadata management") — no add form. A removed alias rule comes back with the
+  next name that has that alias, and a row added under the alias meanwhile is merged in. The page shows each
+  target's **current** name. **No rule counts** on the Manage page or tab bar — six queries for a number nothing
+  uses.
 - **One "Add rule" checkbox per section, not per form** (a checkbox belongs to one form, and one per row
   broke the layout). Each form carries a hidden `createRule` that `app.js` keeps in sync; it renders `true`
   so a browser without JS submits the default, and a request without the field means `false`.
@@ -1255,6 +1355,11 @@ is ticked (default on; clearing it makes a rename a one-off).
 - **The e-hentai account's cookies** (Settings, for exhentai subscriptions) are kept in the database like the
   nhentai API key, checked field by field (they go into a request header), and sent only to e-hentai's own
   hosts: redirects are followed by hand, never off them, and nothing logs them.
+- **Too many wrong passwords in a row shut the app down** (`FailedLoginGuard`, `app.security.max-failed-logins`, 3;
+  0 never; a Settings checkbox, on by default). The count is in memory and a login resets it: a restart is what a
+  guesser must wait for, and the user's own typos never add up. Counted only while login is required. The login
+  page says how many are left. The last attempt is **forwarded** to a page (`/login/shut-down`, public, but shown only
+  once the guard tripped): once shutdown starts, no redirect would load.
 - `LoginToggleFilter` applies the toggle at runtime by injecting an authenticated token when login is off,
   instead of rebuilding the filter chain. So **Logout** is gated on the `loginRequired` model flag, not on
   `sec:authorize`.
@@ -1310,7 +1415,10 @@ narrow width after any CSS/template change.
   word-break: break-word`, their flex parents `min-width: 0`. Test with a 250+ character title.
 - **Chapter-number inputs use `step="any"`** (numbers are `main + sub/100`, dated issues `year.month`), or
   native validation blocks the whole series form. The rendered `value` must use a period, never a locale
-  comma.
+  comma, and at least two decimals when there are any (`ChapterNumber.format`: part 10 is `2.10`, never `2.1`).
+  **The server accepts plain digits only** (`ChapterNumber.problem`; any number of them, with any number of
+  decimals), on the form and the inline Update alike: binding to a number would also take `NaN`, `Infinity`,
+  `-3` and `1e3`. A number a double cannot hold exactly is refused, never saved rounded.
 - **The detail `<h1>` prints `titleFull` in three spans** (`dto/TitleParts`): the pretty title in the middle,
   the bracket decoration muted around it; nothing is muted if the pretty title is not contained. **The spans
   stay on one source line without whitespace** — Thymeleaf would render a newline as a space.
@@ -1417,6 +1525,8 @@ for good coverage.
   `AppProperties.isMatchAutoLinkDefault()`, **not** a literal `true` (the settings cache is shared).
 - ⚠️ **Every test context starts with a password and login required** (`TestLogin`). A suite that changes the
   password, deletes the file or turns login off must call `TestLogin.restore()`.
+- ⚠️ **`app.security.max-failed-logins=0`**, or a few wrong-password tests across the run would end the test JVM.
+  `FailedLoginShutdownIT` sets it again in a context of its own, with `AppShutdown` replaced.
 - ⚠️ **`app.storage.ram-disk-candidates=` (empty)**, so Linux machines with tmpfs behave like everywhere else;
   `ScratchSpaceTest` covers the automatic choice with a plain folder. A suite that sets a folder in Settings
   must clear it (`ScratchSpace` is a singleton).

@@ -110,8 +110,8 @@ public class ManageController
     }
 
     /**
-     * Needed because images can appear without the app writing them, and imported rows sit on 0, which
-     * makes a page-count or size sort tie on every row.
+     * Needed because images can appear without the app writing them, and a stale 0 makes a page-count or
+     * size sort tie on every row.
      */
     @PostMapping("/manage/resync-stats")
     public String resyncStats(RedirectAttributes redirectAttributes)
@@ -129,7 +129,7 @@ public class ManageController
         return REDIRECT_MANAGE_MAINTENANCE;
     }
 
-    /** Backfill for names stored in mixed case, such as those from the H2 import. See {@link MetadataNameFolder}. */
+    /** Backfill for names stored in mixed case. See {@link MetadataNameFolder}. */
     @PostMapping("/manage/fold-metadata-names")
     public String foldMetadataNames(RedirectAttributes redirectAttributes)
     {
@@ -241,6 +241,9 @@ public class ManageController
             case MetadataService.GenderedName gendered ->
                     "%s: \"%s\" cannot be used: a tag is renamed without \u2640 or \u2642, and its \u2640 and \u2642 versions take the new name with their own symbol."
                             .formatted(kind, gendered.name());
+            case MetadataService.PipeInName piped ->
+                    "%s: \"%s\" cannot be used: a name cannot contain \"|\". To have one name stand for another, merge them with \"Add rule\" ticked."
+                            .formatted(kind, piped.name());
         };
         redirectAttributes.addFlashAttribute("refusal", message);
     }

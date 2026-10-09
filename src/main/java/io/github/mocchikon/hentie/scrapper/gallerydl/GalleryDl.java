@@ -70,9 +70,20 @@ public class GalleryDl
     /**
      * @param problem gallery-dl's own words for what went wrong, or null when it reported nothing
      * @param writeFailed a file could not be written: never a page to skip
+     * @param site which of the source's websites served the pages, for a source with more than one; null for its
+     *             usual one
      */
-    public record Outcome(Set<Integer> received, String problem, boolean writeFailed)
+    public record Outcome(Set<Integer> received, String problem, boolean writeFailed, String site)
     {
+        public Outcome(Set<Integer> received, String problem, boolean writeFailed)
+        {
+            this(received, problem, writeFailed, null);
+        }
+
+        public Outcome fromSite(String site)
+        {
+            return new Outcome(received, problem, writeFailed, site);
+        }
     }
 
     /**

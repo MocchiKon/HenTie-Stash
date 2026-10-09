@@ -1,5 +1,15 @@
 package io.github.mocchikon.hentie.service.compress;
 
+import io.github.mocchikon.hentie.config.AppProperties;
+import io.github.mocchikon.hentie.service.ImageDirectory;
+import io.github.mocchikon.hentie.service.ImageService;
+import io.github.mocchikon.hentie.service.scratch.CacheFolder;
+import io.github.mocchikon.hentie.service.scratch.PageDerivedCache;
+import io.github.mocchikon.hentie.service.scratch.ScratchSpace;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Component;
+
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -11,17 +21,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Semaphore;
 import java.util.regex.Pattern;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Component;
-
-import io.github.mocchikon.hentie.config.AppProperties;
-import io.github.mocchikon.hentie.service.ImageDirectory;
-import io.github.mocchikon.hentie.service.ImageService;
-import io.github.mocchikon.hentie.service.scratch.CacheFolder;
-import io.github.mocchikon.hentie.service.scratch.PageDerivedCache;
-import io.github.mocchikon.hentie.service.scratch.ScratchSpace;
-
 /**
  * Decodes a stored JPEG XL page to PNG for browsers that cannot show JPEG XL.
  *
@@ -29,8 +28,11 @@ import io.github.mocchikon.hentie.service.scratch.ScratchSpace;
  * Decodes are also bounded (one per processor) and de-duplicated per version.
  *
  * <p><b>An entry is named after the exact page version</b> ({@code 3.jxl.<mtime>-<size>.png}), and valid
- * when an entry for the current version exists. A "newer than the page" test would hide a replacement
+ * when a whole entry for the current version exists. A "newer than the page" test would hide a replacement
  * copied in with an older timestamp for ever. The name also serves as the {@code ETag}.
+ *
+ * <p><b>No fsync</b>, since one per decode would slow the hottest read path: an entry a power cut damaged is
+ * decoded again instead ({@link CacheFolder#isWholePng}).
  *
  * <p>On failure it returns empty and the caller serves the stored {@code .jxl}.
  */
@@ -103,7 +105,7 @@ public class JxlTranscoder implements PageDerivedCache
             return Optional.empty();
         }
         Path cached = entry.get();
-        if (Files.isRegularFile(cached))
+        if (isWhole(cached))
         {
             return Optional.of(cached);
         }
@@ -145,6 +147,12 @@ public class JxlTranscoder implements PageDerivedCache
         return source == null ? Optional.empty() : entryOf(chapterId, filename, source);
     }
 
+    /** Whether the entry can be sent as it is. Reads its two ends and never decodes, so a HEAD may ask too. */
+    public boolean isWhole(Path entry)
+    {
+        return CacheFolder.isWholePng(entry);
+    }
+
     private Optional<Path> entryOf(int chapterId, String filename, Path source)
     {
         try
@@ -178,7 +186,7 @@ public class JxlTranscoder implements PageDerivedCache
         }
         try
         {
-            if (Files.isRegularFile(cached))
+            if (isWhole(cached))
             {
                 return Optional.of(cached);
             }
@@ -212,8 +220,13 @@ public class JxlTranscoder implements PageDerivedCache
         Path part = folder.partFor(cached);
         try
         {
-            if (!runner.run(List.of(djxl.get(), source.toString(), part.toString())) || !Files.isRegularFile(part))
+            if (!runner.run(List.of(djxl.get(), source.toString(), part.toString())))
             {
+                return Optional.empty();
+            }
+            if (!isWhole(part))
+            {
+                log.error("djxl wrote no whole PNG for {} - serving it as it is", source);
                 return Optional.empty();
             }
             try
@@ -224,7 +237,7 @@ public class JxlTranscoder implements PageDerivedCache
             {
                 // Another decode of this version got there first (on Windows a served file cannot be
                 // replaced). Its copy is as good as ours.
-                if (Files.isRegularFile(cached))
+                if (isWhole(cached))
                 {
                     return Optional.of(cached);
                 }

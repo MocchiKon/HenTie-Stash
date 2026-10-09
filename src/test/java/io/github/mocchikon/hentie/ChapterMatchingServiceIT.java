@@ -75,6 +75,19 @@ class ChapterMatchingServiceIT
         return id;
     }
 
+    private int createWithNative(String titleFull, String nativeTitle, Artist... artists)
+    {
+        var form = new ChapterForm();
+        form.setTitleFull(titleFull);
+        form.setNativeTitle(nativeTitle);
+        form.setLanguage("English");
+        form.setStatus(Status.NEW);
+        form.setArtistIds(Arrays.stream(artists).map(Artist::getId).toList());
+        int id = chapterService.create(form);
+        em.flush();
+        return id;
+    }
+
     private Chapter chapter(int id)
     {
         return chapterRepository.findById(id).orElseThrow();
@@ -105,8 +118,8 @@ class ChapterMatchingServiceIT
         assertThat(series.getTitle()).isEqualTo("Autolink Saga");
         assertThat(series.getTitleFull()).isEqualTo("Autolink Saga");
         // ...numbered from their own titles...
-        assertThat(chapter(first).getChapterNum()).isCloseTo(1.0f, within(0.001f));
-        assertThat(chapter(second).getChapterNum()).isCloseTo(2.0f, within(0.001f));
+        assertThat(chapter(first).getChapterNum()).isCloseTo(1.0, within(0.001));
+        assertThat(chapter(second).getChapterNum()).isCloseTo(2.0, within(0.001));
         // ...and the series is a bare, unreviewed shell whose facets stay derived from its chapters.
         assertThat(series.getStatus()).isEqualTo(Status.NEW);
         assertThat(series.getScoreSource()).isEqualTo(ScoreSource.DERIVED);
@@ -125,7 +138,7 @@ class ChapterMatchingServiceIT
         Series series = seriesOf(id);
         assertThat(series.getTitleFull()).isEqualTo("[Scan] Bracket Saga (Zed)");
         assertThat(series.getTitle()).isEqualTo("Bracket Saga");
-        assertThat(chapter(id).getChapterNum()).isCloseTo(2.01f, within(0.001f));
+        assertThat(chapter(id).getChapterNum()).isCloseTo(2.01, within(0.001));
     }
 
     @Test
@@ -139,7 +152,7 @@ class ChapterMatchingServiceIT
         Series series = seriesOf(id);
         assertThat(series.getTitle()).isEqualTo("Naruto");
         assertThat(series.getTitleFull()).isEqualTo("Naruto");
-        assertThat(chapter(id).getChapterNum()).isCloseTo(2.0f, within(0.001f));
+        assertThat(chapter(id).getChapterNum()).isCloseTo(2.0, within(0.001));
 
         // AND the next one in the family joins it rather than starting its own.
         int third = create("Naruto 3", "Naruto 3", artist);
@@ -227,8 +240,8 @@ class ChapterMatchingServiceIT
         assertThat(series.getTitleFull()).isEqualTo("Comic Hero [Digital]");
 
         // ...ordered by their dates...
-        assertThat(chapter(june2024).getChapterNum()).isCloseTo(2024.06f, within(0.001f));
-        assertThat(chapter(january2026).getChapterNum()).isCloseTo(2026.01f, within(0.001f));
+        assertThat(chapter(june2024).getChapterNum()).isCloseTo(2024.06, within(0.001));
+        assertThat(chapter(january2026).getChapterNum()).isCloseTo(2026.01, within(0.001));
         assertThat(chapter(june2024).getChapterNum()).isLessThan(chapter(january2026).getChapterNum());
 
         // ...while each chapter keeps its dated title; only the series name drops the date.
@@ -255,10 +268,10 @@ class ChapterMatchingServiceIT
         assertThat(chapter(cjk).getSeries().getId()).isEqualTo(run);
         assertThat(seriesOf(yearFirst).getTitle()).isEqualTo("Comic Weekly");
 
-        assertThat(chapter(yearFirst).getChapterNum()).isCloseTo(2024.06f, within(0.001f));
-        assertThat(chapter(monthFirst).getChapterNum()).isCloseTo(2024.07f, within(0.001f));
-        assertThat(chapter(withDay).getChapterNum()).isCloseTo(2024.08f, within(0.001f));
-        assertThat(chapter(cjk).getChapterNum()).isCloseTo(2024.09f, within(0.001f));
+        assertThat(chapter(yearFirst).getChapterNum()).isCloseTo(2024.06, within(0.001));
+        assertThat(chapter(monthFirst).getChapterNum()).isCloseTo(2024.07, within(0.001));
+        assertThat(chapter(withDay).getChapterNum()).isCloseTo(2024.08, within(0.001));
+        assertThat(chapter(cjk).getChapterNum()).isCloseTo(2024.09, within(0.001));
     }
 
     @Test
@@ -294,6 +307,105 @@ class ChapterMatchingServiceIT
     }
 
     @Test
+    void shouldJoinTheOriginalThroughItsJapaneseTitleWhenATranslationIsTitledDifferently()
+    {
+        // GIVEN an original titled in Japanese, and a romanized edition of another chapter of it
+        Artist artist = artist("Native Title Artist");
+        int original = createWithNative("[サークル] 異世界勇者の冒険 2", null, artist);
+        int romanized = createWithNative("[Circle] Isekai Yuusha no Bouken 3", "[サークル] 異世界勇者の冒険 3", artist);
+
+        // WHEN a translation arrives under an English title nothing else carries, with the original's native title
+        int translated = createWithNative("[Circle] The Adventures of an Otherworld Hero Ch. 4 [English]",
+                "[サークル] 異世界勇者の冒険 第4話 [英訳]");
+
+        // THEN all three are one series, though the titles share no word - and numbered from their own titles.
+        int series = seriesOf(original).getId();
+        assertThat(chapter(romanized).getSeries().getId()).isEqualTo(series);
+        assertThat(chapter(translated).getSeries().getId()).isEqualTo(series);
+        assertThat(chapter(translated).getChapterNum()).isCloseTo(4.0, within(0.001));
+        assertThat(chapter(original).getChapterNum()).isCloseTo(2.0, within(0.001));
+    }
+
+    @Test
+    void shouldNotJoinTwoWorksWhoseJapaneseTitlesDifferByOneCharacter()
+    {
+        // GIVEN a work, and another by the same artist whose Japanese title differs in its last character
+        Artist artist = artist("One Kanji Artist");
+        int girl = createWithNative("[Circle] Nemuru Ko", "[サークル] 眠り続ける子", artist);
+
+        // WHEN
+        int wife = createWithNative("[Circle] Nemuru Tsuma", "[サークル] 眠り続ける妻", artist);
+
+        // THEN they stay apart: in Japanese one character is a word, not a typo.
+        assertThat(chapter(wife).getSeries().getId()).isNotEqualTo(chapter(girl).getSeries().getId());
+    }
+
+    @Test
+    void shouldJoinTheBaseWhenATitleCarriesALongTranslationAfterItsNumber()
+    {
+        // GIVEN a base title of five words
+        Artist artist = artist("Long Translation Artist");
+        int base = create("Long Base Title Of Five", "Long Base Title Of Five", artist);
+
+        // WHEN a sibling carries a translation ten words long: the base is its shortest prefix, not a long one
+        int sibling = create("Long Base Title Of Five 2 | A Translated Title That Runs On For Very Many Words 2",
+                null, artist);
+
+        // THEN it joins the base, numbered from before the separator.
+        assertThat(chapter(sibling).getSeries().getId()).isEqualTo(seriesOf(base).getId());
+        assertThat(chapter(sibling).getChapterNum()).isCloseTo(2.0, within(0.001));
+    }
+
+    @Test
+    void shouldReadTheNumberInFrontOfASubtitleAndKeyTheChapterLikeItsSiblings()
+    {
+        // GIVEN
+        Artist artist = artist("Subtitle Artist");
+        int first = create("Subtitle Saga - The Return", null, artist);
+
+        // WHEN
+        int second = create("Subtitle Saga 2 - The Return", null, artist);
+        int third = create("Subtitle Saga 3 - The Return [English]", null, artist);
+
+        // THEN one series named without the number, chapters numbered 1-3.
+        Series series = seriesOf(first);
+        assertThat(chapter(second).getSeries().getId()).isEqualTo(series.getId());
+        assertThat(chapter(third).getSeries().getId()).isEqualTo(series.getId());
+        assertThat(series.getTitle()).isEqualTo("Subtitle Saga - The Return");
+        assertThat(chapter(second).getChapterNum()).isCloseTo(2.0, within(0.001));
+        assertThat(chapter(third).getChapterNum()).isCloseTo(3.0, within(0.001));
+    }
+
+    @Test
+    void shouldNotJoinASeriesWhoseWholeTitleIsAMarkerWord()
+    {
+        // GIVEN a series keyed by a lone marker word ("After❤" keys to "after"), with no artist to veto
+        int after = create("After❤", "After❤");
+
+        // WHEN an unrelated title starts with that word
+        int school = create("After-School Tutoring", null);
+
+        // THEN it is no family member: "after" names no work.
+        assertThat(chapter(school).getSeries().getId()).isNotEqualTo(chapter(after).getSeries().getId());
+    }
+
+    @Test
+    void shouldJoinAnAnthologyVolumeDrawnByOtherArtists()
+    {
+        // GIVEN an anthology volume drawn by five artists
+        List<Artist> lineUp = List.of(artist("Anthology A"), artist("Anthology B"), artist("Anthology C"),
+                artist("Anthology D"), artist("Anthology E"));
+        int first = create("[Anthology] Dungeon Anthology Vol. 1", null, lineUp.toArray(Artist[]::new));
+
+        // WHEN a later volume names only one, new artist
+        int later = create("[Anthology] Dungeon Anthology Vol. 8", null, artist("Anthology F"));
+
+        // THEN it joins: a work drawn by many has a new line-up every time, so the artists veto nothing.
+        assertThat(chapter(later).getSeries().getId()).isEqualTo(seriesOf(first).getId());
+        assertThat(chapter(later).getChapterNum()).isCloseTo(8.0, within(0.001));
+    }
+
+    @Test
     void shouldDropTheAutoCreatedSeriesWhenItsOnlyChapterIsRefiledByHand()
     {
         // GIVEN a chapter auto-linked into a series of its own, and a curated series to move it to.
@@ -309,7 +421,7 @@ class ChapterMatchingServiceIT
 
         // THEN the chapter is in the curated series...
         assertThat(chapter(chapterId).getSeries().getId()).isEqualTo(curated);
-        assertThat(chapter(chapterId).getChapterNum()).isCloseTo(1.0f, within(0.001f));
+        assertThat(chapter(chapterId).getChapterNum()).isCloseTo(1.0, within(0.001));
         // ...and the emptied series is gone rather than lingering in search.
         assertThat(seriesRepository.findById(autoCreated)).isEmpty();
         assertThat(seriesRepository.findById(curated)).isPresent();

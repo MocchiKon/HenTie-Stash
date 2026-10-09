@@ -21,16 +21,19 @@ public class SecurityConfig
     }
 
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http, LoginToggleFilter loginToggleFilter) throws Exception
+    public SecurityFilterChain securityFilterChain(HttpSecurity http, LoginToggleFilter loginToggleFilter,
+                                                   FailedLoginGuard failedLoginGuard) throws Exception
     {
         http
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/login", "/css/**", "/js/**", "/images/**", "/favicon.ico")
+                        .requestMatchers("/login", FailedLoginGuard.SHUT_DOWN_PAGE, "/css/**", "/js/**", "/images/**",
+                                "/favicon.ico")
                         .permitAll()
                         .anyRequest().authenticated())
                 .formLogin(form -> form
                         .loginPage("/login")
-                        .defaultSuccessUrl("/", true)
+                        .successHandler(failedLoginGuard)
+                        .failureHandler(failedLoginGuard)
                         .permitAll())
                 .logout(logout -> logout
                         .logoutUrl("/logout")

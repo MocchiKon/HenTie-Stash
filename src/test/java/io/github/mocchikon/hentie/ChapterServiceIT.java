@@ -392,11 +392,11 @@ class ChapterServiceIT
         series.setCreatedDate(LocalDate.of(2021, 1, 1));   // created_date is NOT NULL
         series = seriesRepository.save(series);
 
-        Chapter c1 = seriesChapter(series, "Nav 1", "English", 1f);
-        Chapter c2 = seriesChapter(series, "Nav 2", "English", 2f);
-        Chapter c3 = seriesChapter(series, "Nav 3", "English", 3f);
+        Chapter c1 = seriesChapter(series, "Nav 1", "English", 1.0);
+        Chapter c2 = seriesChapter(series, "Nav 2", "English", 2.0);
+        Chapter c3 = seriesChapter(series, "Nav 3", "English", 3.0);
         // A different-language chapter must not appear in this chapter's prev/next chain.
-        seriesChapter(series, "Nav JP", "Japanese", 2f);
+        seriesChapter(series, "Nav JP", "Japanese", 2.0);
         em.flush();
         em.clear();
 
@@ -655,7 +655,7 @@ class ChapterServiceIT
         return count == null ? 0 : count;
     }
 
-    private Chapter seriesChapter(Series series, String titleFull, String language, Float num)
+    private Chapter seriesChapter(Series series, String titleFull, String language, Double num)
     {
         Chapter c = new Chapter();
         c.setTitle(titleFull);

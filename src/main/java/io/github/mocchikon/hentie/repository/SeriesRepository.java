@@ -60,13 +60,6 @@ public interface SeriesRepository extends JpaRepository<Series, Integer>, JpaSpe
             """)
     List<Series> findByMatchKeyIn(Collection<String> keys, Integer excludedId, Pageable pageable);
 
-    @Query("""
-            select s from Series s
-            where s.matchBlock = :block and (:excludedId is null or s.id <> :excludedId)
-            order by s.id
-            """)
-    List<Series> findByMatchBlock(String block, Integer excludedId, Pageable pageable);
-
     /** Needs no blocking key, so it finds a sibling however badly its title is misspelled. */
     @Query("""
             select distinct s from Series s join s.effectiveArtists a

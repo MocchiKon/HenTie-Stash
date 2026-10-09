@@ -1,14 +1,5 @@
 package io.github.mocchikon.hentie;
 
-import java.time.LocalDate;
-import java.util.ArrayList;
-import java.util.List;
-
-import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.transaction.annotation.Transactional;
-
 import io.github.mocchikon.hentie.dto.CandidateScope;
 import io.github.mocchikon.hentie.dto.ChapterMatchDto;
 import io.github.mocchikon.hentie.dto.SeriesMatchDto;
@@ -23,8 +14,17 @@ import io.github.mocchikon.hentie.service.SeriesService;
 import io.github.mocchikon.hentie.service.match.TitleKey;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.transaction.annotation.Transactional;
 
-import static org.assertj.core.api.Assertions.*;
+import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.List;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.within;
 
 @SpringBootTest
 @Transactional
@@ -60,14 +60,21 @@ class MatchingServiceIT
     /** A chapter in no series, with the matching key {@code ChapterService} writes. */
     private Chapter chapter(String titleFull, List<Artist> artists)
     {
+        return chapter(titleFull, "", artists);
+    }
+
+    /** With both keys {@code ChapterService} writes. */
+    private Chapter chapter(String titleFull, String nativeTitle, List<Artist> artists)
+    {
         Chapter c = new Chapter();
         c.setTitle(titleFull);
         c.setTitleFull(titleFull);
-        c.setNativeTitle("");
+        c.setNativeTitle(nativeTitle);
         c.setUploadDate(LocalDate.of(2021, 1, 1));
         c.setLanguage("English");
         c.setArtists(new ArrayList<>(artists));
         c.setMatchKey(TitleKey.of(titleFull).getMatchKey());
+        c.setNativeMatchKey(TitleKey.nativeKey(nativeTitle, TitleKey.of(titleFull)));
         return chapterRepository.save(c);
     }
 
@@ -483,6 +490,67 @@ class MatchingServiceIT
             assertThat(m.getTitleSimilarity()).isBetween(0.9, 1.0);
             assertThat(m.getScore()).isGreaterThan(0.75);
         });
+    }
+
+    /**
+     * A translation titled in another language shares no word with the series, but carries the original's
+     * Japanese title, as the series' chapters do.
+     */
+    @Test
+    void shouldOfferATranslationThroughTheNativeTitleItsChaptersShare()
+    {
+        // GIVEN a series whose chapter carries a native title, and a translation under an English title
+        Series series = series("[Lcm Circle] Lcm Isekai Bouken", List.of());
+        filedIn(series, chapter("[Lcm Circle] Lcm Isekai Bouken 1", "[サークル] 異世界勇者の冒険 1", List.of()));
+        Chapter translated = chapter("[Lcm Circle] The Adventures of an Otherworld Hero Ch. 2",
+                "[サークル] 異世界勇者の冒険 第2話 [英訳]", List.of());
+        em.flush();
+        em.clear();
+
+        // WHEN
+        List<ChapterMatchDto> offered = matchingService.topChapterMatches(series.getId(), CandidateScope.UNLINKED, 30);
+        List<SeriesMatchDto> homes = matchingService.topMatches(translated.getId(), 5);
+
+        // THEN both pages relate them on the native title alone, with the same score.
+        assertThat(matchFor(offered, translated)).satisfies(m ->
+        {
+            assertThat(m.getTitleSimilarity()).isEqualTo(1.0);
+            assertThat(m.getScore()).isCloseTo(0.82, within(0.001));   // no artist known on either side
+        });
+        assertThat(homes).first().satisfies(m ->
+        {
+            assertThat(m.getSeriesId()).isEqualTo(series.getId());
+            assertThat(m.getScore()).isCloseTo(0.82, within(0.001));
+        });
+    }
+
+    /** "Add to series" must look past the key hit of the chapter's own series, as "Link chapters" does. */
+    @Test
+    void shouldOfferTheSeriesLinkChaptersWouldOfferEvenWhenTheChapterIsAloneInASeriesOfItsOwn()
+    {
+        // GIVEN a family, and its translation alone in a series named after it, sharing the family's artist
+        Artist artist = artist("Lcm Own Series Artist");
+        Series family = series("Lcm Kawaii Houhou", List.of());
+        filedIn(family, chapter("Lcm Kawaii Houhou 1", "[サークル] カワイイ方法 1", List.of(artist)));
+        seriesService.recomputeDerived(family.getId());
+        Chapter translated = chapter("Lcm Method to Catch Her 2", "[サークル] カワイイ方法 2", List.of(artist));
+        Series own = series("Lcm Method to Catch Her", List.of());
+        filedIn(own, translated);
+        seriesService.recomputeDerived(own.getId());
+        em.flush();
+        em.clear();
+
+        // WHEN
+        List<SeriesMatchDto> homes = matchingService.topMatches(translated.getId(), 5);
+        List<ChapterMatchDto> offered = matchingService.topChapterMatches(family.getId(), CandidateScope.ALL, 30);
+
+        // THEN the family is offered from both sides, with one score.
+        assertThat(homes).first().satisfies(m ->
+        {
+            assertThat(m.getSeriesId()).isEqualTo(family.getId());
+            assertThat(m.getScore()).isEqualTo(1.0);
+        });
+        assertThat(matchFor(offered, translated).getScore()).isEqualTo(1.0);
     }
 
     @Test

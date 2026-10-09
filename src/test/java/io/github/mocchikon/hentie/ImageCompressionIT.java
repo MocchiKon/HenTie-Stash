@@ -1,5 +1,20 @@
 package io.github.mocchikon.hentie;
 
+import io.github.mocchikon.hentie.config.AppProperties;
+import io.github.mocchikon.hentie.dto.CompressionProfile;
+import io.github.mocchikon.hentie.entity.ImageEncoder;
+import io.github.mocchikon.hentie.service.ImageDirectory;
+import io.github.mocchikon.hentie.service.compress.ImageCompressionService;
+import io.github.mocchikon.hentie.service.compress.ImageCompressor;
+import io.github.mocchikon.hentie.service.compress.ImageToolLocator;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assumptions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+
+import javax.imageio.ImageIO;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -9,24 +24,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Stream;
 
-import javax.imageio.ImageIO;
-
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.Assumptions;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-
-import io.github.mocchikon.hentie.config.AppProperties;
-import io.github.mocchikon.hentie.dto.CompressionProfile;
-import io.github.mocchikon.hentie.entity.ImageEncoder;
-import io.github.mocchikon.hentie.service.ImageDirectory;
-import io.github.mocchikon.hentie.service.compress.ImageCompressionService;
-import io.github.mocchikon.hentie.service.compress.ImageCompressor;
-import io.github.mocchikon.hentie.service.compress.ImageToolLocator;
-
-import static org.assertj.core.api.Assertions.*;
+import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Image Compression against the <b>real</b> binaries in {@code bin/}: the interaction with those tools is the
@@ -89,6 +87,32 @@ class ImageCompressionIT
         // AND it really is smaller.
         assertThat(result.finalBytes()).isLessThan(before);
         assertThat(Files.size(dir.resolve("3.jxl"))).isEqualTo(result.finalBytes());
+    }
+
+    /**
+     * Without a RAM disk the work folder is in the data folder, on the page's filesystem, so the encoder's output
+     * becomes the page by a rename, flushed first. The page must be the whole output, under the page's name only.
+     */
+    @Test
+    void shouldStoreTheWholeEncodedPageWhenTheWorkFolderIsOnThePagesFilesystem() throws IOException
+    {
+        assumeTool("cjxl");
+        assumeTool("djxl");
+        // GIVEN page 3 as a PNG, and the work folder the app picks without a RAM disk.
+        Path source = TestImages.writePng(dir.resolve("3.png"), SIZE, SIZE);
+        Path automaticWork = Files.createDirectories(compressionService.workDir(987_656));
+        assertThat(Files.getFileStore(automaticWork)).isEqualTo(Files.getFileStore(dir));
+
+        // WHEN
+        ImageCompressionService.Summary summary =
+                compressionService.compressFiles(987_656, List.of(source), jxl("-q 40 -e 1"));
+
+        // THEN 3.jxl is the only file left, and it decodes to the whole page.
+        assertThat(summary.replaced()).isEqualTo(1);
+        assertThat(listNames(dir)).containsExactly("3.jxl");
+        assertThat(decodedSize(dir.resolve("3.jxl"))).isEqualTo(SIZE);
+        // AND the run left nothing in its work folder.
+        assertThat(automaticWork).doesNotExist();
     }
 
     @Test

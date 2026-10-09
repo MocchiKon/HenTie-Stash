@@ -118,6 +118,13 @@ public class Subscription
     @Column(name = "last_rechecked_at")
     private LocalDateTime lastRecheckedAt;
 
+    /**
+     * When a check last saw the top of the search ({@code SubscriptionWalk}): from it a checkpoint left by a catch-up
+     * takes its time, and a check tells that the walk lost sight of the search.
+     */
+    @Column(name = "top_seen_at")
+    private LocalDateTime topSeenAt;
+
     /** As the site last counted the search's galleries, for "listed N of about M". */
     @Column(name = "result_total")
     private Integer resultTotal;

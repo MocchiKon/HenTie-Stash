@@ -18,6 +18,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -50,6 +51,7 @@ public final class FakeNhentai implements AutoCloseable
     private final Random tieOrder = new Random(1);
     private volatile boolean tiesLowestFirst;
     private volatile Runnable beforeSearch = () -> { };
+    private volatile Consumer<String> beforeImage = path -> { };
     private final List<String> searches = new CopyOnWriteArrayList<>();
 
     private static final Pattern UPLOADED_FILTER = Pattern.compile("uploaded:>(\\d+)([hd])");
@@ -107,6 +109,13 @@ public final class FakeNhentai implements AutoCloseable
      */
     public FakeNhentai simpleGallery(String id, int pages)
     {
+        return simpleGallery(id, pages, List.of("language:translated", "language:english", "artist:alpha | beta",
+                "group:circle", "tag:full color", "category:doujinshi"));
+    }
+
+    /** {@link #simpleGallery(String, int)} with other tags, each {@code "type:name"}, in the order nhentai lists them. */
+    public FakeNhentai simpleGallery(String id, int pages, List<String> typedTags)
+    {
         ObjectNode gallery = JSON.createObjectNode();
         gallery.put("id", Integer.parseInt(id));
         gallery.put("media_id", "m" + id);
@@ -117,12 +126,11 @@ public final class FakeNhentai implements AutoCloseable
         gallery.putObject("cover").put("path", "galleries/m" + id + "/cover.jpg");
         gallery.putObject("thumbnail").put("path", "galleries/m" + id + "/thumb.jpg");
         ArrayNode tags = gallery.putArray("tags");
-        tag(tags, "language", "translated");
-        tag(tags, "language", "english");
-        tag(tags, "artist", "alpha | beta");
-        tag(tags, "group", "circle");
-        tag(tags, "tag", "full color");
-        tag(tags, "category", "doujinshi");
+        for (String typed : typedTags)
+        {
+            int colon = typed.indexOf(':');
+            tag(tags, typed.substring(0, colon), typed.substring(colon + 1));
+        }
         gallery.put("num_pages", pages);
         ArrayNode pageList = gallery.putArray("pages");
         for (int page = 1; page <= pages; page++)
@@ -233,6 +241,13 @@ public final class FakeNhentai implements AutoCloseable
         return this;
     }
 
+    /** Runs before every image is answered, given its path: something happening while a page is on its way. */
+    public FakeNhentai beforeEachImage(Consumer<String> action)
+    {
+        beforeImage = action;
+        return this;
+    }
+
     /** Every search as {@code "<query> page=<n>"}, decoded, in order. */
     public List<String> searches()
     {
@@ -326,6 +341,7 @@ public final class FakeNhentai implements AutoCloseable
                 }
                 else
                 {
+                    beforeImage.accept(path);
                     send(exchange, 200, image.contentType(), image.bytes());
                 }
             }

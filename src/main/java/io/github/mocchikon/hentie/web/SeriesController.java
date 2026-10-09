@@ -1,6 +1,7 @@
 package io.github.mocchikon.hentie.web;
 
 import io.github.mocchikon.hentie.config.WriteGate;
+import io.github.mocchikon.hentie.dto.ChapterNumber;
 import io.github.mocchikon.hentie.dto.MetadataType;
 import io.github.mocchikon.hentie.dto.SelectedFilters;
 import io.github.mocchikon.hentie.dto.SeriesForm;
@@ -8,6 +9,7 @@ import io.github.mocchikon.hentie.entity.Status;
 import io.github.mocchikon.hentie.service.MetadataService;
 import io.github.mocchikon.hentie.service.SeriesService;
 import jakarta.validation.Valid;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Controller;
@@ -17,6 +19,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import java.util.List;
+import java.util.Map;
 
 @Controller
 @RequestMapping("/series")
@@ -104,6 +107,9 @@ public class SeriesController
                                BindingResult result, Model model)
     {
         form.setId(id);
+        // The number fields sit on the cards, outside the form, where no field error can show.
+        ChapterNumber.firstProblem(form.getChapterNums().values())
+                .ifPresent(problem -> result.reject("chapterNum", problem));
         if (result.hasErrors())
         {
             return reshowForm(form, model, false);
@@ -158,11 +164,18 @@ public class SeriesController
 
     @PostMapping("/{id:\\d+}/chapters/{chapterId:\\d+}/num")
     @ResponseBody
-    public ResponseEntity<Void> updateChapterNum(@PathVariable int id, @PathVariable int chapterId,
-                                                  @RequestParam float chapterNum)
+    public ResponseEntity<Map<String, String>> updateChapterNum(@PathVariable int id, @PathVariable int chapterId,
+                                                                @RequestParam String chapterNum)
     {
-        seriesService.updateChapterNum(id, chapterId, chapterNum);
-        return ResponseEntity.ok().build();
+        String problem = StringUtils.isBlank(chapterNum) ? ChapterNumber.INVALID : ChapterNumber.problem(chapterNum);
+        if (problem != null)
+        {
+            return ResponseEntity.badRequest().body(Map.of("message", problem));
+        }
+        double number = ChapterNumber.parse(chapterNum);
+        seriesService.updateChapterNum(id, chapterId, number);
+        // Written back as it is stored, so a typed 2.1 shows as part 10.
+        return ResponseEntity.ok(Map.of("chapterNum", ChapterNumber.format(number)));
     }
 
     @PostMapping("/{id:\\d+}/chapters/remove")

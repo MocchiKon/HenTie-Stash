@@ -40,7 +40,7 @@ class ChapterMatchingIT
         return artistRepository.save(artist);
     }
 
-    /** As an import leaves it: no series and no matching keys yet. */
+    /** Written past ChapterService: no series and no matching keys yet. */
     private Chapter chapter(String title, String language, Artist... artists)
     {
         return chapter(title, title, language, artists);
@@ -48,10 +48,15 @@ class ChapterMatchingIT
 
     private Chapter chapter(String titleFull, String title, String language, Artist... artists)
     {
+        return chapter(titleFull, title, "", language, artists);
+    }
+
+    private Chapter chapter(String titleFull, String title, String nativeTitle, String language, Artist... artists)
+    {
         var chapter = new Chapter();
         chapter.setTitleFull(titleFull);
         chapter.setTitle(title);
-        chapter.setNativeTitle("");
+        chapter.setNativeTitle(nativeTitle);
         chapter.setUploadDate(LocalDate.of(2021, 1, 1));
         chapter.setLanguage(language);
         chapter.setStatus(Status.NEW);
@@ -140,16 +145,58 @@ class ChapterMatchingIT
         assertThat(series(familyB).getId()).isNotEqualTo(series(familyA).getId());
 
         // AND the numbers come from the titles, so both languages of one chapter share a number.
-        assertThat(reload(base).getChapterNum()).isCloseTo(1.0f, within(0.001f));
-        assertThat(reload(baseJp).getChapterNum()).isCloseTo(1.0f, within(0.001f));
-        assertThat(reload(second).getChapterNum()).isCloseTo(2.0f, within(0.001f));
-        assertThat(reload(secondPart2).getChapterNum()).isCloseTo(4.02f, within(0.001f));
-        assertThat(reload(secondOmake).getChapterNum()).isCloseTo(2.01f, within(0.001f));
-        assertThat(reload(decorated).getChapterNum()).isCloseTo(5.01f, within(0.001f));
+        assertThat(reload(base).getChapterNum()).isCloseTo(1.0, within(0.001));
+        assertThat(reload(baseJp).getChapterNum()).isCloseTo(1.0, within(0.001));
+        assertThat(reload(second).getChapterNum()).isCloseTo(2.0, within(0.001));
+        assertThat(reload(secondPart2).getChapterNum()).isCloseTo(4.02, within(0.001));
+        assertThat(reload(secondOmake).getChapterNum()).isCloseTo(2.01, within(0.001));
+        assertThat(reload(decorated).getChapterNum()).isCloseTo(5.01, within(0.001));
 
         // The sweep sees every unlinked chapter in the database, so assert the shape, not totals.
         assertThat(result.getScanned()).isGreaterThanOrEqualTo(13);
         assertThat(result.getMatched()).isEqualTo(result.getScanned());
+    }
+
+    /**
+     * What the series page's "Link chapters" finds, the sweep must find too, although every series here is
+     * created during the same sweep, in the same slice, before anything about it is materialized.
+     */
+    @Test
+    void shouldFindTheFamiliesLinkChaptersWouldFindWhenTheirSeriesWereCreatedInTheSameSweep()
+    {
+        // GIVEN, in no series yet:
+        // a family whose second member misspells the block, so only its artist relates it,
+        Artist fox = artist("Same Slice Fox");
+        Chapter tales = chapter("Kitsune Tales", "English", fox);
+        Chapter misspelled = chapter("Ktisune Tales 2", "English", fox);
+        // one whose sibling carries a translation ten words long, so its base is a short prefix of it,
+        Artist longer = artist("Same Slice Long");
+        Chapter base = chapter("Long Base Title Of Five", "Japanese", longer);
+        Chapter translated = chapter("Long Base Title Of Five 2 | A Translated Title That Runs On For Very Many Words 2",
+                "English", longer);
+        // and one related only through the Japanese title the romanized edition carries.
+        Artist hero = artist("Same Slice Hero");
+        Chapter romanized = chapter("[Circle] Isekai Yuusha no Bouken 3", "[Circle] Isekai Yuusha no Bouken 3",
+                "[サークル] 異世界勇者の冒険 3", "Japanese", hero);
+        Chapter original = chapter("[サークル] 異世界勇者の冒険 2", "Japanese", hero);
+        em.flush();
+
+        // WHEN
+        sweep.matchUnlinked();
+        em.flush();
+        em.clear();
+
+        // THEN each family is one series, numbered from the titles.
+        assertThat(seriesId(reload(misspelled))).isEqualTo(seriesId(reload(tales)));
+        assertThat(seriesId(reload(translated))).isEqualTo(seriesId(reload(base)));
+        assertThat(reload(translated).getChapterNum()).isCloseTo(2.0, within(0.001));
+        assertThat(seriesId(reload(original))).isEqualTo(seriesId(reload(romanized)));
+        assertThat(reload(original).getChapterNum()).isCloseTo(2.0, within(0.001));
+        assertThat(List.of(seriesId(reload(tales)), seriesId(reload(base)), seriesId(reload(romanized))))
+                .doesNotHaveDuplicates();
+        // AND the sweep wrote the native keys it matched by.
+        assertThat(reload(romanized).getNativeMatchKey()).isEqualTo("異世界勇者の冒険");
+        assertThat(reload(original).getNativeMatchKey()).isEqualTo("異世界勇者の冒険");
     }
 
     @Test
@@ -167,7 +214,7 @@ class ChapterMatchingIT
         series.setStatus(Status.REVIEWED);
         em.persist(series);
         linked.setSeries(series);
-        linked.setChapterNum(9.5f);
+        linked.setChapterNum(9.5);
         chapterRepository.save(linked);
         em.flush();
 
@@ -182,10 +229,10 @@ class ChapterMatchingIT
 
         // AND the linked chapter kept both its series and its hand-set number - it was never scanned.
         assertThat(seriesId(reload(linked))).isEqualTo(series.getId());
-        assertThat(reload(linked).getChapterNum()).isCloseTo(9.5f, within(0.001f));
+        assertThat(reload(linked).getChapterNum()).isCloseTo(9.5, within(0.001));
         // AND the loose one was matched into it.
         assertThat(seriesId(reload(loose))).isEqualTo(series.getId());
-        assertThat(reload(loose).getChapterNum()).isCloseTo(3.0f, within(0.001f));
+        assertThat(reload(loose).getChapterNum()).isCloseTo(3.0, within(0.001));
         // AND linking into an existing series leaves its hand-picked name alone.
         assertThat(series(series.getId()).getTitle()).isEqualTo("Kept Series");
         assertThat(series(series.getId()).getTitleFull()).isEqualTo("Kept Series");

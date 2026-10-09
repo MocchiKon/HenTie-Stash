@@ -295,6 +295,54 @@ class SubscriptionWalkTest
         assertThat(SubscriptionWalk.recheckDue(now.minusYears(1), 0, now)).isFalse();
     }
 
+    /** Only a check during a catch-up with more than a page above it leaves galleries above its stop unlisted. */
+    @Test
+    void shouldTellWhetherACheckSawTheTop()
+    {
+        // GIVEN
+        State walked = state(10L, 1L, true);
+        State catchingUp = new State("t:10", "t:1", "c1", true, "t:15", "c13", "t:10");
+
+        // WHEN + THEN
+        assertThat(after(State.EMPTY, new Step(Kind.CHECK, null, null, false), page(true, 3, 2)).sawTop()).isTrue();
+        assertThat(after(walked, new Step(Kind.CHECK, null, "t:10", false), page(true, 12, 11, 10)).sawTop())
+                .isTrue();
+        assertThat(after(walked, new Step(Kind.CHECK, null, "t:10", false), page(true, 13, 12, 11)).sawTop())
+                .as("a catch-up starts below it").isTrue();
+        assertThat(after(catchingUp, new Step(Kind.CHECK, null, "t:15", false), page(true, 16, 15)).sawTop())
+                .isTrue();
+        assertThat(after(catchingUp, new Step(Kind.CHECK, null, "t:15", false), page(true, 18, 17, 16)).sawTop())
+                .isFalse();
+        assertThat(after(catchingUp, new Step(Kind.CATCH_UP, "c13", "t:10", false), page(true, 10)).sawTop())
+                .isFalse();
+        assertThat(after(walked, new Step(Kind.BACKFILL, "c1", null, false), page(false)).sawTop()).isFalse();
+    }
+
+    @Test
+    void shouldReachBackFromWhenTheRecheckWasDue()
+    {
+        // GIVEN
+        LocalDateTime now = LocalDateTime.of(2026, 10, 4, 12, 0);
+
+        // WHEN + THEN on time, and a year late: from when it was due
+        assertThat(SubscriptionWalk.recheckCutoff(now.minusHours(24), 24, 48, now)).isEqualTo(now.minusHours(48));
+        assertThat(SubscriptionWalk.recheckCutoff(null, 24, 48, now)).isEqualTo(now.minusHours(48));
+        assertThat(SubscriptionWalk.recheckCutoff(now.minusYears(1), 24, 48, now))
+                .isEqualTo(now.minusYears(1).minusHours(24));
+    }
+
+    @Test
+    void shouldTellWhenTheWalkLostSightOfTheSearch()
+    {
+        // GIVEN
+        LocalDateTime now = LocalDateTime.of(2026, 10, 4, 12, 0);
+
+        // WHEN + THEN
+        assertThat(SubscriptionWalk.lostSight(null, 48, now)).isFalse();
+        assertThat(SubscriptionWalk.lostSight(now.minusHours(48), 48, now)).isFalse();
+        assertThat(SubscriptionWalk.lostSight(now.minusHours(49), 48, now)).isTrue();
+    }
+
     @Test
     void shouldDoubleTheWaitAfterEachFailureUpToThePollingInterval()
     {
