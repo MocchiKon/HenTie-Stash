@@ -328,4 +328,19 @@ class NhentaiSearchTest
         assertThatThrownBy(() -> downloader.normalizedQuery("nhentai", "nhentai.net/tag/big-breasts/?page=2"))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("address of a search");
     }
+
+    /** Another site's address would be searched for as text too. */
+    @Test
+    void shouldRefuseTheAddressOfAnotherSite()
+    {
+        // WHEN + THEN
+        for (String address : List.of("https://e-hentai.org/?f_search=x", "e-hentai.org/tag/female:x",
+                "www.example.com", "http://example.com"))
+        {
+            assertThatThrownBy(() -> downloader.normalizedQuery("nhentai", address))
+                    .as(address).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("not an address on");
+        }
+        // ...while search text with dots and colons is still search text.
+        assertThat(downloader.normalizedQuery("nhentai", "parody:\"vol.2\" artist:x")).isEqualTo("parody:\"vol.2\" artist:x");
+    }
 }

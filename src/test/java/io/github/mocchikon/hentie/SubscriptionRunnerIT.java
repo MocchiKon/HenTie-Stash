@@ -32,12 +32,12 @@ import java.io.IOException;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.tuple;
+import static org.assertj.core.api.Assertions.*;
 
 /**
  * Subscriptions end to end against {@link FakeNhentai} and {@link FakeEhentai}, stepped by hand
@@ -338,6 +338,76 @@ class SubscriptionRunnerIT
         assertThat(rechecked.getQueuedCount()).isEqualTo(10);
     }
 
+    /**
+     * After a year off, what was uploaded shortly before the app stopped and tagged while it was off is listed again,
+     * and the year, listed in one go, is not listed again by the re-checks after it.
+     */
+    @Test
+    void shouldRecheckAroundAYearTheAppWasOffWithoutListingTheYearAgain()
+    {
+        // GIVEN a walked search whose head was 105 when the app stopped a year ago, its head 40 hours before that at
+        // 101, and its last re-check 12 hours before it stopped
+        Instant stoppedAt = Instant.now().minus(Duration.ofDays(365));
+        long[] galleries = {100, 101, 102, 103, 105};
+        long[] hoursBeforeStop = {50, 45, 30, 20, 1};
+        for (int i = 0; i < galleries.length; i++)
+        {
+            nhentai.searchable(galleries[i], stoppedAt.minus(Duration.ofHours(hoursBeforeStop[i]).plusMinutes(30))
+                    .getEpochSecond());
+        }
+        int id = subscribe("nhentai", "q");
+        runAll();
+        LocalDateTime stopped = LocalDateTime.now().minusDays(365);
+        editCheckpoints(id, checkpoint -> checkpoint.setRecordedAt(stopped));
+        checkpoint(id, "nhentai:101", stopped.minusHours(40));
+        edit(id, s ->
+        {
+            s.setTopSeenAt(stopped);
+            s.setLastCheckedAt(stopped);
+            s.setLastRecheckedAt(stopped.minusHours(12));
+        });
+
+        // WHEN gallery 104, uploaded 10 hours before the app stopped, was tagged to match while it was off, 60
+        // galleries came over the year, and the app runs again; its catch-up takes 30 hours
+        nhentai.searchable(104, stoppedAt.minus(Duration.ofHours(10).plusMinutes(30)).getEpochSecond());
+        for (int i = 0; i < 60; i++)
+        {
+            nhentai.searchable(200 + i, stoppedAt.plus(Duration.ofDays(1 + i * 6L).plusMinutes(30)).getEpochSecond());
+        }
+        assertThat(runner.runNext()).isTrue();
+        assertThat(reload(id).getCatchUpTop()).isEqualTo("nhentai:259");
+        LocalDateTime topSeen = LocalDateTime.now().minusHours(30);
+        edit(id, s -> s.setTopSeenAt(topSeen));
+        runAll();
+
+        // THEN 104 is queued, and the only checkpoint left is the new head, at the time its catch-up read it
+        assertThat(rowsOf(id)).extracting(DownloadQueueItem::getGalleryId).contains("nhentai:104");
+        Subscription back = reload(id);
+        assertThat(back.getNewestGalleryId()).isEqualTo("nhentai:259");
+        assertThat(back.getCatchUpTop()).isNull();
+        assertThat(checkpointRepository.findAll()).filteredOn(c -> c.getSubscriptionId() == id).singleElement()
+                .satisfies(checkpoint ->
+                {
+                    assertThat(checkpoint.getGalleryId()).isEqualTo("nhentai:259");
+                    assertThat(checkpoint.getRecordedAt()).isCloseTo(topSeen, within(1, ChronoUnit.SECONDS));
+                });
+
+        // WHEN the next re-check is due
+        edit(id, s ->
+        {
+            s.setLastCheckedAt(LocalDateTime.now().minusHours(25));
+            s.setLastRecheckedAt(LocalDateTime.now().minusHours(25));
+        });
+        int searchesBefore = nhentai.searches().size();
+        int steps = runAll();
+
+        // THEN it reads the newest page only: the year below the head is not listed again
+        assertThat(steps).isEqualTo(1);
+        assertThat(nhentai.searches().subList(searchesBefore, nhentai.searches().size()))
+                .containsExactly("q page=1");
+        assertThat(reload(id).getLastRecheckedAt()).isAfter(LocalDateTime.now().minusMinutes(5));
+    }
+
     /** A page fetched for a walk that changed meanwhile must not move the new one. */
     @Test
     void shouldDropAPageFetchedForASearchThatChangedMeanwhile()
@@ -551,6 +621,15 @@ class SubscriptionRunnerIT
     {
         new TransactionTemplate(transactionManager).executeWithoutResult(status ->
                 checkpointRepository.findAll().stream().filter(c -> c.getSubscriptionId() == id).forEach(change));
+    }
+
+    private void checkpoint(int id, String galleryId, LocalDateTime recordedAt)
+    {
+        var checkpoint = new SubscriptionCheckpoint();
+        checkpoint.setSubscriptionId(id);
+        checkpoint.setGalleryId(galleryId);
+        checkpoint.setRecordedAt(recordedAt);
+        checkpointRepository.save(checkpoint);
     }
 
     private void chapter(String galleryId, DownloadStatus status)

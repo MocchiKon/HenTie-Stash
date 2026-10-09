@@ -47,7 +47,7 @@ class ShutdownWebIT
                 .andExpect(content().string(containsString("HenTie is shutting down")));
 
         // THEN
-        verify(appShutdown).shutDownSoon();
+        verify(appShutdown).shutDownSoon("as asked on the Settings page");
     }
 
     /** Without the form's token, any web page open in the user's browser could stop the app. */

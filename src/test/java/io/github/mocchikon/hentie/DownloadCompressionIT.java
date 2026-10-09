@@ -1,12 +1,11 @@
 package io.github.mocchikon.hentie;
 
 import io.github.mocchikon.hentie.dto.BuiltInCompressionMode;
-import io.github.mocchikon.hentie.entity.Chapter;
-import io.github.mocchikon.hentie.entity.DownloadStatus;
-import io.github.mocchikon.hentie.entity.ImageCompressionMode;
-import io.github.mocchikon.hentie.entity.ImageEncoder;
+import io.github.mocchikon.hentie.entity.*;
 import io.github.mocchikon.hentie.repository.ChapterRepository;
 import io.github.mocchikon.hentie.repository.DownloadQueueRepository;
+import io.github.mocchikon.hentie.scrapper.DataDownloaderRegistry;
+import io.github.mocchikon.hentie.scrapper.ResourceLink;
 import io.github.mocchikon.hentie.service.ChapterService;
 import io.github.mocchikon.hentie.service.ImageDirectory;
 import io.github.mocchikon.hentie.service.ImageService;
@@ -14,6 +13,7 @@ import io.github.mocchikon.hentie.service.compress.ImageCompressionModeService;
 import io.github.mocchikon.hentie.service.compress.ImageToolLocator;
 import io.github.mocchikon.hentie.service.download.DownloadQueueService;
 import io.github.mocchikon.hentie.service.download.DownloadWorker;
+import io.github.mocchikon.hentie.service.download.GalleryImportService;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import org.junit.jupiter.api.AfterEach;
@@ -61,6 +61,8 @@ class DownloadCompressionIT
     @Autowired ChapterService chapterService;
     @Autowired ImageCompressionModeService modeService;
     @Autowired ImageToolLocator toolLocator;
+    @Autowired DataDownloaderRegistry registry;
+    @Autowired GalleryImportService importService;
     @PersistenceContext EntityManager em;
 
     private Integer createdChapterId;
@@ -197,36 +199,38 @@ class DownloadCompressionIT
     }
 
     /**
-     * Inherited staged pages are not compressed again, so reusing them after a mode change would publish a
-     * chapter half in each mode.
+     * The pages an earlier attempt saved are the chapter's as they are: a mode chosen afterwards applies to the
+     * pages still missing.
      */
     @Test
-    void shouldProcessEveryPageWithTheNewModeWhenTheModeChangedBetweenTwoAttempts() throws IOException
+    void shouldKeepThePagesAnEarlierAttemptSavedWhenTheModeChangedBetweenTwoAttempts() throws IOException
     {
         assumeTool("cjxl");
         // GIVEN a three-page gallery whose last page is missing, queued uncompressed...
         writeGallery("8101", 3, 2);
         queueService.enqueue(List.of("mock:8101"), TestDownloads.choices(BuiltInCompressionMode.NONE.getKey(), false));
-        // ...and a first attempt that stages pages 1-2 as they are and then fails on page 3.
+        // ...and a first attempt that saves pages 1-2 as they are and then fails on page 3.
         assertThat(worker.processNext()).isTrue();
         em.flush();
         createdChapterId = chapterRepository.findByGalleryId("mock:8101").orElseThrow().getId();
-        assertThat(imageService.stagedPageNumbers(imageService.stagingDir(createdChapterId, false)))
-                .containsExactlyInAnyOrder(1, 2);
+        assertThat(imageService.pageNames(createdChapterId)).containsExactly("1.png", "2.png");
 
         // WHEN the link is pasted again with a JPEG XL mode, the missing page turns up, and it is retried.
-        queueService.enqueue(List.of("mock:8101"), TestDownloads.choices(modeService.save(mode("Changed mode", "-q 40 -e 1")), false));
+        String key = modeService.save(mode("Changed mode", "-q 40 -e 1"));
+        queueService.enqueue(List.of("mock:8101"), TestDownloads.choices(key, false));
         Files.write(MOCK_DIR.resolve("galleries/8101/3.png"), TestImages.png(SIZE, SIZE));
         assertThat(worker.processNext()).isTrue();
         em.flush();
 
-        // THEN every page was encoded with the new mode - including the two staged under the old one.
+        // THEN only the page that was still missing went through the new mode...
         assertThat(imageService.pageUrls(createdChapterId)).containsExactly(
-                "/data/" + createdChapterId + "/1.jxl",
-                "/data/" + createdChapterId + "/2.jxl",
+                "/data/" + createdChapterId + "/1.png",
+                "/data/" + createdChapterId + "/2.png",
                 "/data/" + createdChapterId + "/3.jxl");
-        assertThat(chapterRepository.findById(createdChapterId).orElseThrow().getDownloadStatus())
-                .isEqualTo(DownloadStatus.SUCCESSFUL);
+        // ...which the chapter names, since one of its pages is compressed.
+        Chapter chapter = chapterRepository.findById(createdChapterId).orElseThrow();
+        assertThat(chapter.getCompressionMode()).isEqualTo(key);
+        assertThat(chapter.getDownloadStatus()).isEqualTo(DownloadStatus.SUCCESSFUL);
     }
 
     /**
@@ -243,10 +247,11 @@ class DownloadCompressionIT
         pngOnly.setFormats("PNG");
         String key = modeService.save(pngOnly);
         queueService.enqueue(List.of("mock:8102"), TestDownloads.choices(key, false));
-        // ...and a first attempt that compresses pages 1-2 in staging and then fails on page 3.
+        // ...and a first attempt that compresses and saves pages 1-2 and then fails on page 3.
         assertThat(worker.processNext()).isTrue();
         em.flush();
         createdChapterId = chapterRepository.findByGalleryId("mock:8102").orElseThrow().getId();
+        assertThat(imageService.pageNames(createdChapterId)).containsExactly("1.jxl", "2.jxl");
 
         // WHEN page 3 turns up as a JPEG, and the item is retried.
         Path json = MOCK_DIR.resolve("8102.json");
@@ -267,37 +272,93 @@ class DownloadCompressionIT
     }
 
     /**
-     * Nothing rebuilds the mode from the files, and a rerun with nothing left to compress would never record
-     * it, so it must be on the chapter before the first page lands.
+     * A page that could not be saved after its encoder is never skipped, even in lenient mode: a full disk would
+     * skip every page and still mark the chapter {@code SUCCESSFUL}. Nothing rebuilds the mode from the files, so the
+     * chapter must name it for the page that was saved, though its attempt failed.
      */
     @Test
-    void shouldRecordTheModeBeforeTheCompressedPagesArePublished() throws IOException
+    void shouldFailTheAttemptButKeepTheModeWhenACompressedPageCannotBeSaved() throws IOException
     {
         assumeTool("cjxl");
-        // GIVEN a three-page gallery whose last page is missing, queued with a JPEG XL mode, and a first
-        // attempt that compresses pages 1-2 in staging and then fails on page 3...
-        writeGallery("8103", 3, 2);
-        String key = modeService.save(mode("Before publishing", "-q 40 -e 1"));
-        queueService.enqueue(List.of("mock:8103"), TestDownloads.choices(key, false));
-        assertThat(worker.processNext()).isTrue();
-        em.flush();
-        createdChapterId = chapterRepository.findByGalleryId("mock:8103").orElseThrow().getId();
-        // ...then page 3 turns up, and a folder squats on page 2's published name, so the next publish fails
-        // part-way, as a crash would stop it.
-        Files.write(MOCK_DIR.resolve("galleries/8103/3.png"), TestImages.png(SIZE, SIZE));
+        // GIVEN a chapter with its gallery's metadata, and a folder squatting on page 2's name in its folder...
+        writeGallery("8103", 2);
+        ResourceLink link = registry.parse("mock:8103").orElseThrow();
+        createdChapterId = importService.importChapter(
+                link.downloader().downloadGalleryInfo(link.resourceId()), link.galleryId());
         Path squatter = Files.createDirectories(imageDirectory.chapterDir(createdChapterId).resolve("2.jxl"));
         Files.writeString(squatter.resolve("occupied.txt"), "not a page");
+        // ...queued with a JPEG XL mode, in the one mode allowed to skip pages.
+        String key = modeService.save(mode("Cannot save", "-q 40 -e 1"));
+        queueService.enqueue(List.of("mock:8103"), TestDownloads.choices(key, false));
+        int id = queueRepository.findByLink("mock:8103").orElseThrow().getId();
+        assertThat(queueService.retry(id, true, false)).isTrue();
+        em.flush();
 
-        // WHEN the item is retried.
+        // WHEN the worker takes it.
         assertThat(worker.processNext()).isTrue();
         em.flush();
 
-        // THEN the publish did not finish, and the item waits for another attempt...
+        // THEN the attempt failed rather than finishing without page 2...
         Chapter chapter = chapterRepository.findById(createdChapterId).orElseThrow();
         assertThat(chapter.getDownloadStatus()).isEqualTo(DownloadStatus.PENDING);
-        assertThat(queueRepository.findByLink("mock:8103").orElseThrow().getError()).isNull();
-        // ...but the chapter already names the mode its pages went through.
+        DownloadQueueItem item = queueRepository.findById(id).orElseThrow();
+        assertThat(item.getAttempts()).isEqualTo(1);
+        // ...while page 1 is saved compressed, and the chapter names the mode it went through.
+        assertThat(imageService.pageNames(createdChapterId)).containsExactly("1.jxl");
         assertThat(chapter.getCompressionMode()).isEqualTo(key);
+
+        // WHEN the folder is gone and the item runs again.
+        ImageService.deleteRecursively(squatter);
+        assertThat(worker.processNext()).isTrue();
+        em.flush();
+
+        // THEN the chapter is complete.
+        assertThat(imageService.pageNames(createdChapterId)).containsExactly("1.jxl", "2.jxl");
+        assertThat(chapterRepository.findById(createdChapterId).orElseThrow().getDownloadStatus())
+                .isEqualTo(DownloadStatus.SUCCESSFUL);
+    }
+
+    /** The mode is recorded before any page could be re-encoded, so it must be taken back when none was. */
+    @Test
+    void shouldRecordNoModeWhenTheModeReEncodedNoPage() throws IOException
+    {
+        // GIVEN a gallery of JPEGs, queued with a mode that takes only PNGs.
+        writeGallery("8104", 2, 2, "jpg");
+        var pngOnly = mode("PNG only, JPEG gallery", "-q 40 -e 1");
+        pngOnly.setFormats("PNG");
+        queueService.enqueue(List.of("mock:8104"), TestDownloads.choices(modeService.save(pngOnly), false));
+
+        // WHEN the worker takes it.
+        assertThat(worker.processNext()).isTrue();
+        em.flush();
+
+        // THEN the pages are the source's own, and the chapter says so.
+        Chapter chapter = chapterRepository.findByGalleryId("mock:8104").orElseThrow();
+        createdChapterId = chapter.getId();
+        assertThat(imageService.pageNames(createdChapterId)).containsExactly("1.jpg", "2.jpg");
+        assertThat(chapter.getDownloadStatus()).isEqualTo(DownloadStatus.SUCCESSFUL);
+        assertThat(chapter.getCompressionMode()).isNull();
+    }
+
+    /** Likewise for an attempt that fails before re-encoding anything, which no later attempt would put right. */
+    @Test
+    void shouldTakeTheModeBackWhenAnAttemptFailedBeforeReEncodingAnyPage() throws IOException
+    {
+        // GIVEN a gallery whose pages the source does not have (yet), queued with a JPEG XL mode.
+        writeGallery("8105", 2, 0);
+        queueService.enqueue(List.of("mock:8105"), TestDownloads.choices(
+                modeService.save(mode("Not yet", "-q 40 -e 1")), false));
+
+        // WHEN its first attempt fails.
+        assertThat(worker.processNext()).isTrue();
+        em.flush();
+
+        // THEN the chapter records no mode.
+        Chapter chapter = chapterRepository.findByGalleryId("mock:8105").orElseThrow();
+        createdChapterId = chapter.getId();
+        assertThat(queueRepository.findByLink("mock:8105").orElseThrow().getAttempts()).isEqualTo(1);
+        assertThat(chapter.getDownloadStatus()).isEqualTo(DownloadStatus.PENDING);
+        assertThat(chapter.getCompressionMode()).isNull();
     }
 
     /** Like every compression failure, a missing mode means "keep the original", never a failed download. */
@@ -366,8 +427,17 @@ class DownloadCompressionIT
         writeGallery(id, pages, pages);
     }
 
-    /** Only the first {@code presentPages} exist, so an attempt stages those and fails on the next. */
     private static void writeGallery(String id, int declaredPages, int presentPages) throws IOException
+    {
+        writeGallery(id, declaredPages, presentPages, "png");
+    }
+
+    /**
+     * Only the first {@code presentPages} exist, so an attempt saves those and fails on the next. Every page is
+     * a PNG, whatever {@code extension} names it.
+     */
+    private static void writeGallery(String id, int declaredPages, int presentPages, String extension)
+            throws IOException
     {
         Path gallery = MOCK_DIR.resolve("galleries").resolve(id);
         Files.createDirectories(gallery);
@@ -377,10 +447,11 @@ class DownloadCompressionIT
         {
             pageJson.append(page > 1 ? "," : "")
                     .append("{\"number\":").append(page)
-                    .append(",\"path\":\"galleries/").append(id).append('/').append(page).append(".png\"}");
+                    .append(",\"path\":\"galleries/").append(id).append('/').append(page).append('.')
+                    .append(extension).append("\"}");
             if (page <= presentPages)
             {
-                Files.write(gallery.resolve(page + ".png"), TestImages.png(SIZE, SIZE));
+                Files.write(gallery.resolve(page + "." + extension), TestImages.png(SIZE, SIZE));
             }
         }
         String json = """

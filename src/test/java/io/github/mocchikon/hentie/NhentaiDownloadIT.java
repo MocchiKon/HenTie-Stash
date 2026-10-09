@@ -2,11 +2,13 @@ package io.github.mocchikon.hentie;
 
 import io.github.mocchikon.hentie.config.AppProperties;
 import io.github.mocchikon.hentie.dto.BuiltInCompressionMode;
+import io.github.mocchikon.hentie.dto.MetadataType;
 import io.github.mocchikon.hentie.entity.Chapter;
 import io.github.mocchikon.hentie.entity.DownloadQueueItem;
 import io.github.mocchikon.hentie.entity.DownloadStatus;
 import io.github.mocchikon.hentie.repository.ChapterRepository;
 import io.github.mocchikon.hentie.repository.DownloadQueueRepository;
+import io.github.mocchikon.hentie.repository.MetadataRuleRepository;
 import io.github.mocchikon.hentie.scrapper.DataDownloaderRegistry;
 import io.github.mocchikon.hentie.scrapper.nhentai.NhentaiProperties;
 import io.github.mocchikon.hentie.service.ImageService;
@@ -42,6 +44,7 @@ class NhentaiDownloadIT
     @Autowired DataDownloaderRegistry registry;
     @Autowired ChapterRepository chapterRepository;
     @Autowired DownloadQueueRepository queueRepository;
+    @Autowired MetadataRuleRepository ruleRepository;
     @Autowired ImageService imageService;
     @Autowired NhentaiProperties nhentaiProperties;
     @Autowired AppProperties appProperties;
@@ -68,7 +71,7 @@ class NhentaiDownloadIT
     }
 
     @Test
-    void shouldStoreTheGalleryWithItsArtistsSplitAndOnlyItsPagesWhenDownloadingAnNhentaiLink()
+    void shouldStoreTheGalleryWithItsArtistsFirstNameAndOnlyItsPagesWhenDownloadingAnNhentaiLink()
     {
         // GIVEN
         site.simpleGallery("177013", 3);
@@ -88,7 +91,10 @@ class NhentaiDownloadIT
             assertThat(chapter.getTitle()).isEqualTo("Gallery 177013");
             assertThat(chapter.getNativeTitle()).isNull();
             assertThat(chapter.getLanguage()).isEqualTo("English");
-            assertThat(chapter.getArtists()).extracting("name").containsExactlyInAnyOrder("alpha", "beta");
+            // nhentai's "alpha | beta" is e-hentai's name and alias: the alias is ruled to the name.
+            assertThat(chapter.getArtists()).extracting("name").containsExactly("alpha");
+            assertThat(ruleRepository.findByTypeAndSourceNameLower(MetadataType.ARTIST, "beta").orElseThrow().getTargetId())
+                    .isEqualTo(chapter.getArtists().getFirst().getId());
             assertThat(chapter.getGroups()).extracting("name").containsExactly("circle");
             assertThat(chapter.getCategories()).extracting("name").containsExactly("doujinshi");
             assertThat(chapter.getDownloadStatus()).isEqualTo(DownloadStatus.SUCCESSFUL);
@@ -152,7 +158,7 @@ class NhentaiDownloadIT
             assertThat(worker.processNext()).isTrue();
             em.flush();
 
-            // THEN the attempt failed after the retries, and the item waits for its next one with nothing published.
+            // THEN the attempt failed after the retries, and the item waits for its next one with page 1 saved.
             DownloadQueueItem item = queueRepository.findByLink("nhentai:179").orElseThrow();
             assertThat(item.getAttempts()).isEqualTo(1);
             assertThat(item.getError()).isNull();
@@ -160,18 +166,72 @@ class NhentaiDownloadIT
             Chapter chapter = chapterRepository.findByGalleryId("nhentai:179").orElseThrow();
             chapterId = chapter.getId();
             assertThat(chapter.getDownloadStatus()).isEqualTo(DownloadStatus.PENDING);
-            assertThat(imageService.pageUrls(chapterId)).isEmpty();
+            assertThat(imageService.pageNumbersOnDisk(chapterId)).containsExactly(1);
 
             // WHEN the next attempt runs, the page arrives.
             assertThat(worker.processNext()).isTrue();
             em.flush();
             em.clear();
 
-            // THEN the chapter is complete, and page 1 came from staging, not from the site again.
+            // THEN the chapter is complete, and page 1 was not fetched from the site again.
             assertThat(chapterRepository.findById(chapterId).orElseThrow().getDownloadStatus())
                     .isEqualTo(DownloadStatus.SUCCESSFUL);
             assertThat(imageService.pageUrls(chapterId)).hasSize(2);
             assertThat(site.requestsFor("/galleries/m179/1.jpg")).isEqualTo(1);
+        }
+        finally
+        {
+            cleanUp(chapterId);
+        }
+    }
+
+    /** A download never fails over a language the app cannot map or a name with pipes of its own. */
+    @Test
+    void shouldIgnoreALanguageTheAppCannotMapAndKeepANameWithPipesOfItsOwn()
+    {
+        // GIVEN a pair of languages nhentai really sends, and an artist whose pipes belong to the name.
+        site.simpleGallery("180", 1, List.of("language:japanese | definition revised please read the wiki",
+                "language:japanese", "artist:|joe||"));
+        queueService.enqueue(List.of("nhentai:180"), TestDownloads.choices(NO_COMPRESSION, false));
+        Integer chapterId = null;
+        try
+        {
+            // WHEN
+            assertThat(worker.processNext()).isTrue();
+            em.flush();
+
+            // THEN the gallery is downloaded in the language the app could map, with the artist's name whole.
+            Chapter chapter = chapterRepository.findByGalleryId("nhentai:180").orElseThrow();
+            chapterId = chapter.getId();
+            assertThat(chapter.getDownloadStatus()).isEqualTo(DownloadStatus.SUCCESSFUL);
+            assertThat(chapter.getLanguage()).isEqualTo("Japanese");
+            assertThat(chapter.getArtists()).extracting("name").containsExactly("|joe||");
+        }
+        finally
+        {
+            cleanUp(chapterId);
+        }
+    }
+
+    @Test
+    void shouldSaveAGalleryWithNoLanguageTheAppKnowsAsJapanese()
+    {
+        // GIVEN a gallery nhentai files only as speechless.
+        site.simpleGallery("181", 1, List.of("language:speechless", "tag:full color"));
+        queueService.enqueue(List.of("nhentai:181"), TestDownloads.choices(NO_COMPRESSION, false));
+        Integer chapterId = null;
+        try
+        {
+            // WHEN
+            assertThat(worker.processNext()).isTrue();
+            em.flush();
+
+            // THEN it is downloaded all the same, in the language a gallery without one is taken for.
+            Chapter chapter = chapterRepository.findByGalleryId("nhentai:181").orElseThrow();
+            chapterId = chapter.getId();
+            assertThat(chapter.getDownloadStatus()).isEqualTo(DownloadStatus.SUCCESSFUL);
+            assertThat(chapter.getLanguage()).isEqualTo("Japanese");
+            assertThat(queueRepository.findByLink("nhentai:181")).isEmpty();
         }
         finally
         {

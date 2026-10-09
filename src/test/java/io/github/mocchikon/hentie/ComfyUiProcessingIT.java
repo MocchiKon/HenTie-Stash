@@ -25,6 +25,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -794,6 +795,45 @@ class ComfyUiProcessingIT
         assertThat(outcome).isInstanceOf(Ready.class);
         assertThat(comfy.prompts()).hasSize(2);
         assertThat(comfy.inputOf(comfy.prompts().getLast())).isEqualTo(TestImages.png(20, 20));
+    }
+
+    /** Results are not synced, so a power cut can keep a result's name and lose its data. */
+    @Test
+    void shouldRunAgainRatherThanSendAResultAPowerCutEmptied() throws Exception
+    {
+        // GIVEN a processed page whose stored result a power cut emptied.
+        byte[] processed = TestImages.png(40, 40);
+        comfy.onPrompt = prompt -> new FakeComfyUi.Succeed(processed);
+        Path result = ((Ready) processing.request(CHAPTER, "1.png", "upscale", false, WAIT)).file();
+        Files.write(result, new byte[0]);
+
+        // WHEN
+        Outcome again = processing.request(CHAPTER, "1.png", "upscale", false, WAIT);
+
+        // THEN the page ran again, and its result is whole again under the same name.
+        assertThat(again).isEqualTo(new Ready(result));
+        assertThat(result).hasBinaryContent(processed);
+        assertThat(comfy.prompts()).hasSize(2);
+    }
+
+    /** The cache takes back only a whole PNG, so a result stored otherwise would run again on every request. */
+    @Test
+    void shouldFailAResultThatIsNotAWholePngRatherThanStoreIt() throws Exception
+    {
+        // GIVEN ComfyUI sending a result cut short.
+        byte[] processed = TestImages.png(40, 40);
+        comfy.onPrompt = prompt -> new FakeComfyUi.Succeed(Arrays.copyOf(processed, processed.length / 2));
+
+        // WHEN
+        Outcome outcome = processing.request(CHAPTER, "1.png", "upscale", false, WAIT);
+
+        // THEN
+        assertThat(outcome).isInstanceOfSatisfying(Failed.class, failed ->
+        {
+            assertThat(failed.problem()).isEqualTo(Problem.FAILED);
+            assertThat(failed.message()).contains("not a whole PNG");
+        });
+        assertThat(resultCache.root().resolve(String.valueOf(CHAPTER))).doesNotExist();
     }
 
     // ---- helpers -----------------------------------------------------------

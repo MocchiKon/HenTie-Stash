@@ -40,6 +40,8 @@ import java.util.List;
         @Index(name = "ix_chapter__match_key", columnList = "match_key, id"),
         // Also every lookup of a series' chapters: series_id leads it.
         @Index(name = "ix_chapter__series_match_key", columnList = "series_id, match_key, id"),
+        // Matching by native title wants the series of the chapters it finds: covered, no row read.
+        @Index(name = "ix_chapter__native_match_key", columnList = "native_match_key, series_id"),
         // gallery_id is in the index so the "same title from another source" check never reads the row.
         @Index(name = "ix_chapter__title_full_gallery_id", columnList = "title_full, gallery_id")
 })
@@ -80,18 +82,17 @@ public class Chapter
 
     // Set by series operations only, not by the chapter edit form.
     @Column(name = "chapter_num")
-    private Float chapterNum;
+    private Double chapterNum;
 
-    // The DB default lets the H2 import insert rows without this column. Materialized for search; never
-    // trust it without a resync (ChapterService.syncImageStats).
+    // Materialized for search; never trust it without a resync (ChapterService.syncImageStats).
     @Column(name = "page_num", nullable = false, columnDefinition = "integer not null default 0")
     private Integer pageNum = 0;
 
-    // Bytes; bigint because a chapter can exceed 2 GB. Default 0 for the same reason as page_num.
+    // Bytes; bigint because a chapter can exceed 2 GB.
     @Column(name = "disk_size", nullable = false, columnDefinition = "bigint not null default 0")
     private Long diskSize = 0L;
 
-    // ORDINAL; DEFAULT 0 = NONE ("not from a download") is right for every imported row. Not on ChapterForm:
+    // ORDINAL; DEFAULT 0 = NONE ("not from a download"). Not on ChapterForm:
     // an edit must never promote a half-downloaded chapter to complete.
     @Enumerated(EnumType.ORDINAL)
     @Column(name = "download_status", nullable = false, columnDefinition = "tinyint not null default 0")
@@ -102,10 +103,18 @@ public class Chapter
     @Column(name = "compression_mode", length = 64)
     private String compressionMode;
 
-    // Derived from titleFull by TitleKey on every title write. Default '' for the H2 import; "Match chapters"
-    // backfills it.
+    // Which of its source's websites the pages last came from (exhentai); null for the source's usual one. Decides
+    // where the chapter page links to. Not on ChapterForm: it records what happened to the files.
+    @Column(name = "source_site", length = 32)
+    private String sourceSite;
+
+    // Derived from titleFull by TitleKey on every title write.
     @Column(name = "match_key", nullable = false, columnDefinition = "varchar(255) not null default ''")
     private String matchKey = "";
+
+    // Derived from nativeTitle (or a Japanese titleFull) by TitleKey.nativeKey, together with matchKey.
+    @Column(name = "native_match_key", nullable = false, columnDefinition = "varchar(255) not null default ''")
+    private String nativeMatchKey = "";
 
     @ManyToOne
     @JoinColumn(name = "series_id")

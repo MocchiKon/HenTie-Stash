@@ -22,6 +22,13 @@
             <span>Require login to access the app</span>
         </label>
         <p class="hint">If unchecked, anyone on your network can use this app without a password.</p>
+        <label class="checkbox" th:if="${maxFailedLogins > 0}">
+            <input type="checkbox" name="shutDownOnFailedLogins" th:checked="${shutDownOnFailedLogins}">
+            <span th:text="'Shut down after ' + ${maxFailedLogins} + ' wrong passwords in a row'">Shut down after 3 wrong
+                passwords in a row</span>
+        </label>
+        <input type="hidden" name="shutDownOnFailedLogins" th:unless="${maxFailedLogins > 0}"
+               th:value="${shutDownOnFailedLogins}">
         <!-- Only while no password exists, since login needs one. Without JavaScript the fields always show. -->
         <div class="login-password-setup" th:if="${!hasPassword}" data-login-password-setup>
             <p class="hint">No password has been set yet. Choose one to require login with.</p>
@@ -51,10 +58,7 @@
                    th:value="${pagesAhead}">
         </div>
         <p class="hint">
-            How many of the next pages the image viewer gets ready while you read one - decoded when your browser
-            cannot show JPEG XL, processed when a ComfyUI workflow is selected. One page at a time, and the page you
-            are reading always comes first. The previous page is prepared after the first four of them, or after all
-            of them when there are fewer. 0 prepares only the page on screen.
+            How many of the next pages the image viewer gets ready while you read one (JXL decoding/ComfyUI workflow processing).
         </p>
 
         <div class="field">
@@ -150,11 +154,9 @@
 
         <h2 class="section-title" id="ehentai-account">e-hentai account (exhentai subscriptions)</h2>
         <p class="hint">
-            exhentai shows its search only to a logged-in account, so an exhentai subscription sends your e-hentai
+            Exhentai shows its search only to a logged-in account, so an exhentai subscription sends your e-hentai
             account's cookies with each search. Copy them from your browser while you are logged in to e-hentai: open
-            its developer tools (F12), then Storage (Firefox) or Application (Chrome), Cookies, e-hentai.org. They are
-            kept in this app's database, like the nhentai API key, and sent only to e-hentai's own sites. Downloads
-            still read the cookies of the browser chosen above.
+            its developer tools (F12), then Storage (Firefox) or Application (Chrome), Cookies, e-hentai.org.
         </p>
         <div class="field">
             <label for="ehentaiMemberId">ipb_member_id</label>
@@ -188,8 +190,7 @@
             </select>
         </div>
         <p class="hint">
-            Applies to images you add by hand — creating a chapter, or uploading into an existing one — and
-            is what the Download page starts at; a download can still pick another mode per paste.
+            Applies to images you add by hand and is what the Download page starts at (download can still pick another mode per paste).
             Your own modes are managed from the Manage page.
         </p>
 
@@ -219,8 +220,7 @@
         <h2 class="section-title" id="comfyui">ComfyUI</h2>
         <p class="hint">
             Show pages in the image viewer through your own ComfyUI workflows - upscaling, restoration, edits
-            with diffusion models. The files in the data folder are never changed. How to set up ComfyUI and
-            export workflows for the app is described in <code>COMFYUI.md</code>.
+            with diffusion models. The files in the data folder are never changed. See the <a class="text-link" th:href="@{/guide#comfyui}">guide page</a>.
         </p>
 
         <div class="field">
@@ -281,7 +281,7 @@
         </div>
         <p class="hint">
             The script in your ComfyUI installation that starts it - a <code>.bat</code> on Windows, a shell script on Linux.
-            It is not run when something already answers at the address. ComfyUI started is stopped when the app exits.
+            It is not run when something already answers at the address. Spawned ComfyUI is stopped when the app exits.
         </p>
 
         <h2 class="section-title">Temporary files</h2>

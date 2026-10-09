@@ -50,6 +50,15 @@ public interface DataDownloader
     }
 
     /**
+     * As {@link #pageLinkTemplate()}, for a gallery whose pages came from {@code site}, one of the source's websites
+     * (see {@link io.github.mocchikon.hentie.scrapper.gallerydl.GalleryDl.Outcome#site}); null for its usual one.
+     */
+    default String pageLinkTemplate(String site)
+    {
+        return pageLinkTemplate();
+    }
+
+    /**
      * The first of {@code patterns} that matches the whole stripped link; empty for none. One way to read a link,
      * so every source trims and tries its shapes alike.
      */

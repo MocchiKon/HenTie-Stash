@@ -40,7 +40,7 @@ class EhTagsTest
     void shouldSkipTagsThatAreNoLanguageWhenPickingOne()
     {
         assertThat(EhTags.route(List.of("language:translated", "language:chinese")).language()).isEqualTo("chinese");
-        // Nothing known: the first one, so the import's refusal can name it.
+        // Nothing known: the first one, so the import's log can name it.
         assertThat(EhTags.route(List.of("language:speechless")).language()).isEqualTo("speechless");
     }
 }

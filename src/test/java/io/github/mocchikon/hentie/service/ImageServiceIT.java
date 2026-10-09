@@ -42,6 +42,7 @@ class ImageServiceIT
     private static final int CH_N = 900_114;
     private static final int CH_O = 900_115;
     private static final int CH_P = 900_116;
+    private static final int CH_Q = 900_117;
 
     /** Captured before any test runs, so a test that switches the default locale cannot leak it. */
     private static final Locale DEFAULT_LOCALE = Locale.getDefault();
@@ -51,7 +52,7 @@ class ImageServiceIT
     {
         Locale.setDefault(DEFAULT_LOCALE);
         for (int id : new int[]{CH_A, CH_B, CH_C, CH_D, CH_E, CH_F, CH_G, CH_H, CH_I, CH_J, CH_K, CH_L, CH_M, CH_N,
-                CH_O, CH_P})
+                CH_O, CH_P, CH_Q})
         {
             imageService.deleteAll(id);
             imageService.discardStagedPages(id);
@@ -439,6 +440,28 @@ class ImageServiceIT
         assertThat(imageService.pageUrls(CH_L)).containsExactly("/data/" + CH_L + "/1.gif");
         assertThat(imageService.pageCount(CH_L)).isEqualTo(1);
         assertThat(imageService.thumbnailUrl(CH_L)).isEqualTo("/data/" + CH_L + "/1.gif");
+    }
+
+    /** A page is written under a name that is no page and renamed once whole, so a cut-off write never counts. */
+    @Test
+    void shouldSaveADownloadedPageWholeOverWhatAKilledRunLeftHalfWritten() throws IOException
+    {
+        // GIVEN a chapter with page 1, and page 2 cut off mid-write by a killed run.
+        writePages(CH_Q, "1.jpg");
+        Path dir = imageDirectory.chapterDir(CH_Q);
+        Files.writeString(dir.resolve("2.jpg.part"), "half of page 2", StandardCharsets.UTF_8);
+        assertThat(imageService.pageNames(CH_Q)).containsExactly("1.jpg");
+
+        // WHEN page 2 is downloaded again, its extension as the source spells it.
+        imageService.landPage(CH_Q, 2, "JPG", "page 2.jpg".getBytes(StandardCharsets.UTF_8));
+
+        // THEN it is a page, whole, and nothing half-written is left.
+        assertThat(imageService.pageNames(CH_Q)).containsExactly("1.jpg", "2.jpg");
+        assertThat(pageText(CH_Q, "2.jpg")).isEqualTo("page 2.jpg");
+        try (var files = Files.list(dir))
+        {
+            assertThat(files.map(p -> p.getFileName().toString())).containsExactlyInAnyOrder("1.jpg", "2.jpg");
+        }
     }
 
     /** An unrecognised extension falls back to {@code jpg}, so a locale-dependent fold would rename a good page. */

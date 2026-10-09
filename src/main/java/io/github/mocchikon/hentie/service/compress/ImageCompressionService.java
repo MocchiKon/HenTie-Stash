@@ -1,5 +1,15 @@
 package io.github.mocchikon.hentie.service.compress;
 
+import io.github.mocchikon.hentie.config.AppProperties;
+import io.github.mocchikon.hentie.dto.CompressionProfile;
+import io.github.mocchikon.hentie.service.ImageDirectory;
+import io.github.mocchikon.hentie.service.ImageService;
+import io.github.mocchikon.hentie.service.scratch.ScratchSpace;
+import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
+
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -12,18 +22,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Service;
-
-import io.github.mocchikon.hentie.config.AppProperties;
-import io.github.mocchikon.hentie.dto.CompressionProfile;
-import io.github.mocchikon.hentie.service.ImageDirectory;
-import io.github.mocchikon.hentie.service.ImageService;
-import io.github.mocchikon.hentie.service.scratch.ScratchSpace;
-import lombok.RequiredArgsConstructor;
 
 /**
  * The single entry point for compressing many images, one per thread on the dedicated pool. Downloads hand
@@ -192,12 +192,15 @@ public class ImageCompressionService
     // ---- one page at a time, as it is downloaded ---------------------------
 
     /**
-     * A download's run. The caller must close it on <b>every</b> exit before publishing or discarding
-     * staging: an encoder still writing there while files move out would lose a page.
+     * A download's run. Each page is handed to {@code then} on the thread that encoded it, so it can move on at
+     * once. The caller must close the run on <b>every</b> exit before discarding staging: an encoder still
+     * writing there while files are removed would lose a page.
+     *
+     * @param then gets every page submitted, re-encoded or kept, even one whose encoding failed; it must not throw
      */
-    public Session open(int chapterId, CompressionProfile profile)
+    public Session open(int chapterId, CompressionProfile profile, Consumer<ImageCompressor.Result> then)
     {
-        return new Session(chapterId, profile);
+        return new Session(chapterId, profile, then);
     }
 
     /** See {@link #open}. */
@@ -205,21 +208,25 @@ public class ImageCompressionService
     {
         private final CompressionProfile profile;
         private final Path work;
+        private final Consumer<ImageCompressor.Result> then;
         private final List<CompletableFuture<ImageCompressor.Result>> futures = new ArrayList<>();
         private Summary summary = Summary.NOTHING;
 
-        private Session(int chapterId, CompressionProfile profile)
+        private Session(int chapterId, CompressionProfile profile, Consumer<ImageCompressor.Result> then)
         {
             this.profile = profile;
             this.work = workDir(chapterId);
+            this.then = then;
         }
 
         public void submitPage(Path stagedFile)
         {
-            if (profile != null)
+            futures.add(CompletableFuture.supplyAsync(() ->
             {
-                futures.add(ImageCompressionService.this.submit(stagedFile, profile, work));
-            }
+                ImageCompressor.Result page = compressKeepingOnFailure(stagedFile, profile, work);
+                then.accept(page);
+                return page;
+            }, imageCompressionExecutor));
         }
 
         /** Complete only once the session is closed. */
@@ -268,6 +275,23 @@ public class ImageCompressionService
     {
         return CompletableFuture.supplyAsync(() -> compressor.compress(file, profile, work),
                 imageCompressionExecutor);
+    }
+
+    /**
+     * An unexpected failure counts as "kept as it was" here too, but the page is still handed on: dropped, it would
+     * never reach its chapter.
+     */
+    private ImageCompressor.Result compressKeepingOnFailure(Path file, CompressionProfile profile, Path work)
+    {
+        try
+        {
+            return compressor.compress(file, profile, work);
+        }
+        catch (RuntimeException e)
+        {
+            log.error("Image compression task failed - the image is kept as it was", e);
+            return new ImageCompressor.Result(file, false, 0, 0);
+        }
     }
 
     /** Never throws: a failed task counts as "kept as it was", so one bad page cannot fail a gallery. */

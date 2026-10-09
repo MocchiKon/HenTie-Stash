@@ -1,19 +1,18 @@
 package io.github.mocchikon.hentie.service;
 
-import java.util.List;
-import java.util.Optional;
-import java.util.concurrent.TimeUnit;
-
+import io.github.mocchikon.hentie.config.WriteGate;
+import io.github.mocchikon.hentie.repository.ChapterRepository;
+import io.github.mocchikon.hentie.service.ChapterService.StatsSync;
+import lombok.RequiredArgsConstructor;
 import org.apache.commons.lang3.time.DurationFormatUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 
-import io.github.mocchikon.hentie.config.WriteGate;
-import io.github.mocchikon.hentie.repository.ChapterRepository;
-import io.github.mocchikon.hentie.service.ChapterService.StatsSync;
-import lombok.RequiredArgsConstructor;
+import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 
 @Service
 @RequiredArgsConstructor
@@ -68,8 +67,8 @@ public class ImageStatsService
     }
 
     /**
-     * The detail page's and the reader's repair of stats for images the app did not write (the scraper, imported
-     * rows on {@code DEFAULT 0}). <b>The caller passes the stored count it has already read</b>, so a chapter in
+     * The detail page's and the reader's repair of stats for images the app did not write (the scraper, rows on
+     * {@code DEFAULT 0}). <b>The caller passes the stored count it has already read</b>, so a chapter in
      * sync costs no query of its own, and only a mismatch pays the scan.
      * <p>
      * <b>Skipped while the library is busy</b>: a page view must never wait for the write lock, and the next view

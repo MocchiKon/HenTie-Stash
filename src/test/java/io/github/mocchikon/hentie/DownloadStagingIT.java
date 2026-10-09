@@ -32,7 +32,8 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Staging set in Settings outside the data folder, standing in for a RAM disk.
+ * Staging set in Settings outside the data folder, standing in for a RAM disk. Only a download that compresses
+ * stages its pages; {@code Lossless} leaves these text "pages" as they are, so no encoder is needed.
  * <p>
  * {@code ./target} is on the same volume as the data folder, so the cross-filesystem copy-and-rename branch
  * of {@code ImageService.publishPage} is not reached here; {@code ImageServiceUnitTest} covers it directly.
@@ -42,6 +43,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class DownloadStagingIT
 {
     private static final String NO_COMPRESSION = BuiltInCompressionMode.NONE.getKey();
+    private static final String COMPRESSED = BuiltInCompressionMode.LOSSLESS.getKey();
 
     private static final Path MOCK_DIR = Paths.get("./target/test-mock-server");
     private static final Path STAGING_ROOT = Paths.get("./target/test-staging").toAbsolutePath().normalize();
@@ -88,10 +90,10 @@ class DownloadStagingIT
     }
 
     @Test
-    void shouldStageOutsideTheDataDirectoryAndStillPublishIntoIt() throws IOException
+    void shouldStageOutsideTheDataDirectoryAndStillSaveIntoIt() throws IOException
     {
-        // GIVEN a queued link, with staging configured away from the data directory.
-        queueService.enqueue(List.of("mock:910"), TestDownloads.choices(NO_COMPRESSION, false));
+        // GIVEN a link queued to be compressed, with staging configured away from the data directory.
+        queueService.enqueue(List.of("mock:910"), TestDownloads.choices(COMPRESSED, false));
         Integer chapterId = null;
         try
         {
@@ -103,7 +105,7 @@ class DownloadStagingIT
             Chapter chapter = chapterRepository.findByGalleryId("mock:910").orElseThrow();
             chapterId = chapter.getId();
             // (as a string: AssertJ's Path startsWith resolves the real path, and the folder is gone by now.)
-            assertThat(imageService.stagingDir(chapterId, false).toString()).startsWith(STAGING_ROOT.toString());
+            assertThat(imageService.stagingDir(chapterId, true).toString()).startsWith(STAGING_ROOT.toString());
 
             // ...the pages ended up in the data directory all the same, with their real content...
             assertThat(imageService.pageUrls(chapterId))
@@ -112,8 +114,8 @@ class DownloadStagingIT
                     .resolve(String.valueOf(chapterId));
             assertThat(Files.readString(chapterDir.resolve("2.webp"))).isEqualTo("page 2 of 910");
 
-            // ...nothing was left staged, and no half-published .part file survives either...
-            assertThat(Files.exists(imageService.stagingDir(chapterId, false))).isFalse();
+            // ...nothing was left staged, and no half-saved .part file survives either...
+            assertThat(Files.exists(imageService.stagingDir(chapterId, true))).isFalse();
             try (var entries = Files.list(chapterDir))
             {
                 assertThat(entries.map(p -> p.getFileName().toString()))
@@ -132,6 +134,40 @@ class DownloadStagingIT
         }
     }
 
+    /** A page stored as fetched goes straight into its chapter, so staging that cannot be written stops nothing. */
+    @Test
+    void shouldNotStageADownloadThatIsNotCompressed() throws IOException
+    {
+        // GIVEN a staging root that is a file, so nothing could be staged.
+        deleteRecursively(STAGING_ROOT);
+        Files.writeString(STAGING_ROOT, "not a directory");
+        Integer chapterId = null;
+        try
+        {
+            queueService.enqueue(List.of("mock:910"), TestDownloads.choices(NO_COMPRESSION, false));
+
+            // WHEN the worker takes it.
+            assertThat(worker.processNext()).isTrue();
+            em.flush();
+
+            // THEN the download finished all the same, its pages in the data directory.
+            Chapter chapter = chapterRepository.findByGalleryId("mock:910").orElseThrow();
+            chapterId = chapter.getId();
+            assertThat(chapter.getDownloadStatus()).isEqualTo(DownloadStatus.SUCCESSFUL);
+            assertThat(imageService.pageUrls(chapterId))
+                    .containsExactly("/data/" + chapterId + "/1.webp", "/data/" + chapterId + "/2.webp");
+            assertThat(queueRepository.findByLink("mock:910")).isEmpty();
+        }
+        finally
+        {
+            Files.deleteIfExists(STAGING_ROOT);
+            if (chapterId != null)
+            {
+                imageService.deleteAll(chapterId);
+            }
+        }
+    }
+
     /**
      * Lenient mode may skip a page the source cannot give, never one we could not write. Otherwise a full RAM
      * disk would skip every page and mark the chapter {@code SUCCESSFUL}, which makes re-queueing a no-op.
@@ -145,7 +181,7 @@ class DownloadStagingIT
         Integer chapterId = null;
         try
         {
-            queueService.enqueue(List.of("mock:910"), TestDownloads.choices(NO_COMPRESSION, false));
+            queueService.enqueue(List.of("mock:910"), TestDownloads.choices(COMPRESSED, false));
             int id = queueRepository.findByLink("mock:910").orElseThrow().getId();
             // ...and the item in the one mode allowed to skip pages.
             assertThat(queueService.retry(id, true, false)).isTrue();
@@ -170,7 +206,7 @@ class DownloadStagingIT
                             + "instead of being deleted as done")
                     .isPresent();
             DownloadQueueItem item = queueRepository.findById(id).orElseThrow();
-            assertThat(item.getError()).contains("Could not stage page 1");
+            assertThat(item.getError()).contains("Could not save page 1");
             assertThat(item.getChapterId()).isEqualTo(chapterId);
             // ...with the lenient flag still on...
             assertThat(item.isIgnoreImageErrors()).isTrue();

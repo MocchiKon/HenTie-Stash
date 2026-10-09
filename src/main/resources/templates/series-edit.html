@@ -80,10 +80,11 @@
             <div class="edit-card" th:each="card : ${chapterCards}">
                 <div class="chapter-num-row" th:data-chapter-id="${card.id}">
                     <label class="chapter-num-label">Ch #</label>
+                    <!-- A refused save shows what was typed, not what is stored. -->
                     <input class="chapter-num-input" type="number" step="any" min="0"
-                           form="series-form"
+                           form="series-form" title="Decimals are parts: 2.01 is part 1 of chapter 2, 2.10 part 10"
                            th:name="'chapterNums[' + ${card.id} + ']'"
-                           th:value="${card.chapterNum}">
+                           th:value="${form.chapterNums.containsKey(card.id)} ? ${form.chapterNums[card.id]} : ${card.chapterNum}">
                     <button type="button" class="btn btn-sm chapter-num-update">Update</button>
                     <form method="post" th:action="@{/series/{id}/chapters/remove(id=${form.id})}" class="confirm-delete card-remove">
                         <input type="hidden" name="chapterId" th:value="${card.id}">

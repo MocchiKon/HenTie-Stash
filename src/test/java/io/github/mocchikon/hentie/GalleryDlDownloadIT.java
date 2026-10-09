@@ -3,23 +3,24 @@ package io.github.mocchikon.hentie;
 import com.sun.net.httpserver.HttpServer;
 import io.github.mocchikon.hentie.config.AppProperties;
 import io.github.mocchikon.hentie.dto.BuiltInCompressionMode;
-import io.github.mocchikon.hentie.entity.Chapter;
-import io.github.mocchikon.hentie.entity.DownloadQueueItem;
-import io.github.mocchikon.hentie.entity.DownloadStatus;
-import io.github.mocchikon.hentie.entity.Subscription;
+import io.github.mocchikon.hentie.entity.*;
 import io.github.mocchikon.hentie.repository.ChapterRepository;
 import io.github.mocchikon.hentie.repository.DownloadQueueRepository;
 import io.github.mocchikon.hentie.repository.SubscriptionRepository;
 import io.github.mocchikon.hentie.scrapper.ehentai.EhentaiDownloader;
 import io.github.mocchikon.hentie.scrapper.ehentai.EhentaiProperties;
 import io.github.mocchikon.hentie.scrapper.gallerydl.GalleryDlOptions;
+import io.github.mocchikon.hentie.service.DownloadService;
 import io.github.mocchikon.hentie.service.ImageService;
+import io.github.mocchikon.hentie.service.compress.ImageCompressionModeService;
+import io.github.mocchikon.hentie.service.compress.ImageToolLocator;
 import io.github.mocchikon.hentie.service.download.DownloadChoices;
 import io.github.mocchikon.hentie.service.download.DownloadQueueService;
 import io.github.mocchikon.hentie.service.download.DownloadWorker;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -30,6 +31,8 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -61,10 +64,13 @@ class GalleryDlDownloadIT
     @Autowired ChapterRepository chapterRepository;
     @Autowired DownloadQueueRepository queueRepository;
     @Autowired ImageService imageService;
+    @Autowired DownloadService downloadService;
     @Autowired AppProperties appProperties;
     @Autowired EhentaiProperties ehentaiProperties;
     @Autowired EhentaiDownloader ehentaiDownloader;
     @Autowired SubscriptionRepository subscriptionRepository;
+    @Autowired ImageCompressionModeService modeService;
+    @Autowired ImageToolLocator toolLocator;
     @PersistenceContext EntityManager em;
 
     private HttpServer api;
@@ -184,14 +190,14 @@ class GalleryDlDownloadIT
             assertThat(worker.processNext()).isTrue();
             em.flush();
 
-            // THEN the attempt failed, nothing is published, and gallery-dl's own words say why.
+            // THEN the attempt failed, with the pages that arrived saved in the chapter.
             DownloadQueueItem item = queueRepository.findByLink("hitomi:9001").orElseThrow();
             assertThat(item.getAttempts()).isEqualTo(1);
             assertThat(item.getError()).isNull();
             Chapter chapter = chapterRepository.findByGalleryId("hitomi:9001").orElseThrow();
             chapterId = chapter.getId();
             assertThat(chapter.getDownloadStatus()).isEqualTo(DownloadStatus.PENDING);
-            assertThat(imageService.pageUrls(chapterId)).isEmpty();
+            assertThat(imageService.pageNumbersOnDisk(chapterId)).containsExactlyInAnyOrder(1, 3);
 
             // WHEN the next attempt runs and the page arrives
             FakeGalleryDl.set("fail", "");
@@ -199,11 +205,53 @@ class GalleryDlDownloadIT
             em.flush();
             em.clear();
 
-            // THEN only page 2 was asked for: 1 and 3 came from staging.
+            // THEN only page 2 was asked for: 1 and 3 were saved by the first attempt.
             assertThat(FakeGalleryDl.option(FakeGalleryDl.calls().getLast(), "--range")).isEqualTo("2");
             assertThat(chapterRepository.findById(chapterId).orElseThrow().getDownloadStatus())
                     .isEqualTo(DownloadStatus.SUCCESSFUL);
             assertThat(imageService.pageUrls(chapterId)).hasSize(3);
+        }
+        finally
+        {
+            cleanUp(chapterId);
+        }
+    }
+
+    /** Each page moves from gallery-dl's folder through the encoder into the chapter the moment it is done. */
+    @Test
+    void shouldSaveThePagesGalleryDlDeliversThroughTheEncoderWhenCompressing() throws IOException
+    {
+        Assumptions.assumeTrue(toolLocator.find("cjxl").isPresent(), "No bundled cjxl for this platform - skipping");
+        // GIVEN a gallery of three real PNG pages, queued with a JPEG XL mode.
+        Path image = TestImages.writePng(FakeGalleryDl.DIR.resolve("page.png"), 400, 400).toAbsolutePath();
+        FakeGalleryDl.set("json", HITOMI_JSON);
+        FakeGalleryDl.set("pages", "3");
+        FakeGalleryDl.set("ext", "png");
+        FakeGalleryDl.set("image", image.toString());
+        var mode = new ImageCompressionMode();
+        mode.setName("gallery-dl to JPEG XL");
+        mode.setEncoder(ImageEncoder.JXL);
+        mode.setEncoderArgs("-q 40 -e 1");
+        String key = modeService.save(mode);
+        queueService.enqueue(List.of("hitomi:9001"), TestDownloads.choices(key, false));
+        Integer chapterId = null;
+        try
+        {
+            // WHEN
+            assertThat(worker.processNext()).isTrue();
+            em.flush();
+            em.clear();
+
+            // THEN every page is in the chapter compressed, and the chapter names the mode...
+            Chapter chapter = chapterRepository.findByGalleryId("hitomi:9001").orElseThrow();
+            chapterId = chapter.getId();
+            assertThat(imageService.pageNames(chapterId)).containsExactly("1.jxl", "2.jxl", "3.jxl");
+            assertThat(chapter.getPageNum()).isEqualTo(3);
+            assertThat(chapter.getCompressionMode()).isEqualTo(key);
+            assertThat(chapter.getDownloadStatus()).isEqualTo(DownloadStatus.SUCCESSFUL);
+            // ...while neither gallery-dl's folder nor anything staged is left.
+            assertThat(Path.of(FakeGalleryDl.option(FakeGalleryDl.calls().getLast(), "-D"))).doesNotExist();
+            assertThat(Files.exists(imageService.stagingDir(chapterId, true))).isFalse();
         }
         finally
         {
@@ -291,11 +339,12 @@ class GalleryDlDownloadIT
             assertThat(worker.processNext()).isTrue();
             em.flush();
 
-            // THEN the attempt failed rather than finishing without page 3.
+            // THEN the attempt failed rather than finishing without page 3; the pages that arrived are kept.
             Chapter chapter = chapterRepository.findByGalleryId("hitomi:9001").orElseThrow();
             chapterId = chapter.getId();
             assertThat(chapter.getDownloadStatus()).isEqualTo(DownloadStatus.PENDING);
-            assertThat(imageService.pageUrls(chapterId)).isEmpty();
+            assertThat(queueRepository.findByLink("hitomi:9001").orElseThrow().getAttempts()).isEqualTo(1);
+            assertThat(imageService.pageNumbersOnDisk(chapterId)).containsExactlyInAnyOrder(1, 2);
         }
         finally
         {
@@ -379,6 +428,10 @@ class GalleryDlDownloadIT
             assertThat(FakeGalleryDl.option(run, "--sleep-request")).isEqualTo("0.4-0.65");
             assertThat(run).contains("original=true").doesNotContain("--sleep");
             assertThat(FakeGalleryDl.option(run, "--range")).isEqualTo("1-2");
+
+            // ...so the chapter links to exhentai, which may have galleries e-hentai hides.
+            assertThat(chapter.getSourceSite()).isEqualTo("exhentai");
+            assertThat(downloadService.sourcePageLink(chapter)).contains("https://exhentai.org/g/618395/0439fa3666/");
         }
         finally
         {
@@ -399,11 +452,15 @@ class GalleryDlDownloadIT
             assertThat(worker.processNext()).isTrue();
             em.flush();
 
-            // THEN e-hentai.org, whatever domain was pasted, and no cookies.
-            chapterId = chapterRepository.findByGalleryId("ehentai:618395/0439fa3666").orElseThrow().getId();
+            // THEN e-hentai.org, whatever domain was pasted, and no cookies...
+            Chapter chapter = chapterRepository.findByGalleryId("ehentai:618395/0439fa3666").orElseThrow();
+            chapterId = chapter.getId();
             List<String> run = FakeGalleryDl.calls().getFirst();
             assertThat(run.getLast()).isEqualTo("https://e-hentai.org/g/618395/0439fa3666/");
             assertThat(run).contains("original=false").doesNotContain("--cookies-from-browser");
+            // ...and the chapter links there.
+            assertThat(chapter.getSourceSite()).isNull();
+            assertThat(downloadService.sourcePageLink(chapter)).contains("https://e-hentai.org/g/618395/0439fa3666/");
         }
         finally
         {
@@ -432,6 +489,8 @@ class GalleryDlDownloadIT
             assertThat(chapter.getDownloadStatus()).isEqualTo(DownloadStatus.SUCCESSFUL);
             assertThat(FakeGalleryDl.calls()).extracting(List::getLast).containsExactly(
                     "https://exhentai.org/g/618395/0439fa3666/", "https://e-hentai.org/g/618395/0439fa3666/");
+            // The account cannot see exhentai, so the chapter links to e-hentai.
+            assertThat(downloadService.sourcePageLink(chapter)).contains("https://e-hentai.org/g/618395/0439fa3666/");
         }
         finally
         {

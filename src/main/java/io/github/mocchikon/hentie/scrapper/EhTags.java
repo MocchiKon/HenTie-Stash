@@ -22,7 +22,7 @@ public final class EhTags
 
     /**
      * @param language the first language the app knows; {@link #DEFAULT_LANGUAGE} without a {@code language:} tag;
-     *                 the first one when none is known ({@code speechless}), so the import's refusal names it
+     *                 the first one when none is known ({@code speechless}), so the import's log names it
      */
     public record Routed(Set<String> tags, Set<String> artists, Set<String> groups, Set<String> parodies,
                          Set<String> characters, String language)

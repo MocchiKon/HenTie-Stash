@@ -1,5 +1,6 @@
 package io.github.mocchikon.hentie.web;
 
+import io.github.mocchikon.hentie.config.AppProperties;
 import io.github.mocchikon.hentie.config.WriteGate;
 import io.github.mocchikon.hentie.dto.JxlDelivery;
 import io.github.mocchikon.hentie.dto.ScratchFolderView;
@@ -54,6 +55,7 @@ public class SettingsController
     private final ComfyUiLauncher comfyUiLauncher;
     private final ComfyResultCache comfyResultCache;
     private final AppShutdown appShutdown;
+    private final AppProperties appProperties;
     private final WriteGate writeGate;
     private final GalleryDlTool galleryDlTool;
     private final SubscriptionRunner subscriptionRunner;
@@ -63,6 +65,8 @@ public class SettingsController
     {
         model.addAttribute("loginRequired", settingsService.isLoginRequired());
         model.addAttribute("hasPassword", settingsService.hasPassword());
+        model.addAttribute("shutDownOnFailedLogins", settingsService.isShutDownOnFailedLogins());
+        model.addAttribute("maxFailedLogins", appProperties.getSecurity().getMaxFailedLogins());
         model.addAttribute("viewMode", settingsService.getDefaultViewMode());
         model.addAttribute("viewModes", ViewMode.values());
         model.addAttribute("pagesAhead", settingsService.getPagesAhead());
@@ -148,6 +152,8 @@ public class SettingsController
 
     @PostMapping("/settings")
     public String save(@RequestParam(name = "loginRequired", defaultValue = "false") boolean loginRequired,
+                       @RequestParam(name = "shutDownOnFailedLogins", defaultValue = "false")
+                       boolean shutDownOnFailedLogins,
                        @RequestParam ViewMode viewMode,
                        @RequestParam(name = "pagesAhead",
                                defaultValue = "" + SettingsService.DEFAULT_PAGES_AHEAD) int pagesAhead,
@@ -171,6 +177,7 @@ public class SettingsController
         writeGate.claimTurn();
         Optional<String> loginRefusal = saveLoginRequired(loginRequired, params.get("newPassword"),
                 params.get("newPasswordRepeat"));
+        settingsService.setShutDownOnFailedLogins(shutDownOnFailedLogins);
         settingsService.setDefaultViewMode(viewMode);
         settingsService.setPagesAhead(pagesAhead);
         settingsService.setSearchPageSize(searchPageSize);
@@ -466,7 +473,7 @@ public class SettingsController
     @PostMapping("/settings/shutdown")
     public String shutDown()
     {
-        appShutdown.shutDownSoon();
+        appShutdown.shutDownSoon("as asked on the Settings page");
         return "shutdown";
     }
 }

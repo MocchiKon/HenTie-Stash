@@ -1,10 +1,12 @@
 package io.github.mocchikon.hentie.scrapper;
 
+import io.github.mocchikon.hentie.scrapper.gallerydl.GalleryDlDownloader;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
 import java.util.*;
+import java.util.function.Predicate;
 
 /**
  * <b>Asks every downloader</b> whether it accepts a link, never switches over known sources, so a new
@@ -83,11 +85,11 @@ public class DataDownloaderRegistry
      * Only for a gallery id {@link #linkFor} accepts, so an id edited by hand into something its source would
      * never produce gets no link.
      */
-    public Optional<String> pageLinkFor(String galleryId)
+    public Optional<String> pageLinkFor(String galleryId, String site)
     {
         return linkFor(galleryId)
                 .flatMap(this::parse)
-                .flatMap(resource -> Optional.ofNullable(resource.downloader().pageLinkTemplate())
+                .flatMap(resource -> Optional.ofNullable(resource.downloader().pageLinkTemplate(site))
                         .map(template -> template.replace(DataDownloader.RESOURCE_ID, resource.resourceId())));
     }
 
@@ -106,13 +108,31 @@ public class DataDownloaderRegistry
         return downloaders.stream().filter(downloader -> downloader.accepts(trimmedLink)).findFirst();
     }
 
+    // hidden
+    private static final Set<String> HIDDEN_SOURCES = Set.of("mock", "chaika");
+
     /** Prefix to an example link, sorted by prefix, for the Download page. */
     public Map<String, String> linkExamples()
     {
         var examples = new LinkedHashMap<String, String>();
-        downloaders.stream().sorted(Comparator.comparing(DataDownloader::sourcePrefix))
+        downloaders.stream()
+                .filter(downloader -> !HIDDEN_SOURCES.contains(downloader.sourcePrefix()))
+                .sorted(Comparator.comparing(DataDownloader::sourcePrefix))
                 .forEach(downloader -> examples.put(downloader.sourcePrefix(), downloader.linkExample()));
         return examples;
+    }
+
+    /** What the Download page looks for in the pasted text before it shows a gallery-dl choice the sources read. */
+    public List<String> galleryDlLinkMarkers(Predicate<GalleryDlDownloader> reads)
+    {
+        return downloaders.stream()
+                .filter(GalleryDlDownloader.class::isInstance)
+                .map(GalleryDlDownloader.class::cast)
+                .filter(reads)
+                .flatMap(downloader -> downloader.linkMarkers().stream())
+                .distinct()
+                .sorted()
+                .toList();
     }
 
     public List<String> sourcePrefixes()

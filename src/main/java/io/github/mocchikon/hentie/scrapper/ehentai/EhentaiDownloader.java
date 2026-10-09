@@ -117,6 +117,12 @@ public class EhentaiDownloader implements GalleryDlDownloader, SearchSource
 
     /** Always e-hentai.org: it parses back, and which domain is fetched from is decided per run. */
     @Override
+    public Set<String> linkMarkers()
+    {
+        return Set.of(EHENTAI, EXHENTAI, PREFIX + ":");
+    }
+
+    @Override
     public String link(String resourceId)
     {
         return galleryUrl(EHENTAI, resourceId);
@@ -126,6 +132,13 @@ public class EhentaiDownloader implements GalleryDlDownloader, SearchSource
     public String pageLinkTemplate()
     {
         return "https://" + EHENTAI + "/g/" + RESOURCE_ID + "/";
+    }
+
+    /** exhentai.org for a gallery fetched from there: it may be one e-hentai hides. */
+    @Override
+    public String pageLinkTemplate(String site)
+    {
+        return EXHENTAI_SITE.equals(site) ? "https://" + EXHENTAI + "/g/" + RESOURCE_ID + "/" : pageLinkTemplate();
     }
 
     @Override
@@ -245,7 +258,8 @@ public class EhentaiDownloader implements GalleryDlDownloader, SearchSource
         String domain = options.usesCookies() ? EXHENTAI : EHENTAI;
         try
         {
-            return galleryDl.download(galleryUrl(domain, resourceId), args, pages, folder, tracking);
+            GalleryDl.Outcome outcome = galleryDl.download(galleryUrl(domain, resourceId), args, pages, folder, tracking);
+            return domain.equals(EXHENTAI) ? outcome.fromSite(EXHENTAI_SITE) : outcome;
         }
         catch (GalleryDlException e)
         {

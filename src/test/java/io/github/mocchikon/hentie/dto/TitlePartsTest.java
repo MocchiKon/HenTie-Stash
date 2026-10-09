@@ -74,7 +74,7 @@ class TitlePartsTest
         // WHEN
         TitleParts parts = TitleParts.of(null, "Isekai Yuusha");
 
-        // THEN — never a null piece: the template concatenates all three.
+        // THEN - never a null piece: the template concatenates all three.
         assertThat(parts.prefix()).isEmpty();
         assertThat(parts.match()).isEmpty();
         assertThat(parts.suffix()).isEmpty();

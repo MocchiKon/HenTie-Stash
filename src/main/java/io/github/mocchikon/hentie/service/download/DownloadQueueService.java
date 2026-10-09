@@ -34,7 +34,7 @@ public class DownloadQueueService
      * itself, the visible rows are the ones about to run, bulk actions cover every row, and page state on a
      * self-refreshing list of disappearing rows would mean nothing.
      */
-    public static final int LIST_LIMIT = 200;
+    public static final int LIST_LIMIT = 5;
 
     /** What the user asked for first, then what subscriptions found, each oldest first. */
     private static final Sort PENDING_ORDER = Sort.by("priority", "id");
@@ -480,6 +480,20 @@ public class DownloadQueueService
     {
         repository.failedChapterIds().forEach(imageService::discardStagedPages);
         return repository.deleteFailed();
+    }
+
+    /**
+     * Every waiting row, the running one included; failed rows stay for the user to retry or remove. Subscriptions'
+     * rows go too, and nothing remembers them, so a subscription's next check may queue its new galleries again.
+     *
+     * @param runningId the row the worker is running, whose staging it discards itself (see {@link #remove})
+     */
+    @Transactional
+    public int clearWaiting(Integer runningId)
+    {
+        repository.waitingChapterIdsExcept(runningId == null ? -1 : runningId)
+                .forEach(imageService::discardStagedPages);
+        return repository.deleteWaiting();
     }
 
     @Transactional(readOnly = true)

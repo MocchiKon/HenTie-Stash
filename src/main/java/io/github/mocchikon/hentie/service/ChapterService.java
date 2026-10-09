@@ -14,8 +14,6 @@ import lombok.RequiredArgsConstructor;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.cache.Cache;
-import org.springframework.cache.CacheManager;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -46,7 +44,7 @@ public class ChapterService
     private final EntityMapper entityMapper;
     private final SeriesService seriesService;
     private final ChapterMatchingService chapterMatchingService;
-    private final CacheManager cacheManager;
+    private final SearchCountCache searchCountCache;
     private final ChapterRemoval chapterRemoval;
 
     @Transactional(readOnly = true)
@@ -175,9 +173,9 @@ public class ChapterService
 
         Chapter chapter = new Chapter();
         chapter.setTitleFull(form.getTitleFull());
+        chapter.setNativeTitle(form.getNativeTitle());
         TitleKey key = applyMatchKeys(chapter);
         chapter.setTitle(prettyTitle(form, key));
-        chapter.setNativeTitle(form.getNativeTitle());
         chapter.setUploadDate(LocalDate.now());   // never user-editable
         chapter.setStatus(form.getStatus() != null ? form.getStatus() : Status.NEW);
         chapter.setGalleryId(galleryId);
@@ -211,9 +209,9 @@ public class ChapterService
 
         Chapter chapter = get(form.getId());
         chapter.setTitleFull(form.getTitleFull());
+        chapter.setNativeTitle(form.getNativeTitle());
         // A cleared pretty title is re-derived, not blanked: the column is NOT NULL.
         chapter.setTitle(prettyTitle(form, applyMatchKeys(chapter)));
-        chapter.setNativeTitle(form.getNativeTitle());
         chapter.setStatus(form.getStatus() != null ? form.getStatus() : Status.NEW);   // status is NOT NULL
         chapter.setGalleryId(galleryId);
         chapter.setLanguage(LanguageService.canonical(form.getLanguage()));
@@ -315,7 +313,7 @@ public class ChapterService
         {
             chapter.setStatus(Status.REVIEWED);
             chapterRepository.save(chapter);
-            evictSearchCount();
+            searchCountCache.clear();
         }
     }
 
@@ -343,6 +341,22 @@ public class ChapterService
     }
 
     /**
+     * The pipeline's bookkeeping, like {@link #setDownloadStatus}. A chapter deleted meanwhile is skipped, so the
+     * download reports the delete rather than failing here.
+     */
+    @Transactional
+    public void setSourceSite(int id, String site)
+    {
+        chapterRepository.findById(id)
+                .filter(chapter -> !Objects.equals(chapter.getSourceSite(), site))
+                .ifPresent(chapter ->
+                {
+                    chapter.setSourceSite(site);
+                    chapterRepository.save(chapter);
+                });
+    }
+
+    /**
      * Null means the pages are as the source serves them. <b>Anything that re-encodes a chapter's pages must
      * record it here</b>, or the chapter is shown, and never offered back, as full quality.
      * <p>
@@ -356,6 +370,22 @@ public class ChapterService
                 .ifPresent(chapter ->
                 {
                     chapter.setCompressionMode(modeKey);
+                    chapterRepository.save(chapter);
+                });
+    }
+
+    /**
+     * Sets {@code previous} again, but only while the chapter still records {@code modeKey}: a mode another run
+     * recorded meanwhile names pages it re-encoded.
+     */
+    @Transactional
+    public void restoreCompressionMode(int id, String modeKey, String previous)
+    {
+        chapterRepository.findById(id)
+                .filter(chapter -> Objects.equals(chapter.getCompressionMode(), modeKey))
+                .ifPresent(chapter ->
+                {
+                    chapter.setCompressionMode(previous);
                     chapterRepository.save(chapter);
                 });
     }
@@ -386,7 +416,7 @@ public class ChapterService
         if (outcome == StatsSync.REPAIRED)
         {
             seriesService.recomputeDerived(chapter.getSeries() == null ? null : chapter.getSeries().getId());
-            evictSearchCount();
+            searchCountCache.clear();
         }
         return outcome;
     }
@@ -411,7 +441,7 @@ public class ChapterService
         affectedSeries.forEach(seriesService::recomputeDerived);
         if (repaired > 0)
         {
-            evictSearchCount();
+            searchCountCache.clear();
         }
         return repaired;
     }
@@ -474,22 +504,16 @@ public class ChapterService
         return StringUtils.isNotBlank(form.getTitle()) ? form.getTitle() : key.getPrettyTitle();
     }
 
-    /** Returns the parse, so a caller that also matches the chapter does not parse the title twice. */
+    /**
+     * Both keys, from the titles already set. Returns the parse, so a caller that also matches the chapter does
+     * not parse the title twice.
+     */
     private static TitleKey applyMatchKeys(Chapter chapter)
     {
         var key = TitleKey.of(chapter.getTitleFull());
         chapter.setMatchKey(key.getMatchKey());
+        chapter.setNativeMatchKey(TitleKey.nativeKey(chapter.getNativeTitle(), key));
         return key;
-    }
-
-    /** Programmatic, for self-invoked paths where a {@code @CacheEvict} would not fire, and to evict only on a real change. */
-    private void evictSearchCount()
-    {
-        Cache cache = cacheManager.getCache(CacheConfig.SEARCH_COUNT);
-        if (cache != null)
-        {
-            cache.clear();
-        }
     }
 
     private void addGroup(List<ChipGroup> groups, String title, List<? extends Metadata> items, MetadataType type)

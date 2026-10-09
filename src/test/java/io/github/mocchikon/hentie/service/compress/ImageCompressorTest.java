@@ -14,6 +14,7 @@ import java.util.Optional;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
@@ -125,6 +126,36 @@ class ImageCompressorTest
         assertThat(source).doesNotExist();
         assertThat(source.resolveSibling("03.png")).hasContent("a page of its own");
         assertThat(source.resolveSibling("3.json")).hasContent("{}");
+    }
+
+    /**
+     * The original is deleted right after the replacement takes its name, so the replacement must be flushed
+     * first: a flush that fails keeps the original. A read-only encoder output stands in for a failing flush,
+     * since opening the file to flush it fails.
+     */
+    @Test
+    void shouldKeepTheOriginalWhenTheReplacementCannotBeFlushed() throws IOException
+    {
+        // GIVEN an encoder output that cannot be opened to flush it.
+        Path probe = Files.createFile(tmp.resolve("probe"));
+        assumeTrue(probe.toFile().setWritable(false) && !Files.isWritable(probe),
+                "this user can write to a read-only file");
+        when(runner.run(anyList())).thenAnswer(invocation ->
+        {
+            List<String> command = invocation.getArgument(0);
+            Path output = Files.write(Path.of(command.get(2)), REAL_JXL);
+            assertThat(output.toFile().setWritable(false)).isTrue();
+            return true;
+        });
+
+        // WHEN
+        ImageCompressor.Result result = compressor.compress(source, profile(), workDir);
+
+        // THEN page 3 is still the original, and no unflushed 3.jxl stands in for it.
+        assertThat(result.replaced()).isFalse();
+        assertThat(result.file()).isEqualTo(source);
+        assertThat(source).hasBinaryContent(new byte[4096]);
+        assertThat(source.resolveSibling("3.jxl")).doesNotExist();
     }
 
     /**

@@ -101,7 +101,7 @@ code { background: var(--surface-2); padding: .1em .35em; border-radius: 4px; }
 
 /* ===== Layout ===== */
 .container { width: 100%; max-width: clamp(1500px, 80dvw, 80dvw); margin: 0 auto; padding: 1.25rem 1rem 4rem; }
-.container.narrow { max-width: 640px; }
+.container.narrow { max-width: 840px; }
 .section-title { border-bottom: 1px solid var(--border); padding-bottom: .35rem; margin: 1rem 0 1rem; }
 .hint { color: var(--muted); font-size: .9rem; }
 /* A path has no spaces to break at, and a long one must not widen the page. */
@@ -198,17 +198,8 @@ select {
 /* Brave on Android draws the native picker arrow out of CSS's reach, so the native chrome is removed
    and our own icon painted. That also removes the "open picker" trigger; app.js calls showPicker(). */
 input[type=date] {
-    appearance: none; -webkit-appearance: none; -moz-appearance: none;
-    padding-right: 2rem;
     cursor: pointer;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16' fill='none' stroke='%23a8a8a8' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='2.5' y='3.5' width='11' height='10' rx='1.5'/%3E%3Cpath d='M2.5 6.5h11M5.5 2v3M10.5 2v3'/%3E%3C/svg%3E");
-    background-repeat: no-repeat;
-    background-position: right 0.85rem center;
-    background-size: 1rem;
 }
-input[type=date]::-webkit-calendar-picker-indicator { display: none; -webkit-appearance: none; }
-input[type=date]::-webkit-inner-spin-button,
-input[type=date]::-webkit-outer-spin-button { display: none; -webkit-appearance: none; }
 /* File inputs (image upload): themed, with a button-styled chooser. */
 input[type=file] {
     max-width: 100%;
@@ -246,6 +237,7 @@ input[type=file]::file-selector-button:hover { border-color: var(--accent); }
 .checkbox-row { display: flex; flex-wrap: wrap; gap: 1rem; }
 .checkbox { display: inline-flex; align-items: center; gap: .4rem; font-weight: 500; }
 .checkbox.big { display: flex; gap: .5rem; font-size: 1.05rem; }
+.checkbox + .field { margin-top: 1rem; }
 .inline-form { display: inline-flex; gap: .5rem; align-items: center; flex-wrap: nowrap; margin: 0 0 .5rem; }
 .inline-form input[type=text], .inline-form input[type=search], .inline-form input[type=number] { width: auto; }
 /* Responsive: grow to fill the row but allow shrinking (no fixed px width). */
@@ -621,6 +613,35 @@ a.meta-gallery:hover { color: var(--text); }
 
 .danger-zone { margin-top: 2rem; }
 
+/* ===== Guide ===== */
+/* Links are unstyled app-wide (they are mostly cards and buttons); in running text they must look like links. */
+a.text-link, .guide a { text-decoration: underline; }
+a.text-link:hover, .guide a:hover { color: var(--accent); }
+.guide h3 { font-size: 1.02rem; margin: 1.5rem 0 .5rem; }
+/* Offsets anchor jumps below the sticky navbar. */
+.guide [id] { scroll-margin-top: calc(var(--bar-h) + .5rem); }
+.guide li { margin-bottom: .3rem; }
+.guide code, .guide td { overflow-wrap: anywhere; word-break: break-word; }
+.guide-toc { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: .5rem 1rem; margin: 1rem 0; }
+.guide-toc ol { padding-left: 1.25rem; margin: .25rem 0; }
+.guide-toc li { margin-bottom: .1rem; }
+.guide pre {
+    margin: .5rem 0 1rem; padding: .6rem .75rem; overflow-x: auto;
+    background: var(--chrome-bg); border: 1px solid var(--border); border-radius: var(--radius);
+    font-size: .82rem; line-height: 1.4;
+}
+.guide pre, .guide pre code { white-space: pre; }
+/* A wide table scrolls inside its box, never the page. */
+.table-scroll { overflow-x: auto; margin: .5rem 0 1rem; }
+.guide table { border-collapse: collapse; width: 100%; font-size: .92rem; }
+.guide th, .guide td { border: 1px solid var(--border); padding: .4rem .6rem; text-align: left; vertical-align: top; }
+.guide th { background: var(--surface-2); }
+.guide kbd {
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: 4px;
+    padding: 0 .35em; font-family: inherit; font-size: .9em;
+}
+
+
 /* ===== Settings: ComfyUI ===== */
 .workflow-check { margin: -.5rem 0 1rem; }
 .workflow-details summary,
@@ -689,6 +710,7 @@ a.meta-gallery:hover { color: var(--text); }
     background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius);
 }
 .queue-item.failed { border-color: var(--danger); }
+.queue-item.is-busy { opacity: .5; }
 .queue-item .inline-form { margin: 0; }
 /* One wrapper: margin-left:auto on each form would spread the buttons instead of grouping them. */
 .queue-actions { display: flex; flex-wrap: wrap; gap: .4rem; margin-left: auto; }

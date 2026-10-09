@@ -102,7 +102,9 @@ public class ChapterMatchingService
         List<Chapter> chapters = chapterRepository.findAllById(chapterIds);
         for (Chapter chapter : chapters)
         {
-            chapter.setMatchKey(TitleKey.of(chapter.getTitleFull()).getMatchKey());
+            var key = TitleKey.of(chapter.getTitleFull());
+            chapter.setMatchKey(key.getMatchKey());
+            chapter.setNativeMatchKey(TitleKey.nativeKey(chapter.getNativeTitle(), key));
         }
         chapterRepository.saveAll(chapters);
         return chapters.size();
@@ -129,9 +131,10 @@ public class ChapterMatchingService
     private Linked link(Chapter chapter, TitleKey key, Set<Integer> chapterArtists, double threshold,
                         Map<Integer, Set<Integer>> pendingArtists)
     {
-        var numbering = Map.of(chapter.getId(), Float.valueOf(key.getChapterNum()));
+        var numbering = Map.of(chapter.getId(), TitleKey.chapterNum(key, chapter.getNativeTitle()));
 
-        List<ScoredSeries> ranked = candidateFinder.rank(key, chapterArtists, pendingArtists);
+        List<ScoredSeries> ranked = candidateFinder.rank(key, chapter.getNativeMatchKey(), chapterArtists,
+                pendingArtists);
         ScoredSeries best = ranked.isEmpty() ? null : ranked.getFirst();
         if (best != null && best.score() >= threshold)
         {
