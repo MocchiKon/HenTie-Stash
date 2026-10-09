@@ -3,6 +3,7 @@ package io.github.mocchikon.hentie.service;
 import io.github.mocchikon.hentie.dto.MetadataType;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
 import java.util.Locale;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -70,6 +71,45 @@ class MetadataServiceUnitTest
         assertThat(MetadataService.canonical(MetadataType.TAG, "female:big breasts \u2640")).isEqualTo("big breasts \u2640");
         String once = MetadataService.canonical(MetadataType.TAG, "female:halo");
         assertThat(MetadataService.canonical(MetadataType.TAG, once)).isEqualTo(once);
+    }
+
+    @Test
+    void shouldKeepTheNameBeforeThePipeWhenCanonicalizingANameWithAliases()
+    {
+        // WHEN + THEN e-hentai's "name | alias", as nhentai stores it, for every kind but categories.
+        assertThat(MetadataService.canonical(MetadataType.CHARACTER, "Focalors | Lady Furina")).isEqualTo("focalors");
+        assertThat(MetadataService.canonical(MetadataType.ARTIST, "kitaku | nakamachi machi")).isEqualTo("kitaku");
+        assertThat(MetadataService.canonical(MetadataType.PARODY, "a | b | c")).isEqualTo("a");
+        assertThat(MetadataService.canonical(MetadataType.GROUP, " a  |  b ")).isEqualTo("a");
+        assertThat(MetadataService.canonical(MetadataType.TAG, "female:halo | female:aura")).isEqualTo("halo \u2640");
+        assertThat(MetadataService.canonical(MetadataType.CATEGORY, "a | b")).isEqualTo("a | b");
+    }
+
+    @Test
+    void shouldListTheAliasesAfterTheName()
+    {
+        // WHEN + THEN canonical, each once, never the name itself.
+        assertThat(MetadataService.aliasesOf(MetadataType.CHARACTER, "Focalors | Lady Furina"))
+                .containsExactly("lady furina");
+        assertThat(MetadataService.aliasesOf(MetadataType.ARTIST, "a | b | c")).containsExactly("b", "c");
+        assertThat(MetadataService.aliasesOf(MetadataType.ARTIST, "a | A | b | B")).containsExactly("b");
+        assertThat(MetadataService.aliasesOf(MetadataType.TAG, "female:halo | female:aura"))
+                .containsExactly("aura \u2640");
+        assertThat(MetadataService.aliasesOf(MetadataType.CHARACTER, "focalors")).isEmpty();
+        assertThat(MetadataService.aliasesOf(MetadataType.CATEGORY, "a | b")).isEmpty();
+        assertThat(MetadataService.aliasesOf(MetadataType.CHARACTER, null)).isEmpty();
+    }
+
+    /** A pipe can also be part of a name: only one with whitespace on both sides, between two names, separates. */
+    @Test
+    void shouldKeepANameWholeWhenItsPipesSeparateNoNames()
+    {
+        for (String name : List.of("|||naka|||", "a|b", "a |b", "a| b", "| naka |", "naka | ", "a || b", "x | | y"))
+        {
+            // WHEN + THEN
+            assertThat(MetadataService.canonical(MetadataType.ARTIST, name)).as(name).isEqualTo(name.trim());
+            assertThat(MetadataService.aliasesOf(MetadataType.ARTIST, name)).as(name).isEmpty();
+        }
     }
 
     @Test

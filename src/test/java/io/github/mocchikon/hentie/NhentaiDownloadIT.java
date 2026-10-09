@@ -2,11 +2,13 @@ package io.github.mocchikon.hentie;
 
 import io.github.mocchikon.hentie.config.AppProperties;
 import io.github.mocchikon.hentie.dto.BuiltInCompressionMode;
+import io.github.mocchikon.hentie.dto.MetadataType;
 import io.github.mocchikon.hentie.entity.Chapter;
 import io.github.mocchikon.hentie.entity.DownloadQueueItem;
 import io.github.mocchikon.hentie.entity.DownloadStatus;
 import io.github.mocchikon.hentie.repository.ChapterRepository;
 import io.github.mocchikon.hentie.repository.DownloadQueueRepository;
+import io.github.mocchikon.hentie.repository.MetadataRuleRepository;
 import io.github.mocchikon.hentie.scrapper.DataDownloaderRegistry;
 import io.github.mocchikon.hentie.scrapper.nhentai.NhentaiProperties;
 import io.github.mocchikon.hentie.service.ImageService;
@@ -42,6 +44,7 @@ class NhentaiDownloadIT
     @Autowired DataDownloaderRegistry registry;
     @Autowired ChapterRepository chapterRepository;
     @Autowired DownloadQueueRepository queueRepository;
+    @Autowired MetadataRuleRepository ruleRepository;
     @Autowired ImageService imageService;
     @Autowired NhentaiProperties nhentaiProperties;
     @Autowired AppProperties appProperties;
@@ -68,7 +71,7 @@ class NhentaiDownloadIT
     }
 
     @Test
-    void shouldStoreTheGalleryWithItsArtistsSplitAndOnlyItsPagesWhenDownloadingAnNhentaiLink()
+    void shouldStoreTheGalleryWithItsArtistsFirstNameAndOnlyItsPagesWhenDownloadingAnNhentaiLink()
     {
         // GIVEN
         site.simpleGallery("177013", 3);
@@ -88,7 +91,10 @@ class NhentaiDownloadIT
             assertThat(chapter.getTitle()).isEqualTo("Gallery 177013");
             assertThat(chapter.getNativeTitle()).isNull();
             assertThat(chapter.getLanguage()).isEqualTo("English");
-            assertThat(chapter.getArtists()).extracting("name").containsExactlyInAnyOrder("alpha", "beta");
+            // nhentai's "alpha | beta" is e-hentai's name and alias: the alias is ruled to the name.
+            assertThat(chapter.getArtists()).extracting("name").containsExactly("alpha");
+            assertThat(ruleRepository.findByTypeAndSourceNameLower(MetadataType.ARTIST, "beta").orElseThrow().getTargetId())
+                    .isEqualTo(chapter.getArtists().getFirst().getId());
             assertThat(chapter.getGroups()).extracting("name").containsExactly("circle");
             assertThat(chapter.getCategories()).extracting("name").containsExactly("doujinshi");
             assertThat(chapter.getDownloadStatus()).isEqualTo(DownloadStatus.SUCCESSFUL);

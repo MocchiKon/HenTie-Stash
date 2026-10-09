@@ -643,11 +643,11 @@ only class that speaks HTTP to it; `NhentaiDownloader` turns the answers into `G
 - **The API key** (Settings, `apikey.nhentai`) is read per call. It goes to the API only (`Authorization: Key
   …`), **never to the image servers**, whose addresses come from nhentai's answers; for the same reason the
   API client follows no redirect. A 401 is worded to send the user to Settings.
-- **nhentai's data quirks are handled here**, where the data is read. Artists joined as `"a | b"` are split,
-  only at a pipe with whitespace on both sides and only when every part is a name, so `"|||naka|||"` stays
-  whole. "translated", "rewrite" and the like are filed as languages, so the language is the first tag
-  `LanguageService` knows; without one (a "speechless" gallery) the first tag is kept, and the import's
-  refusal names it.
+- **nhentai's data quirks are handled here**, where the data is read. "translated", "rewrite" and the like are
+  filed as languages, so the language is the first tag `LanguageService` knows; without one (a "speechless"
+  gallery) the first tag is kept, and the import's refusal names it. A name with an alias
+  (`"focalors | lady furina"`) is passed on as sent: `MetadataService` handles it for every source and for typed
+  names (see "Metadata management").
 - **Search for subscriptions** (`GET /api/v2/search`, `sort=date`): 10 a minute without a key and 20 with one,
   its own pacer. Its pages move as galleries come and go, so a walk continues from a cursor that carries an upload
   time (see "Subscriptions"); times come from the galleries' own details, usually two requests a page.
@@ -1165,6 +1165,20 @@ Per cache:
     writes `X ♀`) or typed by hand is one row. Only those namespaces: a colon may belong to a name. It is
     idempotent (an existing symbol is kept). **Not for search needles**: a half-typed `female:ha` must still
     filter.
+  - **A name with aliases is the name before the pipe, for every kind but categories** (`canonical`,
+    `aliasesOf`): `focalors | lady furina` is stored as `focalors`, and each alias becomes a rewrite rule to it
+    (`recordAliases`), from an import, `add` and `rename` alike, whatever the "Add rule" box says. It is how
+    e-hentai shows a tag with one of its aliases, and nhentai stores that display as the name (beside a plain
+    `focalors` of its own); e-hentai galleries carry the first name only. Only a pipe with whitespace on both
+    sides separates, and only between names, so `|||naka|||` stays whole. A name may have several aliases.
+    - **Aliases are recorded before the names are resolved**, so a gallery that also names the alias alone gets
+      one row. An alias is ruled to wherever its name lands, a rule on the name included; a tag's alias is ruled
+      on its plain name, so its versions follow. A rule already on an alias stays (the user's, or an earlier
+      alias's). A row the alias already has is **merged in** with the rule, since a ruled-out name has no row.
+      Nothing is recorded for a name a rule drops: a block on the alias would outlive the user taking the name back.
+    - **Only the sites' aliases are joined.** Names that are not marked as aliases stay apart: e-hentai keeps
+      `saber` and `artoria pendragon` as separate tags on purpose, as different versions of one character.
+      Joining them is the user's merge.
   - **An imported gendered tag brings its plain tag along** (`resolveOrCreate`, `plainTagOf`): `halo ♀` is
     stored with `halo`, so searching `halo` finds a gallery whether its source tags by gender (e-hentai, chaika,
     hitomi) or not (nhentai). **Stored, not expanded at search time**: one link more per gendered tag keeps every
@@ -1227,15 +1241,17 @@ is ticked (default on; clearing it makes a rename a one-off).
   - **"Remove ♀/♂" rules are on the versions' names** (`halo ♀ → halo`, `halo ♂ → halo`) and belong to the tag:
     a rename moves them to the new names (a one-off rename too), a merge retargets them like any rule, a removal
     turns them into blocks. So the gender stays removed whatever the tag is called.
-- **Invariant: a ruled-out name has no row.** Delete/merge/rename free the name they record; `resolveOrCreate`
-  never creates one; `add` and `rename` **refuse** a ruled-out name (`RuleConflict`), and a version is ruled out
-  by its plain tag's rule too. Exception: a rule pointing at the row being renamed — the rename proceeds and the
+- **Invariant: a ruled-out name has no row.** Delete/merge/rename free the name they record, and an alias's row is
+  merged into its name; `resolveOrCreate` never creates one; `add` and `rename` **refuse** a ruled-out name
+  (`RuleConflict`), and a version is ruled out by its plain tag's rule too. Exception: a rule pointing at the row being renamed — the rename proceeds and the
   rule is deleted. A case-only rename records nothing. Recording is an **upsert** on (type, name).
 - A refused action **redirects to the section title**, so the message at the top is visible; the message
   names the metadata kind.
-- **Removing a rule takes a name back** (the rules page). Rules are only created by delete/merge/rename and
-  "Remove ♀/♂" — no add form. The page shows each target's **current** name. **No rule counts** on the Manage page or tab
-  bar — six queries for a number nothing uses.
+- **Removing a rule takes a name back** (the rules page). Rules are only created by delete/merge/rename,
+  "Remove ♀/♂" and aliases (see "Metadata management") — no add form. A removed alias rule comes back with the
+  next name that has that alias, and a row added under the alias meanwhile is merged in. The page shows each
+  target's **current** name. **No rule counts** on the Manage page or tab bar — six queries for a number nothing
+  uses.
 - **One "Add rule" checkbox per section, not per form** (a checkbox belongs to one form, and one per row
   broke the layout). Each form carries a hidden `createRule` that `app.js` keeps in sync; it renders `true`
   so a browser without JS submits the default, and a request without the field means `false`.
