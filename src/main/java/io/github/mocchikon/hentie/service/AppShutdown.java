@@ -11,8 +11,9 @@ import java.time.Duration;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Settings &rarr; <b>"Shut down"</b>, a graceful stop from any device. Ctrl+C in the console is the other one;
- * closing the console window is not, since Windows kills the process a few seconds later.
+ * Settings &rarr; <b>"Shut down"</b>, a graceful stop from any device, and the stop after too many wrong passwords.
+ * Ctrl+C in the console is the other one; closing the console window is not, since Windows kills the process a few
+ * seconds later.
  */
 @Service
 @RequiredArgsConstructor
@@ -34,13 +35,13 @@ public class AppShutdown
      * requests still running: on the request thread it would wait for itself until the timeout. The thread is
      * not a daemon, so the JVM cannot exit halfway through the close.
      */
-    public void shutDownSoon()
+    public void shutDownSoon(String why)
     {
         if (!requested.compareAndSet(false, true))
         {
             return;
         }
-        log.info("Shutting down, as asked on the Settings page");
+        log.warn("Shutting down {}", why);
         Thread.ofPlatform().name("app-shutdown").daemon(false).start(() ->
         {
             try

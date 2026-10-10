@@ -328,6 +328,22 @@ public class ChapterController
         return REDIRECT_CHAPTER_QUEUE;
     }
 
+    /** Through the worker, which stops the item it is running. */
+    @PostMapping("/queue/clear-all")
+    public String clearAll(RedirectAttributes redirectAttributes)
+    {
+        redirectAttributes.addFlashAttribute("clearedAllCount", downloadWorker.clearAll());
+        return REDIRECT_CHAPTER_QUEUE;
+    }
+
+    @PostMapping("/queue/abort-current")
+    public String abortCurrent(RedirectAttributes redirectAttributes)
+    {
+        redirectAttributes.addFlashAttribute("aborted", downloadWorker.abortCurrent().orElse(null));
+        redirectAttributes.addFlashAttribute("abortRequested", true);
+        return REDIRECT_CHAPTER_QUEUE;
+    }
+
     /** Through the worker, not the queue service: it owns the staging folder of the item it is running. */
     @PostMapping("/queue/{id:\\d+}/remove")
     public String removeQueued(@PathVariable int id)

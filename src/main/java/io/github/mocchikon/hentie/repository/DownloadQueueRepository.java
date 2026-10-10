@@ -85,4 +85,16 @@ public interface DownloadQueueRepository extends JpaRepository<DownloadQueueItem
     @Modifying
     @Query("delete from DownloadQueueItem i where i.error is not null")
     int deleteFailed();
+
+    /**
+     * Read before "Clear all" removes the waiting rows; one knows its chapter only once an attempt failed. The
+     * running row is left out: its staging belongs to the worker.
+     */
+    @Query("select i.chapterId from DownloadQueueItem i "
+            + "where i.error is null and i.chapterId is not null and i.id <> :runningId")
+    List<Integer> waitingChapterIdsExcept(@Param("runningId") int runningId);
+
+    @Modifying
+    @Query("delete from DownloadQueueItem i where i.error is null")
+    int deleteWaiting();
 }

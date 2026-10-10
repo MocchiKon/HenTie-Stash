@@ -263,6 +263,7 @@ public class ChapterDownloadService
             throw new UncheckedIOException(new IOException("No page of " + link.galleryId() + " could be downloaded"));
         }
 
+        stopIfInterrupted(link);
         // Removed from the queue during the download: publishing a partial set and marking it SUCCESSFUL
         // could never be undone. Checked right before the publish, so only the publish itself is uncovered.
         if (!queueService.exists(item.getId()))
@@ -331,6 +332,8 @@ public class ChapterDownloadService
             {
                 continue;
             }
+            // Not every source blocks in a way an interrupt ends (the mock reads files).
+            stopIfInterrupted(fetch.link());
 
             URI url = pages.get(page - 1);
             byte[] bytes;
@@ -424,6 +427,11 @@ public class ChapterDownloadService
             ImageService.deleteRecursively(runFolder);
         }
 
+        // Where the chapter page links to: a gallery fetched from exhentai may be one e-hentai hides.
+        if (!outcome.received().isEmpty())
+        {
+            chapterService.setSourceSite(fetch.chapterId(), outcome.site());
+        }
         SortedSet<Integer> failed = new TreeSet<>(wanted);
         failed.removeAll(outcome.received());
         if (failed.isEmpty())
@@ -561,6 +569,16 @@ public class ChapterDownloadService
                         e.toString(), retry, retries);
                 pause(appProperties.getDownload().getPageRetryBackoffMillis());
             }
+        }
+    }
+
+    /** An aborted download stops before its next page and never publishes. */
+    private static void stopIfInterrupted(ResourceLink link)
+    {
+        if (Thread.currentThread().isInterrupted())
+        {
+            throw new UncheckedIOException(new InterruptedIOException("Download of " + link.galleryId()
+                    + " was interrupted"));
         }
     }
 

@@ -13,6 +13,7 @@ import io.github.mocchikon.hentie.repository.SubscriptionRepository;
 import io.github.mocchikon.hentie.scrapper.ehentai.EhentaiDownloader;
 import io.github.mocchikon.hentie.scrapper.ehentai.EhentaiProperties;
 import io.github.mocchikon.hentie.scrapper.gallerydl.GalleryDlOptions;
+import io.github.mocchikon.hentie.service.DownloadService;
 import io.github.mocchikon.hentie.service.ImageService;
 import io.github.mocchikon.hentie.service.download.DownloadChoices;
 import io.github.mocchikon.hentie.service.download.DownloadQueueService;
@@ -61,6 +62,7 @@ class GalleryDlDownloadIT
     @Autowired ChapterRepository chapterRepository;
     @Autowired DownloadQueueRepository queueRepository;
     @Autowired ImageService imageService;
+    @Autowired DownloadService downloadService;
     @Autowired AppProperties appProperties;
     @Autowired EhentaiProperties ehentaiProperties;
     @Autowired EhentaiDownloader ehentaiDownloader;
@@ -379,6 +381,10 @@ class GalleryDlDownloadIT
             assertThat(FakeGalleryDl.option(run, "--sleep-request")).isEqualTo("0.4-0.65");
             assertThat(run).contains("original=true").doesNotContain("--sleep");
             assertThat(FakeGalleryDl.option(run, "--range")).isEqualTo("1-2");
+
+            // ...so the chapter links to exhentai, which may have galleries e-hentai hides.
+            assertThat(chapter.getSourceSite()).isEqualTo("exhentai");
+            assertThat(downloadService.sourcePageLink(chapter)).contains("https://exhentai.org/g/618395/0439fa3666/");
         }
         finally
         {
@@ -399,11 +405,15 @@ class GalleryDlDownloadIT
             assertThat(worker.processNext()).isTrue();
             em.flush();
 
-            // THEN e-hentai.org, whatever domain was pasted, and no cookies.
-            chapterId = chapterRepository.findByGalleryId("ehentai:618395/0439fa3666").orElseThrow().getId();
+            // THEN e-hentai.org, whatever domain was pasted, and no cookies...
+            Chapter chapter = chapterRepository.findByGalleryId("ehentai:618395/0439fa3666").orElseThrow();
+            chapterId = chapter.getId();
             List<String> run = FakeGalleryDl.calls().getFirst();
             assertThat(run.getLast()).isEqualTo("https://e-hentai.org/g/618395/0439fa3666/");
             assertThat(run).contains("original=false").doesNotContain("--cookies-from-browser");
+            // ...and the chapter links there.
+            assertThat(chapter.getSourceSite()).isNull();
+            assertThat(downloadService.sourcePageLink(chapter)).contains("https://e-hentai.org/g/618395/0439fa3666/");
         }
         finally
         {
@@ -432,6 +442,8 @@ class GalleryDlDownloadIT
             assertThat(chapter.getDownloadStatus()).isEqualTo(DownloadStatus.SUCCESSFUL);
             assertThat(FakeGalleryDl.calls()).extracting(List::getLast).containsExactly(
                     "https://exhentai.org/g/618395/0439fa3666/", "https://e-hentai.org/g/618395/0439fa3666/");
+            // The account cannot see exhentai, so the chapter links to e-hentai.
+            assertThat(downloadService.sourcePageLink(chapter)).contains("https://e-hentai.org/g/618395/0439fa3666/");
         }
         finally
         {

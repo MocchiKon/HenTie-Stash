@@ -2,6 +2,8 @@ package io.github.mocchikon.hentie.scrapper.ehentai;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -66,5 +68,20 @@ class EhentaiSearchQueryTest
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> EhentaiSearchQuery.normalized("f_search=%zz"))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    /** It would be searched for as text, and the subscription would never find anything. */
+    @Test
+    void shouldRefuseTheAddressOfAnotherSite()
+    {
+        // WHEN + THEN
+        for (String address : List.of("https://nhentai.net/parody/genshin-impact/", "nhentai.net/search/?q=x",
+                "http://example.com", "www.example.com/?f_search=x"))
+        {
+            assertThatThrownBy(() -> EhentaiSearchQuery.normalized(address))
+                    .as(address).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("not an address on");
+        }
+        // ...while search text with dots and colons is still search text.
+        assertThat(EhentaiSearchQuery.normalized("parody:\"vol.2$\"")).isEqualTo("f_search=parody%3A%22vol.2%24%22");
     }
 }

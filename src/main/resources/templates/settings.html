@@ -22,6 +22,16 @@
             <span>Require login to access the app</span>
         </label>
         <p class="hint">If unchecked, anyone on your network can use this app without a password.</p>
+        <label class="checkbox" th:if="${maxFailedLogins > 0}">
+            <input type="checkbox" name="shutDownOnFailedLogins" th:checked="${shutDownOnFailedLogins}">
+            <span th:text="'Shut down after ' + ${maxFailedLogins} + ' wrong passwords in a row'">Shut down after 3 wrong
+                passwords in a row</span>
+        </label>
+        <p class="hint" th:if="${maxFailedLogins > 0}">
+            Keeps a password from being guessed.
+        </p>
+        <input type="hidden" name="shutDownOnFailedLogins" th:unless="${maxFailedLogins > 0}"
+               th:value="${shutDownOnFailedLogins}">
         <!-- Only while no password exists, since login needs one. Without JavaScript the fields always show. -->
         <div class="login-password-setup" th:if="${!hasPassword}" data-login-password-setup>
             <p class="hint">No password has been set yet. Choose one to require login with.</p>

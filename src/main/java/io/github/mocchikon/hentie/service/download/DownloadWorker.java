@@ -63,8 +63,16 @@ public class DownloadWorker
     private volatile boolean stopping;
     private volatile Current current;
 
-    /** Set before any download work starts (unlike {@link #current}), so no in-flight item is ever reported as not running. */
+    /**
+     * Set before any download work starts (unlike {@link #current}), so no in-flight item is ever reported as not
+     * running. Written under {@link #abortLock} together with {@link #currentThread}, so an abort never interrupts a
+     * thread that has moved on to the next item.
+     */
     private volatile Integer currentItemId;
+    private Thread currentThread;
+    /** The user asked to abort {@link #currentItemId}; it then fails for good, whatever the interrupt broke. */
+    private volatile boolean abortRequested;
+    private final Object abortLock = new Object();
 
     // ---- lifecycle ---------------------------------------------------------
 
@@ -188,7 +196,12 @@ public class DownloadWorker
 
         int index = processed.get() + 1;
         long total = processed.get() + queueService.runnableCount();
-        currentItemId = item.getId();
+        synchronized (abortLock)
+        {
+            currentItemId = item.getId();
+            currentThread = Thread.currentThread();
+            abortRequested = false;
+        }
         current = new Current(item.getLink(), "Starting");
         try
         {
@@ -197,10 +210,43 @@ public class DownloadWorker
         }
         finally
         {
+            synchronized (abortLock)
+            {
+                currentItemId = null;
+                currentThread = null;
+            }
+            // An abort that came after the item's last interruptible step must not reach the next item.
+            if (abortRequested)
+            {
+                Thread.interrupted();
+            }
             current = null;
-            currentItemId = null;
         }
         return true;
+    }
+
+    /**
+     * Stops the item in flight by interrupting its thread, which every step of the pipeline answers (a page fetch,
+     * gallery-dl, which is killed, a backoff), and moves it to the Failed list, where it can be retried or removed.
+     * Staged pages are discarded, published ones stay: an abort while publishing leaves the chapter {@code PENDING},
+     * as a crash would, and a retry fetches only what is missing.
+     *
+     * @return the link being aborted, or empty when nothing was running
+     */
+    public Optional<String> abortCurrent()
+    {
+        synchronized (abortLock)
+        {
+            Thread running = currentThread;
+            if (currentItemId == null || running == null)
+            {
+                return Optional.empty();
+            }
+            abortRequested = true;
+            running.interrupt();
+        }
+        Current now = current;
+        return Optional.of(now == null ? "the current download" : now.link());
     }
 
     private void work(DownloadQueueItem item, int index, long total)
@@ -222,8 +268,30 @@ public class DownloadWorker
         }
         catch (RuntimeException e)
         {
+            if (abortRequested)
+            {
+                recordAborted(item);
+                return;
+            }
             handleFailure(item, e, index, total);
         }
+    }
+
+    /** As a permanent failure, so the user decides what happens to it; its own failure was the interrupt's doing. */
+    private void recordAborted(DownloadQueueItem item)
+    {
+        // Cleared first: the interrupt would fail the very writes that record the abort.
+        Thread.interrupted();
+        Integer chapterId = item.getGalleryId() == null
+                ? null : importService.findChapterId(item.getGalleryId()).orElse(null);
+        var outcome = queueService.recordFailure(item, "Aborted on request.", chapterId, true,
+                appProperties.getDownload().getMaxAttempts());
+        if (outcome == DownloadQueueService.FailureOutcome.GAVE_UP)
+        {
+            chapterDownloadService.discardStaged(chapterId);
+            processed.incrementAndGet();
+        }
+        log.info("Aborted {} on request", item.getLink());
     }
 
     /**
@@ -238,6 +306,20 @@ public class DownloadWorker
         {
             chapterDownloadService.discardStaged(chapterId);
         }
+    }
+
+    /**
+     * Removes every waiting row and aborts the item in flight; failed rows stay. The running item's staging is
+     * discarded by the worker once it stops; its row is gone, so the abort records nothing and it does not land on
+     * the Failed list.
+     *
+     * @return how many rows were removed
+     */
+    public int clearAll()
+    {
+        int removed = queueService.clearWaiting(currentItemId);
+        abortCurrent();
+        return removed;
     }
 
     /**
@@ -264,14 +346,14 @@ public class DownloadWorker
         {
             log.warn("Download of {} could not write to the database ({}); it runs again without counting an "
                     + "attempt", item.getLink(), failure.toString());
-            sleep(appProperties.getDownload().getRetryBackoffMillis());
+            backOff(item, appProperties.getDownload().getRetryBackoffMillis());
             return;
         }
         if (RetryLaterException.isIn(failure))
         {
             log.info("Download of {} has to wait ({}); it runs again without counting an attempt", item.getLink(),
                     failure.getMessage());
-            sleep(appProperties.getDownload().getRetryBackoffMillis());
+            backOff(item, appProperties.getDownload().getRetryBackoffMillis());
             return;
         }
         // A subscription's row of a source now refusing every download (a ban it sits out, which this item may just
@@ -310,7 +392,17 @@ public class DownloadWorker
             return;
         }
         log.warn("Attempt {} failed for {}, retrying: {}", item.getAttempts() + 1, item.getLink(), message);
-        sleep(appProperties.getDownload().getRetryBackoffMillis() * Math.max(1, item.getAttempts() + 1));
+        backOff(item, appProperties.getDownload().getRetryBackoffMillis() * Math.max(1, item.getAttempts() + 1));
+    }
+
+    /** The item is still current while it waits, so an abort can arrive here, after its failure was handled. */
+    private void backOff(DownloadQueueItem item, long millis)
+    {
+        sleep(millis);
+        if (abortRequested)
+        {
+            recordAborted(item);
+        }
     }
 
     private void sleep(long millis)

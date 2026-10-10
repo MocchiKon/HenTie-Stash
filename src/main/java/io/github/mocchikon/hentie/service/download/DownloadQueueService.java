@@ -482,6 +482,20 @@ public class DownloadQueueService
         return repository.deleteFailed();
     }
 
+    /**
+     * Every waiting row, the running one included; failed rows stay for the user to retry or remove. Subscriptions'
+     * rows go too, and nothing remembers them, so a subscription's next check may queue its new galleries again.
+     *
+     * @param runningId the row the worker is running, whose staging it discards itself (see {@link #remove})
+     */
+    @Transactional
+    public int clearWaiting(Integer runningId)
+    {
+        repository.waitingChapterIdsExcept(runningId == null ? -1 : runningId)
+                .forEach(imageService::discardStagedPages);
+        return repository.deleteWaiting();
+    }
+
     @Transactional(readOnly = true)
     public boolean exists(int id)
     {

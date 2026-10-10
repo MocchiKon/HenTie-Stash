@@ -42,6 +42,16 @@
     <div th:if="${clearedCount != null}" class="alert ok">
         <span th:text="${clearedCount}">0</span> failed item(s) removed.
     </div>
+    <div th:if="${clearedAllCount != null}" class="alert ok">
+        <span th:text="${clearedAllCount}">0</span> waiting item(s) removed from the queue. Failed items were kept.
+    </div>
+    <div th:if="${abortRequested != null}" class="alert" th:classappend="${aborted != null} ? 'ok' : 'error'">
+        <span th:if="${aborted != null}" class="wrap-anywhere">
+            Aborting <span th:text="${aborted}">mock:1</span>. It moves to the Failed list, where you can retry or
+            remove it.
+        </span>
+        <span th:if="${aborted == null}">No download was running.</span>
+    </div>
 
     <!-- data-active drives the page's own refresh in app.js: only while there is something to watch. -->
     <section class="manage-section" id="download-queue"
@@ -77,12 +87,25 @@
             <span class="hint" th:text="'— ' + ${progress.currentPhase()}">— Downloading images</span>
         </p>
 
-        <form method="post" th:action="@{/chapter/queue/pause}" class="inline-form">
-            <input type="hidden" name="paused" th:value="${progress.paused()} ? 'false' : 'true'">
-            <button type="submit" class="btn" th:text="${progress.paused()} ? 'Resume downloads' : 'Pause downloads'">
-                Pause downloads
-            </button>
-        </form>
+        <div class="btn-row">
+            <form method="post" th:action="@{/chapter/queue/pause}" class="inline-form">
+                <input type="hidden" name="paused" th:value="${progress.paused()} ? 'false' : 'true'">
+                <button type="submit" class="btn" th:text="${progress.paused()} ? 'Resume downloads' : 'Pause downloads'">
+                    Pause downloads
+                </button>
+            </form>
+            <form method="post" th:action="@{/chapter/queue/abort-current}" th:if="${progress.currentLink() != null}"
+                  class="inline-form confirm-delete"
+                  th:attr="data-confirm='Abort the download of ' + ${progress.currentLink()} + '? It moves to the Failed list; pages already published stay.'">
+                <button type="submit" class="btn btn-danger">Abort current download</button>
+            </form>
+            <form method="post" th:action="@{/chapter/queue/clear-all}"
+                  th:if="${progress.pending() > 0}"
+                  class="inline-form confirm-delete"
+                  th:attr="data-confirm='Remove all ' + ${progress.pending()} + ' waiting item(s) from the queue, the current download included, which is aborted? Failed items are kept. A subscription may queue its galleries again.'">
+                <button type="submit" class="btn btn-danger">Clear all</button>
+            </form>
+        </div>
         <p class="hint" th:if="${progress.paused()}">
             Paused. The item that was already running finishes; nothing new starts until you resume.
         </p>

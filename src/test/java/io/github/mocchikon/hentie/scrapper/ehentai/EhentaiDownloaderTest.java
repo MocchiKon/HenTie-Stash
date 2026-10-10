@@ -82,6 +82,8 @@ class EhentaiDownloaderTest
         assertThat(downloader.galleryId("618395/0439fa3666")).isEqualTo("ehentai:618395/0439fa3666");
         assertThat(downloader.resourceId(downloader.link("618395/0439fa3666"))).isEqualTo("618395/0439fa3666");
         assertThat(downloader.pageLinkTemplate()).isEqualTo("https://e-hentai.org/g/{id}/");
+        assertThat(downloader.pageLinkTemplate(null)).isEqualTo("https://e-hentai.org/g/{id}/");
+        assertThat(downloader.pageLinkTemplate("exhentai")).isEqualTo("https://exhentai.org/g/{id}/");
     }
 
     @Test

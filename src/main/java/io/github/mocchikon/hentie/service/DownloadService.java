@@ -68,7 +68,7 @@ public class DownloadService
     /** Empty for a chapter from no known source, or from one without a website. */
     public Optional<String> sourcePageLink(Chapter chapter)
     {
-        return registry.pageLinkFor(chapter.getGalleryId());
+        return registry.pageLinkFor(chapter.getGalleryId(), chapter.getSourceSite());
     }
 
     /** @return false when {@link #fullQualityLink} has nothing to offer */

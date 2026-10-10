@@ -312,6 +312,38 @@ class ChapterControllerIT
                 .andExpect(model().attributeExists("progress", "pending", "failed"));
     }
 
+    @Test
+    void shouldOfferToClearTheQueueAndEmptyItWhenAsked() throws Exception
+    {
+        // GIVEN
+        mvc.perform(post("/chapter/download").with(user("user")).with(csrf())
+                .param("links", "mock:8101\nmock:8102"));
+        try
+        {
+            // WHEN + THEN the page offers it, asking first; nothing runs, so there is nothing to abort...
+            mvc.perform(get("/chapter/queue").with(user("user")))
+                    .andExpect(content().string(containsString("action=\"/chapter/queue/clear-all\"")))
+                    .andExpect(content().string(not(containsString("action=\"/chapter/queue/abort-current\""))));
+
+            // ...and clearing removes every waiting row.
+            mvc.perform(post("/chapter/queue/clear-all").with(user("user")).with(csrf()))
+                    .andExpect(redirectedUrl("/chapter/queue"))
+                    .andExpect(flash().attributeExists("clearedAllCount"));
+            assertThat(downloadQueueRepository.findByLink("mock:8101")).isEmpty();
+            assertThat(downloadQueueRepository.findByLink("mock:8102")).isEmpty();
+
+            // An abort with nothing running says so.
+            mvc.perform(post("/chapter/queue/abort-current").with(user("user")).with(csrf()))
+                    .andExpect(redirectedUrl("/chapter/queue"))
+                    .andExpect(flash().attribute("abortRequested", true));
+        }
+        finally
+        {
+            downloadQueueRepository.findByLink("mock:8101").ifPresent(downloadQueueRepository::delete);
+            downloadQueueRepository.findByLink("mock:8102").ifPresent(downloadQueueRepository::delete);
+        }
+    }
+
     /**
      * An interrupted download renders fine, so the badge is all that says pages are missing. Asserted on the
      * markup, since a model flag would not catch a template that never shows it.

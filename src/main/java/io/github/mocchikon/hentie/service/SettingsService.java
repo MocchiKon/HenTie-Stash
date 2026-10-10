@@ -38,6 +38,8 @@ public class SettingsService
     private static final Logger log = LoggerFactory.getLogger(SettingsService.class);
 
     public static final String LOGIN_REQUIRED = "login.required";
+    /** Shut the app down after too many wrong passwords in a row (see {@code FailedLoginGuard}). */
+    public static final String SHUT_DOWN_ON_FAILED_LOGINS = "login.shut-down-on-failed";
     public static final String VIEW_MODE = "default.view.mode";
     /** How many next pages the viewer prepares (JPEG XL decode or ComfyUI run) while one is read. */
     public static final String VIEWER_PAGES_AHEAD = "viewer.pages-ahead";
@@ -206,6 +208,12 @@ public class SettingsService
     public boolean isLoginRequired()
     {
         return hasPassword() && Boolean.parseBoolean(cache.getOrDefault(LOGIN_REQUIRED, "false"));
+    }
+
+    /** On by default: a password that can be guessed at leisure protects little. */
+    public boolean isShutDownOnFailedLogins()
+    {
+        return Boolean.parseBoolean(cache.getOrDefault(SHUT_DOWN_ON_FAILED_LOGINS, "true"));
     }
 
     public boolean hasPassword()
@@ -470,6 +478,12 @@ public class SettingsService
     public void setTitleDisplayMode(TitleDisplayMode mode)
     {
         put(TITLE_DISPLAY_MODE, mode.name());
+    }
+
+    @Transactional
+    public void setShutDownOnFailedLogins(boolean enabled)
+    {
+        put(SHUT_DOWN_ON_FAILED_LOGINS, Boolean.toString(enabled));
     }
 
     @Transactional

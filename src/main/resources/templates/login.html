@@ -10,6 +10,10 @@
 
         <div th:if="${param.error}" class="alert error">
             <strong>Wrong password.</strong>
+            <p th:if="${attemptsLeft != null}"
+               th:text="${attemptsLeft} + ' more wrong password(s) in a row and HenTie shuts down, to keep the password from being guessed.'">
+                2 more wrong password(s) in a row and HenTie shuts down.
+            </p>
             <p class="reset-tip">
                 Forgot it? Close the app, then delete the file named
                 <code th:text="${passwordFile}">password-delete-to-reset.txt</code> (stored in the same directory where the app is).

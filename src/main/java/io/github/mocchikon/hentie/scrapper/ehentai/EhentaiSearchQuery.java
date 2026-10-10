@@ -61,6 +61,12 @@ final class EhentaiSearchQuery
             }
             pairs.addAll(QueryStrings.parameters(address.group(2)));
         }
+        else if (QueryStrings.isAddress(text))
+        {
+            throw new IllegalArgumentException("That is not an address on e-hentai.org or exhentai.org. Paste the "
+                    + "address of a search or a tag's page there, or type the search itself, e.g. "
+                    + "parody:\"genshin impact$\".");
+        }
         else if (text.contains("="))
         {
             pairs.addAll(QueryStrings.parameters(StringUtils.removeStart(text, "?")));

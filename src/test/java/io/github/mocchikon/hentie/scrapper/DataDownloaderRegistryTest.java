@@ -86,17 +86,17 @@ class DataDownloaderRegistryTest
     void shouldBuildAPageLinkFromTheTemplateOfTheGalleryIdsSource()
     {
         // WHEN + THEN
-        assertThat(registry.pageLinkFor("other:42")).contains("https://other.example/view/42");
+        assertThat(registry.pageLinkFor("other:42", null)).contains("https://other.example/view/42");
     }
 
     @Test
     void shouldBuildNoPageLinkForASourceWithoutAWebsiteOrAnUnknownGalleryId()
     {
         // WHEN + THEN - the mock source has no template; the rest name no source here.
-        assertThat(registry.pageLinkFor("mock:42")).isEmpty();
-        assertThat(registry.pageLinkFor("elsewhere:42")).isEmpty();
-        assertThat(registry.pageLinkFor("other:")).isEmpty();
-        assertThat(registry.pageLinkFor(null)).isEmpty();
+        assertThat(registry.pageLinkFor("mock:42", null)).isEmpty();
+        assertThat(registry.pageLinkFor("elsewhere:42", null)).isEmpty();
+        assertThat(registry.pageLinkFor("other:", null)).isEmpty();
+        assertThat(registry.pageLinkFor(null, null)).isEmpty();
     }
 
     /** The Download page offers the sources that have favourites, and only those. */

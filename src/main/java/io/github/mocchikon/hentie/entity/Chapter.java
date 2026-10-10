@@ -104,6 +104,11 @@ public class Chapter
     @Column(name = "compression_mode", length = 64)
     private String compressionMode;
 
+    // Which of its source's websites the pages last came from (exhentai); null for the source's usual one. Decides
+    // where the chapter page links to. Not on ChapterForm: it records what happened to the files.
+    @Column(name = "source_site", length = 32)
+    private String sourceSite;
+
     // Derived from titleFull by TitleKey on every title write. Default '' for the H2 import; "Match chapters"
     // backfills it.
     @Column(name = "match_key", nullable = false, columnDefinition = "varchar(255) not null default ''")

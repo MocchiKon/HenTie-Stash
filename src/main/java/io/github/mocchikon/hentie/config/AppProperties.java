@@ -44,6 +44,19 @@ public class AppProperties
 
     private Subscriptions subscriptions = new Subscriptions();
 
+    private Security security = new Security();
+
+    /** See {@code security.FailedLoginGuard}. */
+    @Data
+    public static class Security
+    {
+        /**
+         * Wrong passwords in a row after which the app shuts down, unless Settings turns that off; 0 never. Low,
+         * because the user knows the password and the attempts reset on every login and restart.
+         */
+        private int maxFailedLogins = 3;
+    }
+
     /** See {@code service.subscription}. */
     @Data
     public static class Subscriptions

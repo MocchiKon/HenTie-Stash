@@ -307,16 +307,17 @@ public class SubscriptionService
         return new SubscriptionView(subscription.getId(), title(subscription), siteLabel, subscription.getQuery(),
                 source.map(s -> s.searchPageUrl(subscription.getSource(), subscription.getQuery())).orElse(null),
                 subscription.isEnabled(), status.text(), status.kind(),
-                subscription.getNewestGalleryId(), pageLink(subscription.getNewestGalleryId()),
-                subscription.getOldestGalleryId(), pageLink(subscription.getOldestGalleryId()),
+                subscription.getNewestGalleryId(), pageLink(subscription.getNewestGalleryId(), subscription.getSource()),
+                subscription.getOldestGalleryId(), pageLink(subscription.getOldestGalleryId(), subscription.getSource()),
                 subscription.getQueuedCount(), subscription.getInLibraryCount(), subscription.getDeletedSinceCount(),
                 subscription.getAlreadyQueuedCount(), subscription.getBlacklistedCount(), waiting, failed,
                 choices(subscription, modeNames), schedule(subscription));
     }
 
-    private String pageLink(String galleryId)
+    /** On the subscription's site: an exhentai search lists galleries e-hentai may hide. */
+    private String pageLink(String galleryId, String site)
     {
-        return galleryId == null ? null : registry.pageLinkFor(galleryId).orElse(null);
+        return galleryId == null ? null : registry.pageLinkFor(galleryId, site).orElse(null);
     }
 
     private static String title(Subscription subscription)

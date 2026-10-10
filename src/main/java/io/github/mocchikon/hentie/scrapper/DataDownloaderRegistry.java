@@ -83,11 +83,11 @@ public class DataDownloaderRegistry
      * Only for a gallery id {@link #linkFor} accepts, so an id edited by hand into something its source would
      * never produce gets no link.
      */
-    public Optional<String> pageLinkFor(String galleryId)
+    public Optional<String> pageLinkFor(String galleryId, String site)
     {
         return linkFor(galleryId)
                 .flatMap(this::parse)
-                .flatMap(resource -> Optional.ofNullable(resource.downloader().pageLinkTemplate())
+                .flatMap(resource -> Optional.ofNullable(resource.downloader().pageLinkTemplate(site))
                         .map(template -> template.replace(DataDownloader.RESOURCE_ID, resource.resourceId())));
     }
 

@@ -5,7 +5,10 @@
 <!-- No navigation bar: none of its links would load once the app has stopped. -->
 <main class="container narrow">
     <h1>HenTie is shutting down</h1>
-    <p>
+    <p th:if="${afterFailedLogins}">
+        Too many wrong passwords were entered in a row, so HenTie stopped to keep the password from being guessed.
+    </p>
+    <p th:unless="${afterFailedLogins}">
         Pages still loading get up to a minute to finish. A download still running gets a few seconds; if it
         does not finish, it runs again the next time HenTie starts.
     </p>

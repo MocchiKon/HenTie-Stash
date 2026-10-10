@@ -531,6 +531,13 @@ the pipeline hands it (gallery-dl's run folder, see "gallery-dl").
     cooldown is not counted. Otherwise a routine image limit would put a subscription's whole backlog on the
     Failed list, and the subscription would list more to fail the same way. A pasted row still fails at once,
     saying why.
+- **"Abort current download" interrupts the worker's thread** (`DownloadWorker.abortCurrent`), which every step
+  answers (a fetch, gallery-dl, which is killed, a backoff; the pipeline also checks the flag before each page and
+  before publishing). The item goes to the Failed list as a **permanent** failure whatever the interrupt broke, staging
+  is discarded, and the flag is **cleared before recording it** (it would fail those writes) and after the item, so it
+  never reaches the next one. An abort while publishing leaves a `PENDING` chapter, as a crash would. **"Clear all"**
+  deletes every waiting row and aborts the running one, whose staging the worker discards itself; its row is gone, so
+  it does not land on the Failed list. **Failed rows stay**: they wait for the user's retry or removal.
 - **Progress is `[done/total]` for the current batch** — successful rows are deleted, so no lifetime total.
 - **The queue page's two lists are capped (200) with no pagination — don't add it.** Counts are exact;
   only rows are cut, and the page says so. The queue empties itself: the waiting list is in execution
@@ -615,6 +622,11 @@ either is `ehentai:<gid>/<token>`. The token is in the id because nothing can be
 - **Pages through gallery-dl, on the domain the cookies decide**, not the pasted one: with cookies
   exhentai.org (it also has what e-hentai hides), falling back **once** to e-hentai.org when exhentai refuses
   the account; without them e-hentai.org. `link()` is always e-hentai.org.
+- **The chapter page links to the domain the pages came from** (`chapter.source_site`, from `GalleryDl.Outcome.site`,
+  through `DataDownloader.pageLinkTemplate(site)`): a gallery from exhentai may be hidden on e-hentai, and one from
+  e-hentai (no cookies, or exhentai refused the account) may not open on exhentai. Written by the pipeline whenever
+  a run delivered pages, so it follows the last fetch; not on `ChapterForm`. A subscription's head and tail link to
+  its own site.
 - **A ban or a used-up image limit starts a cooldown** (`app.download.ehentai.cooldown-minutes`, in memory):
   every e-hentai item then fails at once, saying until when, without asking the API or starting gallery-dl —
   requests during an IP ban can extend it. Other sources keep running. Subscriptions' searches share it: a ban
@@ -774,6 +786,8 @@ decides** — a `SearchSource` never touches the database. Manage → Chapters �
   they set in memory per account, and asks for the search again. Search pages go out with a browser User-Agent
   (`app.download.ehentai.browser-user-agent`) and one pacer for both domains (`search-request-interval-millis`,
   5 s, as gallery-dl paces e-hentai).
+- **Another site's address is refused** (`QueryStrings.isAddress`), by every source: it would be searched for as
+  text and find nothing, for good. A bare `host.tld` without a path stays text (a search may hold `vol.2`).
 - **Queries are the source's** (`normalizedQuery`): nhentai's search text (a pasted search address gives its `q`,
   another page's address is refused; `uploaded:` is refused, the walk adds its own); for e-hentai the part after "?" (a pasted address, a tag page, or
   plain search text as `f_search`), keeping only `f_*` filters and `advsearch`, dropping paging and `inline_set`
@@ -1312,6 +1326,11 @@ is ticked (default on; clearing it makes a rename a one-off).
 - **The e-hentai account's cookies** (Settings, for exhentai subscriptions) are kept in the database like the
   nhentai API key, checked field by field (they go into a request header), and sent only to e-hentai's own
   hosts: redirects are followed by hand, never off them, and nothing logs them.
+- **Too many wrong passwords in a row shut the app down** (`FailedLoginGuard`, `app.security.max-failed-logins`, 3;
+  0 never; a Settings checkbox, on by default). The count is in memory and a login resets it: a restart is what a
+  guesser must wait for, and the user's own typos never add up. Counted only while login is required. The login
+  page says how many are left. The last attempt is **forwarded** to a page (`/login/shut-down`, public, but shown only
+  once the guard tripped): once shutdown starts, no redirect would load.
 - `LoginToggleFilter` applies the toggle at runtime by injecting an authenticated token when login is off,
   instead of rebuilding the filter chain. So **Logout** is gated on the `loginRequired` model flag, not on
   `sec:authorize`.
@@ -1477,6 +1496,8 @@ for good coverage.
   `AppProperties.isMatchAutoLinkDefault()`, **not** a literal `true` (the settings cache is shared).
 - ⚠️ **Every test context starts with a password and login required** (`TestLogin`). A suite that changes the
   password, deletes the file or turns login off must call `TestLogin.restore()`.
+- ⚠️ **`app.security.max-failed-logins=0`**, or a few wrong-password tests across the run would end the test JVM.
+  `FailedLoginShutdownIT` sets it again in a context of its own, with `AppShutdown` replaced.
 - ⚠️ **`app.storage.ram-disk-candidates=` (empty)**, so Linux machines with tmpfs behave like everywhere else;
   `ScratchSpaceTest` covers the automatic choice with a plain folder. A suite that sets a folder in Settings
   must clear it (`ScratchSpace` is a singleton).

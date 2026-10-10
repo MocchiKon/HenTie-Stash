@@ -300,6 +300,11 @@ public class NhentaiDownloader implements FavouritesSource, PageDownloader, Sear
                     + "another nhentai page. For a tag's or an artist's page, type its search instead, e.g. "
                     + "tag:\"big breasts\" or artist:name.");
         }
+        else if (QueryStrings.isAddress(text))
+        {
+            throw new IllegalArgumentException("That is not an address on nhentai.net. Paste the address of a search "
+                    + "there (nhentai.net/search/?q=...), or type the search itself, e.g. tag:\"big breasts\".");
+        }
         text = StringUtils.normalizeSpace(text);
         if (text.isEmpty())
         {

@@ -340,6 +340,18 @@ public class ChapterService
         }
     }
 
+    /** The pipeline's bookkeeping, like {@link #setDownloadStatus}. */
+    @Transactional
+    public void setSourceSite(int id, String site)
+    {
+        Chapter chapter = get(id);
+        if (!Objects.equals(chapter.getSourceSite(), site))
+        {
+            chapter.setSourceSite(site);
+            chapterRepository.save(chapter);
+        }
+    }
+
     /**
      * Null means the pages are as the source serves them. <b>Anything that re-encodes a chapter's pages must
      * record it here</b>, or the chapter is shown, and never offered back, as full quality.

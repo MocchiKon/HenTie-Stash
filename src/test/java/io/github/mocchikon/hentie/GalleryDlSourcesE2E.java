@@ -1,5 +1,7 @@
 package io.github.mocchikon.hentie;
 
+import io.github.mocchikon.hentie.entity.Chapter;
+import io.github.mocchikon.hentie.repository.ChapterRepository;
 import io.github.mocchikon.hentie.scrapper.GalleryData;
 import io.github.mocchikon.hentie.scrapper.chaika.ChaikaDownloader;
 import io.github.mocchikon.hentie.scrapper.ehentai.EhentaiDownloader;
@@ -7,10 +9,14 @@ import io.github.mocchikon.hentie.scrapper.gallerydl.GalleryDl;
 import io.github.mocchikon.hentie.scrapper.gallerydl.GalleryDlOptions;
 import io.github.mocchikon.hentie.scrapper.gallerydl.GalleryDlTool;
 import io.github.mocchikon.hentie.scrapper.hitomi.HitomiDownloader;
+import io.github.mocchikon.hentie.service.download.GalleryImportService;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.io.IOException;
 import java.net.URI;
@@ -29,7 +35,9 @@ import static org.assertj.core.api.Assumptions.assumeThat;
  * ./mvnw test -Pe2e
  * </pre>
  * Only metadata and a page or two of each gallery are fetched, at the sites' real pace. Every field read is
- * checked, so an edit on a site fails this test; the expectations then follow the site.
+ * checked, so an edit on a site fails this test; the expectations then follow the site. The metadata is then saved as
+ * a download saves it, and the chapter checked too: names in their canonical spelling, with the plain tag beside each
+ * gendered one. Rolled back afterwards.
  */
 @SpringBootTest(properties = {
         "app.gallery-dl.command=",
@@ -38,6 +46,7 @@ import static org.assertj.core.api.Assumptions.assumeThat;
         "app.download.chaika.base-url=https://panda.chaika.moe",
         "app.download.chaika.api-request-interval-millis=1000",
         "app.download.chaika.page-request-interval-millis=250"})
+@Transactional
 class GalleryDlSourcesE2E
 {
     private static final GalleryDlOptions NO_COOKIES = new GalleryDlOptions(null, false, "0.4-0.65");
@@ -46,6 +55,9 @@ class GalleryDlSourcesE2E
     @Autowired HitomiDownloader hitomi;
     @Autowired EhentaiDownloader ehentai;
     @Autowired ChaikaDownloader chaika;
+    @Autowired GalleryImportService importService;
+    @Autowired ChapterRepository chapterRepository;
+    @PersistenceContext EntityManager em;
 
     @TempDir Path folder;
 
@@ -71,6 +83,16 @@ class GalleryDlSourcesE2E
         assertThat(received).containsExactlyInAnyOrder(1, 2);
         assertThat(outcome.received()).containsExactlyInAnyOrder(1, 2);
         assertThat(folder.resolve("run/1.webp")).isNotEmptyFile();
+
+        // ...and saved with the plain tag beside the gendered one, so a search for either finds it.
+        Chapter chapter = saved(data, hitomi.galleryId("1000000"));
+        assertThat(chapter.getTitleFull()).isEqualTo("Zanmataisei Demonbane (uncensored)");
+        assertThat(chapter.getTags()).extracting("name").contains("big breasts ♀", "big breasts", "uncensored")
+                .doesNotContain("Big Breasts ♀");
+        assertThat(chapter.getArtists()).extracting("name").containsExactly("ni theta");
+        assertThat(chapter.getGroups()).extracting("name").containsExactly("nitroplus");
+        assertThat(chapter.getParodies()).extracting("name").containsExactly("demonbane");
+        assertThat(chapter.getCategories()).extracting("name").containsExactly("game cg");
     }
 
     @Test
@@ -95,6 +117,21 @@ class GalleryDlSourcesE2E
         assertThat(data.getTags()).contains("other:artbook", "other:full color");
         assertThat(data.getPageCount()).isEqualTo(20);
         assertThat(outcome.received()).containsExactlyInAnyOrder(1, 2);
+        // Without cookies from e-hentai.org, so the chapter would link there.
+        assertThat(outcome.site()).isNull();
+
+        // ...and saved without e-hentai's namespaces.
+        Chapter chapter = saved(data, ehentai.galleryId("618395/0439fa3666"));
+        assertThat(chapter.getTitleFull()).isEqualTo(
+                "(Kouroumu 8) [Handful☆Happiness! (Fuyuki Nanahara)] TOUHOU GUNMANIA A2 (Touhou Project)");
+        assertThat(chapter.getLanguage()).isEqualTo("Japanese");
+        assertThat(chapter.getCategories()).extracting("name").containsExactly("non-h");
+        assertThat(chapter.getArtists()).extracting("name").containsExactly("nanahara fuyuki");
+        assertThat(chapter.getGroups()).extracting("name").containsExactly("handful happiness");
+        assertThat(chapter.getParodies()).extracting("name").containsExactly("touhou project");
+        assertThat(chapter.getCharacters()).extracting("name").contains("hong meiling", "reimu hakurei");
+        assertThat(chapter.getTags()).extracting("name").contains("artbook", "full color")
+                .doesNotContain("other:artbook", "other:full color");
     }
 
     @Test
@@ -114,6 +151,23 @@ class GalleryDlSourcesE2E
         assertThat(chaika.pageExtension(first)).isEqualTo("jpg");
         // A JPEG, whole: its CRC was checked on the way.
         assertThat(page).startsWith((byte) 0xFF, (byte) 0xD8);
+
+        // ...and saved.
+        Chapter chapter = saved(data, chaika.galleryId("63715"));
+        assertThat(chapter.getTitleFull()).isEqualTo(
+                "[DOLL PLAY (Kurosu Gatari)] Wild-shiki Nihonjin Tsuma no Netorikata Sono San");
+        assertThat(chapter.getArtists()).extracting("name").containsExactly("kurosu gatari");
+        assertThat(chapter.getGroups()).extracting("name").containsExactly("doll play");
+        assertThat(chapter.getCategories()).extracting("name").containsExactly("doujinshi");
+    }
+
+    /** As the download pipeline saves a new gallery, read back from the database. */
+    private Chapter saved(GalleryData data, String galleryId)
+    {
+        int id = importService.importChapter(data, galleryId);
+        em.flush();
+        em.clear();
+        return chapterRepository.findById(id).orElseThrow();
     }
 
     /** macOS has no bundled copy. */
