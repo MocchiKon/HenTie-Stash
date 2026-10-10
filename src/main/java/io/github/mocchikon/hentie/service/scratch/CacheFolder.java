@@ -5,10 +5,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
@@ -26,11 +29,19 @@ import java.util.stream.Stream;
  * there are not the cache's.
  *
  * <p>Entries are written under a temporary name of their own ({@link #partFor}) and renamed, so a reader never
- * sees half a file and two writers never share one.
+ * sees a file still being written and two writers never share one. Nothing is synced before the rename, so a
+ * power cut can leave an entry without its data. A reader takes only a {@linkplain #isWholePng whole} one and
+ * leaves a broken one for the next write to replace: deleting it on sight could delete a whole one renamed in
+ * meanwhile.
  */
 public final class CacheFolder
 {
     private static final Logger log = LoggerFactory.getLogger(CacheFolder.class);
+
+    private static final byte[] PNG_SIGNATURE = {(byte) 0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'};
+
+    /** The last chunk of every PNG. It holds no data, so it is always these bytes: length, type, CRC. */
+    private static final byte[] PNG_END = {0, 0, 0, 0, 'I', 'E', 'N', 'D', (byte) 0xae, 0x42, 0x60, (byte) 0x82};
 
     /** A prune runs after writing this fraction of the cap, so pruning is rare. */
     private static final int PRUNE_EVERY_FRACTION = 4;
@@ -245,6 +256,48 @@ public final class CacheFolder
         {
             return 0;
         }
+    }
+
+    /**
+     * Reads only the two ends: a file a power cut damaged before it was synced is empty, zeros or cut short, so
+     * it lacks the signature or the closing {@code IEND} chunk. Data lost from the middle would take a decode to
+     * find.
+     */
+    public static boolean isWholePng(Path file)
+    {
+        try (FileChannel channel = FileChannel.open(file))
+        {
+            long size = channel.size();
+            return size >= PNG_SIGNATURE.length + PNG_END.length
+                    && holds(channel, 0, PNG_SIGNATURE)
+                    && holds(channel, size - PNG_END.length, PNG_END);
+        }
+        catch (IOException e)
+        {
+            // Missing or unreadable: nothing to serve either way.
+            return false;
+        }
+    }
+
+    /** The same test for bytes before they are stored, so nothing is stored that a reader would refuse. */
+    public static boolean isWholePng(byte[] png)
+    {
+        return png.length >= PNG_SIGNATURE.length + PNG_END.length
+                && Arrays.equals(png, 0, PNG_SIGNATURE.length, PNG_SIGNATURE, 0, PNG_SIGNATURE.length)
+                && Arrays.equals(png, png.length - PNG_END.length, png.length, PNG_END, 0, PNG_END.length);
+    }
+
+    private static boolean holds(FileChannel channel, long position, byte[] expected) throws IOException
+    {
+        ByteBuffer buffer = ByteBuffer.allocate(expected.length);
+        while (buffer.hasRemaining())
+        {
+            if (channel.read(buffer, position + buffer.position()) < 0)
+            {
+                return false;
+            }
+        }
+        return Arrays.equals(buffer.array(), expected);
     }
 
     public static void deleteQuietly(Path file)

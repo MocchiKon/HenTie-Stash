@@ -1,5 +1,12 @@
 package io.github.mocchikon.hentie.service.comfy;
 
+import io.github.mocchikon.hentie.config.AppProperties;
+import io.github.mocchikon.hentie.service.ImageService;
+import io.github.mocchikon.hentie.service.scratch.CacheFolder;
+import io.github.mocchikon.hentie.service.scratch.PageDerivedCache;
+import io.github.mocchikon.hentie.service.scratch.ScratchSpace;
+import org.springframework.stereotype.Component;
+
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -7,19 +14,11 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.util.Optional;
 import java.util.regex.Pattern;
 
-import org.springframework.stereotype.Component;
-
-import io.github.mocchikon.hentie.config.AppProperties;
-import io.github.mocchikon.hentie.service.ImageService;
-import io.github.mocchikon.hentie.service.scratch.CacheFolder;
-import io.github.mocchikon.hentie.service.scratch.PageDerivedCache;
-import io.github.mocchikon.hentie.service.scratch.ScratchSpace;
-
 /**
  * Processed pages, so turning back to one is a file read instead of a ComfyUI run that can take minutes.
  *
  * <p><b>An entry is named after exactly what it was made from</b>:
- * {@code 3.jxl.<mtime>-<size>.<name hash>-<version hash>.png}. Validity is "an entry for these versions
+ * {@code 3.jxl.<mtime>-<size>.<name hash>-<version hash>.png}. Validity is "a whole entry for these versions
  * exists", never "the entry is newer than the page", so a page replaced outside the app or a re-exported
  * workflow is never answered with an old result. The workflow name is hashed because it may hold slashes;
  * it is hashed apart from the version so one workflow's old results for a page can be found and deleted.
@@ -61,13 +60,22 @@ public class ComfyResultCache implements PageDerivedCache
     public Optional<Path> find(int chapterId, String filename, PageVersion page, String workflowName, String workflowVersion)
     {
         Path entry = entryFor(chapterId, filename, page, workflowName, workflowVersion);
-        return Files.isRegularFile(entry) ? Optional.of(entry) : Optional.empty();
+        return CacheFolder.isWholePng(entry) ? Optional.of(entry) : Optional.empty();
     }
 
-    /** Also drops older results of the page under this workflow: they can never be served again. */
+    /**
+     * Also drops older results of the page under this workflow: they can never be served again.
+     *
+     * @throws IOException also for a result that is not a whole PNG: {@link #find} would never take it back, so
+     *                     the page would run again on every request
+     */
     public Path store(int chapterId, String filename, PageVersion page, String workflowName, String workflowVersion,
                       byte[] png) throws IOException
     {
+        if (!CacheFolder.isWholePng(png))
+        {
+            throw new IOException("ComfyUI's result is not a whole PNG");
+        }
         Path entry = entryFor(chapterId, filename, page, workflowName, workflowVersion);
         Files.createDirectories(entry.getParent());
         Path part = folder.partFor(entry);

@@ -81,7 +81,7 @@ public class JxlTranscodeInterceptor implements HandlerInterceptor
             cacheHeaders(response, entry.get());
             response.setContentType(MediaType.IMAGE_PNG_VALUE);
             // The length is only known once decoded; a HEAD is not worth a decode to learn it.
-            if (Files.isRegularFile(entry.get()))
+            if (transcoder.isWhole(entry.get()))
             {
                 response.setContentLengthLong(Files.size(entry.get()));
             }

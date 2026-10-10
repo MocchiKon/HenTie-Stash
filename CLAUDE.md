@@ -944,6 +944,9 @@ downloaded and uploaded images. Default mode is **None**: bytes are stored as th
   - **An entry is named after the exact source version** — `3.jxl.<mtime>-<size>.png` — and valid if it
     exists; never "newer than the page" (a copied file can keep an older timestamp). Older versions are
     deleted once the current one is cached.
+  - **Entries are not synced** (an fsync per decode would slow the hottest read path), so a power cut can
+    leave one empty, zeroed or cut short: this cache and ComfyUI's serve only a whole PNG
+    (`CacheFolder.isWholePng`).
   - **The decoded variant uses an `ETag` (the entry name) and no `Last-Modified`.** A `Last-Modified` would
     be the decode time, and after switching delivery to Never the resource handler would answer the PNG's
     revalidation with 304 forever. Each variant carries a validator only its own path honours. 304s and
