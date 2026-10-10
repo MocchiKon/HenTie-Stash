@@ -340,16 +340,20 @@ public class ChapterService
         }
     }
 
-    /** The pipeline's bookkeeping, like {@link #setDownloadStatus}. */
+    /**
+     * The pipeline's bookkeeping, like {@link #setDownloadStatus}. A chapter deleted meanwhile is skipped, so the
+     * download reports the delete rather than failing here.
+     */
     @Transactional
     public void setSourceSite(int id, String site)
     {
-        Chapter chapter = get(id);
-        if (!Objects.equals(chapter.getSourceSite(), site))
-        {
-            chapter.setSourceSite(site);
-            chapterRepository.save(chapter);
-        }
+        chapterRepository.findById(id)
+                .filter(chapter -> !Objects.equals(chapter.getSourceSite(), site))
+                .ifPresent(chapter ->
+                {
+                    chapter.setSourceSite(site);
+                    chapterRepository.save(chapter);
+                });
     }
 
     /**
@@ -366,6 +370,22 @@ public class ChapterService
                 .ifPresent(chapter ->
                 {
                     chapter.setCompressionMode(modeKey);
+                    chapterRepository.save(chapter);
+                });
+    }
+
+    /**
+     * Sets {@code previous} again, but only while the chapter still records {@code modeKey}: a mode another run
+     * recorded meanwhile names pages it re-encoded.
+     */
+    @Transactional
+    public void restoreCompressionMode(int id, String modeKey, String previous)
+    {
+        chapterRepository.findById(id)
+                .filter(chapter -> Objects.equals(chapter.getCompressionMode(), modeKey))
+                .ifPresent(chapter ->
+                {
+                    chapter.setCompressionMode(previous);
                     chapterRepository.save(chapter);
                 });
     }

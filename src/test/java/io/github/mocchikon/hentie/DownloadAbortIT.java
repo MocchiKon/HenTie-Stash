@@ -6,7 +6,9 @@ import io.github.mocchikon.hentie.entity.DownloadQueueItem;
 import io.github.mocchikon.hentie.entity.DownloadStatus;
 import io.github.mocchikon.hentie.repository.ChapterRepository;
 import io.github.mocchikon.hentie.repository.DownloadQueueRepository;
+import io.github.mocchikon.hentie.scrapper.nhentai.NhentaiProperties;
 import io.github.mocchikon.hentie.service.ChapterService;
+import io.github.mocchikon.hentie.service.ImageDirectory;
 import io.github.mocchikon.hentie.service.ImageService;
 import io.github.mocchikon.hentie.service.download.DownloadChoices;
 import io.github.mocchikon.hentie.service.download.DownloadQueueService;
@@ -23,13 +25,15 @@ import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BooleanSupplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * "Abort current download" and "Clear all" on the queue page, with a download really running on another thread. Not
- * {@code @Transactional}: the worker's thread could not see uncommitted rows. It removes what it made.
+ * "Abort current download" and "Clear all" on the queue page, and deleting the chapter of a download in progress,
+ * each done on another thread than the download's. Not {@code @Transactional}: the other thread could not see
+ * uncommitted rows. It removes what it made.
  */
 @SpringBootTest
 class DownloadAbortIT
@@ -37,6 +41,7 @@ class DownloadAbortIT
     private static final String LINK = "https://hitomi.la/doujinshi/abort-me-english-9101.html";
     private static final String GALLERY_ID = "hitomi:9101";
     private static final String FAILED_LINK = "mock:abort-failed";
+    private static final String NHENTAI_GALLERY_ID = "nhentai:9102";
 
     /** A gallery that takes 20 s to fetch, so it is surely still running when aborted. */
     private static final String HITOMI_JSON = """
@@ -50,6 +55,8 @@ class DownloadAbortIT
     @Autowired ChapterRepository chapterRepository;
     @Autowired ChapterService chapterService;
     @Autowired ImageService imageService;
+    @Autowired ImageDirectory imageDirectory;
+    @Autowired NhentaiProperties nhentaiProperties;
 
     @BeforeEach
     void setUp() throws IOException
@@ -66,11 +73,15 @@ class DownloadAbortIT
     {
         queueRepository.findByLink(LINK).ifPresent(queueRepository::delete);
         queueRepository.findByLink(FAILED_LINK).ifPresent(queueRepository::delete);
-        chapterRepository.findByGalleryId(GALLERY_ID).map(Chapter::getId).ifPresent(id ->
+        queueRepository.findByLink(NHENTAI_GALLERY_ID).ifPresent(queueRepository::delete);
+        for (String galleryId : List.of(GALLERY_ID, NHENTAI_GALLERY_ID))
         {
-            imageService.discardStagedPages(id);
-            chapterService.delete(id);
-        });
+            chapterRepository.findByGalleryId(galleryId).map(Chapter::getId).ifPresent(id ->
+            {
+                imageService.discardStagedPages(id);
+                chapterService.delete(id);
+            });
+        }
     }
 
     private static DownloadChoices choices()
@@ -105,6 +116,46 @@ class DownloadAbortIT
         // AND the worker goes on: the next item is not interrupted.
         assertThat(worker.progress().currentLink()).isNull();
         assertThat(Thread.currentThread().isInterrupted()).isFalse();
+    }
+
+    /**
+     * The page on its way when the chapter is deleted lands in a folder the delete already removed, where nothing but
+     * the worker could ever clean it up; the pages after it are not fetched at all.
+     */
+    @Test
+    void shouldStopAndRemoveWhatLandedWhenTheChapterIsDeletedDuringTheDownload() throws Exception
+    {
+        // GIVEN a three-page gallery whose chapter the user deletes while page 2 is on its way
+        String baseUrlBefore = nhentaiProperties.getBaseUrl();
+        var deleted = new AtomicInteger();
+        try (FakeNhentai site = FakeNhentai.start())
+        {
+            nhentaiProperties.setBaseUrl(site.baseUrl());
+            site.simpleGallery("9102", 3).beforeEachImage(path ->
+            {
+                if (path.endsWith("/2.jpg"))
+                {
+                    int chapterId = chapterRepository.findByGalleryId(NHENTAI_GALLERY_ID).orElseThrow().getId();
+                    chapterService.delete(chapterId);
+                    deleted.set(chapterId);
+                }
+            });
+            queueService.enqueue(List.of(NHENTAI_GALLERY_ID), choices());
+
+            // WHEN the worker takes it
+            assertThat(worker.processNext()).isTrue();
+
+            // THEN it stopped before page 3, and left no trace: no row, no chapter, no folder.
+            assertThat(deleted.get()).isPositive();
+            assertThat(site.requestsFor("/galleries/m9102/3.jpg")).isZero();
+            assertThat(queueRepository.findByLink(NHENTAI_GALLERY_ID)).isEmpty();
+            assertThat(chapterRepository.findById(deleted.get())).isEmpty();
+            assertThat(imageDirectory.chapterDir(deleted.get())).doesNotExist();
+        }
+        finally
+        {
+            nhentaiProperties.setBaseUrl(baseUrlBefore);
+        }
     }
 
     @Test

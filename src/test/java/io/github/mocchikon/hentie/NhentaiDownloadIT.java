@@ -158,7 +158,7 @@ class NhentaiDownloadIT
             assertThat(worker.processNext()).isTrue();
             em.flush();
 
-            // THEN the attempt failed after the retries, and the item waits for its next one with nothing published.
+            // THEN the attempt failed after the retries, and the item waits for its next one with page 1 saved.
             DownloadQueueItem item = queueRepository.findByLink("nhentai:179").orElseThrow();
             assertThat(item.getAttempts()).isEqualTo(1);
             assertThat(item.getError()).isNull();
@@ -166,14 +166,14 @@ class NhentaiDownloadIT
             Chapter chapter = chapterRepository.findByGalleryId("nhentai:179").orElseThrow();
             chapterId = chapter.getId();
             assertThat(chapter.getDownloadStatus()).isEqualTo(DownloadStatus.PENDING);
-            assertThat(imageService.pageUrls(chapterId)).isEmpty();
+            assertThat(imageService.pageNumbersOnDisk(chapterId)).containsExactly(1);
 
             // WHEN the next attempt runs, the page arrives.
             assertThat(worker.processNext()).isTrue();
             em.flush();
             em.clear();
 
-            // THEN the chapter is complete, and page 1 came from staging, not from the site again.
+            // THEN the chapter is complete, and page 1 was not fetched from the site again.
             assertThat(chapterRepository.findById(chapterId).orElseThrow().getDownloadStatus())
                     .isEqualTo(DownloadStatus.SUCCESSFUL);
             assertThat(imageService.pageUrls(chapterId)).hasSize(2);

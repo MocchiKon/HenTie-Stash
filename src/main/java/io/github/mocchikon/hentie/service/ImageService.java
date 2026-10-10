@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
@@ -469,12 +470,7 @@ public class ImageService
     public Path stagePage(Path stagingDir, int pageNumber, String extension, byte[] bytes) throws IOException
     {
         Files.createDirectories(stagingDir);
-        String ext = extension == null ? "" : extension.toLowerCase(Locale.ROOT).strip();
-        if (!ImageDirectory.isImage("x." + ext))
-        {
-            ext = "jpg";
-        }
-        Path file = stagingDir.resolve(pageNumber + "." + ext);
+        Path file = stagingDir.resolve(pageNumber + "." + storedExtension(extension));
         Files.write(file, bytes);
         return file;
     }
@@ -488,27 +484,67 @@ public class ImageService
      */
     public Path stageFile(Path stagingDir, int pageNumber, Path source) throws IOException
     {
-        String ext = PageDownloader.extensionOf(source.getFileName().toString()).toLowerCase(Locale.ROOT);
-        if (!ImageDirectory.isImage("x." + ext))
-        {
-            throw new IOException(source + " is no image the app can show");
-        }
+        String name = deliveredPageName(pageNumber, source);
         Files.createDirectories(stagingDir);
-        Path file = stagingDir.resolve(pageNumber + "." + ext);
+        Path file = stagingDir.resolve(name);
         Files.move(source, file);
         return file;
     }
 
     /**
-     * Returns how many pages were published. A crash part-way is recoverable: the chapter stays
-     * {@code PENDING}, so the next run fetches exactly the missing pages.
-     * <p>
-     * <b>Staging keeps torn files out of the data directory</b>: a half-written page there would look
-     * complete to the next run, which fetches only <i>absent</i> pages.
+     * Writes a downloaded page straight into the chapter's folder, so it is kept whatever happens to the rest of
+     * the download. Like every page the pipeline adds, it appears whole or not at all ({@link #publishPage}). An
+     * unrecognized extension becomes {@code jpg}, as when staging.
      */
-    public int publishStagedPages(int chapterId, Path staging) throws IOException
+    public Path landPage(int chapterId, int pageNumber, String extension, byte[] bytes) throws IOException
     {
-        return publish(chapterId, staging, false);
+        Path target = createChapterDir(chapterId).resolve(pageNumber + "." + storedExtension(extension));
+        Path part = partFileOf(target);
+        try
+        {
+            writeDurably(part, bytes);
+            Files.move(part, target, StandardCopyOption.ATOMIC_MOVE);
+        }
+        catch (IOException e)
+        {
+            deleteQuietly(part);
+            throw e;
+        }
+        finally
+        {
+            directoryCache.evict(chapterId);
+        }
+        return target;
+    }
+
+    /**
+     * Moves a page a tool wrote (gallery-dl) into the chapter's folder under its page number.
+     *
+     * @throws IOException also for a file that is no image the app shows: renaming it would hide what it is
+     */
+    public Path landFile(int chapterId, int pageNumber, Path source) throws IOException
+    {
+        return land(chapterId, source, deliveredPageName(pageNumber, source));
+    }
+
+    /** Moves a staged page into the chapter's folder under its own name, once Image Compression is done with it. */
+    public Path landStagedPage(int chapterId, Path staged) throws IOException
+    {
+        return land(chapterId, staged, staged.getFileName().toString());
+    }
+
+    private Path land(int chapterId, Path source, String name) throws IOException
+    {
+        Path target = createChapterDir(chapterId).resolve(name);
+        try
+        {
+            publishPage(source, target);
+        }
+        finally
+        {
+            directoryCache.evict(chapterId);
+        }
+        return target;
     }
 
     /**
@@ -519,24 +555,19 @@ public class ImageService
      * listing counts once and the still-queued re-download repeats. Deleting first would leave the page
      * absent for good, since a re-download replaces only pages the chapter has.
      *
+     * @return how many pages were published
      * @throws IOException when an old version cannot be removed; the compressed page would still be what
      *                     the listing shows, so the re-download fails and is retried
      */
     public int publishReplacingPages(int chapterId, Path staging) throws IOException
     {
-        return publish(chapterId, staging, true);
-    }
-
-    private int publish(int chapterId, Path staging, boolean replacing) throws IOException
-    {
         if (!Files.isDirectory(staging))
         {
             return 0;
         }
-        Path target = imageDirectory.chapterDir(chapterId);
-        Files.createDirectories(target);
+        Path target = createChapterDir(chapterId);
         // Listed once, not per page: a gallery is hundreds of pages.
-        Map<String, List<String>> imagesByBase = replacing ? imagesByBaseName(target) : Map.of();
+        Map<String, List<String>> imagesByBase = imagesByBaseName(target);
         int published = 0;
         try (Stream<Path> files = Files.list(staging))
         {
@@ -545,14 +576,11 @@ public class ImageService
                 String name = file.getFileName().toString();
                 publishPage(file, target.resolve(name));
                 published++;
-                if (replacing)
+                for (String old : imagesByBase.getOrDefault(ImageDirectory.baseName(name), List.of()))
                 {
-                    for (String old : imagesByBase.getOrDefault(ImageDirectory.baseName(name), List.of()))
+                    if (!old.equals(name))
                     {
-                        if (!old.equals(name))
-                        {
-                            Files.deleteIfExists(target.resolve(old));
-                        }
+                        Files.deleteIfExists(target.resolve(old));
                     }
                 }
             }
@@ -562,13 +590,34 @@ public class ImageService
             directoryCache.evict(chapterId);
             // The whole chapter at once: each per-page eviction lists the cache folders, and a re-download
             // replaces nearly every page.
-            if (replacing && published > 0)
+            if (published > 0)
             {
                 evictDerived(chapterId);
             }
         }
         discardStagedPages(chapterId);
         return published;
+    }
+
+    private Path createChapterDir(int chapterId) throws IOException
+    {
+        return Files.createDirectories(imageDirectory.chapterDir(chapterId));
+    }
+
+    private static String storedExtension(String extension)
+    {
+        String ext = extension == null ? "" : extension.toLowerCase(Locale.ROOT).strip();
+        return ImageDirectory.isImage("x." + ext) ? ext : "jpg";
+    }
+
+    private static String deliveredPageName(int pageNumber, Path source) throws IOException
+    {
+        String ext = PageDownloader.extensionOf(source.getFileName().toString()).toLowerCase(Locale.ROOT);
+        if (!ImageDirectory.isImage("x." + ext))
+        {
+            throw new IOException(source + " is no image the app can show");
+        }
+        return pageNumber + "." + ext;
     }
 
     private static Map<String, List<String>> imagesByBaseName(Path dir) throws IOException
@@ -583,17 +632,20 @@ public class ImageService
     }
 
     /**
-     * A page must appear whole or not at all: the pipeline re-fetches by which page <i>numbers</i> exist, so a
-     * half-written file would read as complete for ever.
+     * A page must appear whole or not at all, and stay whole after a power cut. The pipeline re-fetches by which
+     * page <i>numbers</i> exist, so a half-written file would read as complete for ever; Image Compression
+     * deletes the original right after, so an unwritten replacement would be the only copy left. Nothing that
+     * writes a page before it gets here (staging, gallery-dl, an encoder) syncs it, hence the {@link #force}.
      */
-    private static void publishPage(Path staged, Path target) throws IOException
+    public static void publishPage(Path file, Path target) throws IOException
     {
-        moveInto(staged, target);
+        force(file);
+        moveInto(file, target);
     }
 
     /**
      * Atomic on the same filesystem or across one (a RAM disk). A plain {@code Files.move} across filesystems
-     * would copy straight onto the final name: the torn page this avoids. Image Compression needs the same.
+     * would copy straight onto the final name: the torn page this avoids.
      */
     public static void moveInto(Path source, Path target) throws IOException
     {
@@ -608,20 +660,47 @@ public class ImageService
         }
     }
 
-    /** The {@code force} matters as much as the rename: without it a power cut can leave the file renamed but unwritten. */
     static void copyThenRename(Path staged, Path target) throws IOException
     {
-        Path part = target.resolveSibling(target.getFileName() + PART_SUFFIX);
+        Path part = partFileOf(target);
         Files.copy(staged, part, StandardCopyOption.REPLACE_EXISTING);
-        try (FileChannel channel = FileChannel.open(part, StandardOpenOption.WRITE))
-        {
-            channel.force(true);
-        }
+        force(part);
         Files.move(part, target, StandardCopyOption.ATOMIC_MOVE);
         Files.deleteIfExists(staged);
     }
 
-    /** Called before every download, so a killed run's half-finished set is never published with a fresh one. */
+    private static Path partFileOf(Path target)
+    {
+        return target.resolveSibling(target.getFileName() + PART_SUFFIX);
+    }
+
+    private static void writeDurably(Path file, byte[] bytes) throws IOException
+    {
+        try (FileChannel channel = FileChannel.open(file, StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE))
+        {
+            ByteBuffer buffer = ByteBuffer.wrap(bytes);
+            while (buffer.hasRemaining())
+            {
+                channel.write(buffer);
+            }
+            channel.force(true);
+        }
+    }
+
+    /**
+     * Before the rename that makes a file a page, as much as the rename itself: without it a power cut can leave
+     * the file renamed but unwritten. Opened for writing, which Windows needs to flush a file.
+     */
+    private static void force(Path file) throws IOException
+    {
+        try (FileChannel channel = FileChannel.open(file, StandardOpenOption.WRITE))
+        {
+            channel.force(true);
+        }
+    }
+
+    /** Before staging is trusted, so a page a killed run left half-written is never published. */
     public void discardStagedPages(int chapterId)
     {
         // Every folder staging could have used: an earlier run may have chosen differently.

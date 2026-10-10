@@ -206,14 +206,15 @@ public class ImageCompressor
     }
 
     /**
-     * Keeps the base name so page 3 stays page 3. The source is deleted only after the move, so an
-     * interruption leaves a superseded source (ignored on read) but never a missing page.
+     * Keeps the base name so page 3 stays page 3. The source is deleted only once the replacement is on disk
+     * under the page's name, so an interruption, a power cut included, leaves a superseded source (ignored on
+     * read) but never a missing or empty page.
      */
     private static Path replace(Path source, Path encoded, String base, CompressionProfile profile)
             throws IOException
     {
         var target = source.resolveSibling(base + "." + profile.encoder().getExtension());
-        ImageService.moveInto(encoded, target);
+        ImageService.publishPage(encoded, target);
         removeStaleVariants(target);
         return target;
     }

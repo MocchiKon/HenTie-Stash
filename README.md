@@ -125,7 +125,7 @@ stored as they arrive.
   first, then checks for new ones as often as you choose (every 10 minutes at the most), and once a day it
   looks at the last two days again, for galleries that were tagged after they were uploaded. It never queues a
   gallery you already have or downloaded before (even if you deleted it since). What a subscription queues
-  downloads after the links you paste, and it keeps only about a hundred galleries waiting at a time, so it
+  downloads after the links you paste, and it keeps only about fifty galleries waiting at a time, so it
   goes at the pace of your downloads. exhentai needs your e-hentai account's cookies in Settings.
 - **Settings**: turn the login requirement on/off, choose the default reading size, change your
   password, store your nhentai API key (create one in your nhentai account settings, under API keys) and

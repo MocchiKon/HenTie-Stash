@@ -56,9 +56,7 @@
             <p class="field-error" th:if="${#fields.hasErrors('pollMinutes')}" th:errors="*{pollMinutes}">error</p>
             <p class="hint">
                 How often the search's newest page is checked, at least every <span th:text="${minPollMinutes}">10</span>
-                minutes. The galleries the search already has are listed at once, page after page, as fast as your
-                downloads go and the site allows - the subscription keeps no more than about a hundred of them
-                waiting in the download queue at a time.
+                minutes.
             </p>
         </div>
 
@@ -105,9 +103,8 @@
                 <span>Avoid duplicated titles from other sources</span>
             </label>
             <p class="hint">
-                A new gallery whose full title is exactly that of a chapter from a different source (or of one
-                added without a link) is not downloaded; it lands in the queue's Failed list naming the chapter it
-                matched.
+                A new gallery whose full title is exactly that of a chapter from a different source is not downloaded -
+                it lands in the queue's Failed list naming the chapter it matched.
             </p>
         </div>
 

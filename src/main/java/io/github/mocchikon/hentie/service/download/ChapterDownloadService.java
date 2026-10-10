@@ -11,6 +11,7 @@ import io.github.mocchikon.hentie.scrapper.gallerydl.GalleryDl;
 import io.github.mocchikon.hentie.scrapper.gallerydl.GalleryDlDownloader;
 import io.github.mocchikon.hentie.scrapper.gallerydl.GalleryDlOptions;
 import io.github.mocchikon.hentie.service.ChapterService;
+import io.github.mocchikon.hentie.service.ImageDirectory;
 import io.github.mocchikon.hentie.service.ImageService;
 import io.github.mocchikon.hentie.service.compress.ImageCompressionService;
 import lombok.RequiredArgsConstructor;
@@ -25,6 +26,7 @@ import java.net.URI;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 /**
@@ -35,6 +37,10 @@ import java.util.function.Consumer;
  * <p>Only a {@code PENDING} chapter (a download this app started and never finished) gets its absent pages
  * fetched. Any other chapter with images keeps them as they are, and nothing on disk is overwritten, except
  * by a full-quality re-download the user asks for.
+ *
+ * <p><b>A page lands in the chapter's folder as soon as it is whole</b>, so a crash, an abort or a failed attempt
+ * loses only the pages in flight: the next attempt fetches what is still absent. Only the full-quality
+ * re-download keeps its pages back until every one has arrived.
  *
  * <p>Not transactional: it spans minutes of network and disk work, and holding SQLite's single write lock
  * that long would block the app.
@@ -54,31 +60,18 @@ public class ChapterDownloadService
     private final AppProperties appProperties;
 
     /**
-     * What an in-process retry may inherit from staging. The folder is stored, not looked up again, because
-     * the automatic choice follows the mode and the RAM disk's free space, so a retry could get an empty
-     * folder. The compressed count is carried because inherited pages are not compressed again, so the
-     * attempt that publishes them cannot count them itself.
+     * What an in-process retry of a full-quality re-download may inherit from staging, where it keeps its pages until
+     * the end. The folder is stored, not looked up again, because the automatic choice follows the RAM disk's free
+     * space, so a retry could get an empty folder.
      */
-    private record StagedRun(int chapterId, String compressionMode, Path dir, int compressedPages)
+    private record StagedRun(int chapterId, Path dir)
     {
-        boolean continues(int chapterId, String compressionMode)
-        {
-            return this.chapterId == chapterId && Objects.equals(this.compressionMode, compressionMode);
-        }
-
-        StagedRun plusCompressed(int pages)
-        {
-            return new StagedRun(chapterId, compressionMode, dir, compressedPages + pages);
-        }
     }
 
     /**
      * The staging this process filled, or null when nothing in it is ours. Only such pages are known to be
      * whole: a page from a killed process may be torn, so a run's first attempt discards staging. Cleared
      * on a failed staging write, a publish or a discard.
-     * <p>
-     * The mode is part of it because inherited pages are not compressed again, so a mode changed between
-     * attempts would publish a gallery half in each mode.
      * <p>
      * No locking: one thread works one item at a time. {@code volatile} only so a restart on another thread
      * sees the current value.
@@ -107,12 +100,14 @@ public class ChapterDownloadService
         GalleryImportService.ExistingChapter existing = importService.findChapter(link.galleryId()).orElse(null);
         int chapterId;
         DownloadStatus status;
+        String recordedMode;
         if (existing != null)
         {
             log.info("Skipping metadata save for {} - already in the database as chapter {}",
                     link.galleryId(), existing.id());
             chapterId = existing.id();
             status = existing.downloadStatus();
+            recordedMode = existing.compressionMode();
         }
         else
         {
@@ -129,6 +124,7 @@ public class ChapterDownloadService
             }
             chapterId = importService.importChapter(data, link.galleryId());
             status = DownloadStatus.PENDING;
+            recordedMode = null;
         }
 
         // --- 4. remember that this gallery has been downloaded ------------------------------------
@@ -201,105 +197,187 @@ public class ChapterDownloadService
             throw compressionRunInProgress(chapterId);
         }
 
-        // --- 6. fetch the missing pages into staging ----------------------------------------------
+        // --- 6. fetch the missing pages -----------------------------------------------------------
         phase.accept("Downloading images");
+        var attempt = new Attempt(item, link, data, chapterId, status, onDisk, missing, phase);
+        return item.isReplacePages() ? replacePages(attempt) : fillIn(attempt, recordedMode);
+    }
+
+    /** One attempt at a queue item, from the moment it is known which pages it fetches. */
+    private record Attempt(DownloadQueueItem item, ResourceLink link, GalleryData data, int chapterId,
+                           DownloadStatus status, Set<Integer> onDisk, List<Integer> missing, Consumer<String> phase)
+    {
+    }
+
+    /**
+     * An ordinary download. A page stored as fetched goes straight into the chapter's folder; one to compress waits
+     * in staging only until its encoder is done. So nothing in staging outlives the attempt.
+     *
+     * @param recordedMode the compression mode the chapter records before this attempt
+     */
+    private int fillIn(Attempt attempt, String recordedMode)
+    {
+        int chapterId = attempt.chapterId();
+        // Before the first page lands: only a PENDING chapter gets its absent pages fetched, so the pages an
+        // attempt cut short leaves behind are completed by the next one. A chapter filled from empty included.
+        if (attempt.status() != DownloadStatus.PENDING)
+        {
+            chapterService.setDownloadStatus(chapterId, DownloadStatus.PENDING);
+        }
+        // Nothing staged is reused: what a killed process left there may be torn.
+        discardStaged(chapterId);
+
+        String mode = attempt.item().getCompressionMode();
+        var encoded = new EncodedPages(chapterId);
+        Optional<ImagePostProcessor.Run> processing = imagePostProcessor.start(chapterId, mode, encoded);
+        // Before any page is re-encoded: nothing rebuilds it from the files, so a crash after a re-encoded page
+        // landed would show that page as full quality for good. Taken back if no page was re-encoded after all.
+        boolean modeAhead = processing.isPresent() && !Objects.equals(recordedMode, mode);
+        if (modeAhead)
+        {
+            chapterService.setCompressionMode(chapterId, mode);
+        }
+        Runnable takeBackUnusedMode = () ->
+        {
+            if (modeAhead && encoded.reEncoded() == 0)
+            {
+                chapterService.restoreCompressionMode(chapterId, mode, recordedMode);
+            }
+        };
+
+        Path staging = imageService.stagingDir(chapterId, processing.isPresent());
+        Destination destination = processing.isPresent()
+                ? new ThroughEncoder(staging, processing.get(), encoded) : new ChapterFolder(chapterId);
+        var fetch = new Fetch(attempt, Set.of(), staging, destination);
+        log.info("Downloading {} image(s) for chapter {} ({}){}", attempt.missing().size(), chapterId,
+                attempt.link().galleryId(), attempt.onDisk().isEmpty() ? ""
+                        : " - " + attempt.onDisk().size() + " already on disk");
+        boolean finished = false;
+        try
+        {
+            int skipped;
+            // Each page is compressed as it arrives, overlapping with the download. The run must close on every
+            // exit: an encoder still writing while staging is discarded would lose a page.
+            ImagePostProcessor.Run run = processing.orElse(null);
+            try (run)
+            {
+                skipped = fetchPages(fetch);
+            }
+            stopIfInterrupted(attempt.link());
+            stopIfCancelled(attempt);
+            PageNotSaved notMovedIn = encoded.failure();
+            if (notMovedIn != null)
+            {
+                throw notSaved(fetch, notMovedIn);
+            }
+            logFinished(attempt, skipped);
+            // A lenient run that got no page at all would leave a SUCCESSFUL chapter without pages, which
+            // re-queueing could never fix.
+            if (imageService.pageNumbersOnDisk(chapterId).isEmpty())
+            {
+                throw new UncheckedIOException(new IOException("No page of " + attempt.link().galleryId()
+                        + " could be downloaded"));
+            }
+
+            takeBackUnusedMode.run();
+            chapterService.syncImageStats(chapterId);
+            // Also after a lenient run: its missing pages are on purpose, so re-queueing must be a no-op.
+            markSuccessful(chapterId, DownloadStatus.PENDING);
+            finished = true;
+            return chapterId;
+        }
+        finally
+        {
+            // After the run closed, so no encoder writes there any more.
+            discardStaged(chapterId);
+            if (!finished)
+            {
+                afterFailedAttempt(attempt, takeBackUnusedMode);
+            }
+        }
+    }
+
+    /**
+     * Best effort, since the attempt fails anyway and its own failure is what the worker must see. Pages that landed
+     * after their chapter was deleted are removed, as nothing else ever would; otherwise the pages that landed get
+     * their stats, and a mode recorded for pages never re-encoded is taken back. An abort's interrupt is set aside
+     * meanwhile, as it would fail these writes.
+     */
+    private void afterFailedAttempt(Attempt attempt, Runnable takeBackUnusedMode)
+    {
+        boolean interrupted = Thread.interrupted();
+        try
+        {
+            if (!chapterExists(attempt))
+            {
+                imageService.deleteAll(attempt.chapterId());
+                return;
+            }
+            takeBackUnusedMode.run();
+            chapterService.syncImageStats(attempt.chapterId());
+        }
+        catch (RuntimeException e)
+        {
+            log.warn("Could not tidy up chapter {} after a failed download of {}: {}", attempt.chapterId(),
+                    attempt.link().galleryId(), e.toString());
+        }
+        finally
+        {
+            if (interrupted)
+            {
+                Thread.currentThread().interrupt();
+            }
+        }
+    }
+
+    /**
+     * A full-quality re-download, always uncompressed: nothing is replaced before every original has arrived, so
+     * its pages wait in staging until the end. A retry in the same process keeps what an earlier attempt staged.
+     */
+    private int replacePages(Attempt attempt)
+    {
+        int chapterId = attempt.chapterId();
         // A killed run may have left a torn page, so the first attempt discards staging. A retry in the same
-        // process keeps what it fetched (so a failure on page 199 does not restart from page 1), unless the
-        // compression mode changed.
+        // process keeps what it fetched (so a failure on page 199 does not restart from page 1).
         StagedRun previous = stagedByThisProcess;
-        if (previous == null || !previous.continues(chapterId, item.getCompressionMode()))
+        if (previous == null || previous.chapterId() != chapterId)
         {
             imageService.discardStagedPages(chapterId);
-            previous = new StagedRun(chapterId, item.getCompressionMode(),
-                    imageService.stagingDir(chapterId, imagePostProcessor.compresses(item.getCompressionMode())), 0);
+            previous = new StagedRun(chapterId, imageService.stagingDir(chapterId, false));
         }
         stagedByThisProcess = previous;
         Path staging = previous.dir();
         Set<Integer> staged = imageService.stagedPageNumbers(staging);
 
-        log.info("Downloading {} image(s) for chapter {} ({}){}", missing.size() - staged.size(), chapterId,
-                link.galleryId(), onDisk.isEmpty() ? "" : " - " + onDisk.size() + " already on disk");
+        log.info("Downloading {} image(s) for chapter {} ({})", attempt.missing().size() - staged.size(), chapterId,
+                attempt.link().galleryId());
         int skipped;
-        int compressedPages = previous.compressedPages();
-        var fetch = new Fetch(link, item, chapterId, missing, staged, staging, phase);
-        // Each page is compressed as it lands, overlapping with the download. The run must close on every
-        // exit: an encoder still writing while staging is discarded or published would lose a page.
-        var processing = imagePostProcessor.start(chapterId, item.getCompressionMode());
-        try (processing)
+        try
         {
-            skipped = switch (link.downloader())
+            skipped = fetchPages(new Fetch(attempt, staged, staging, new Staging(staging)));
+            logFinished(attempt, skipped);
+            // A lenient run that got no page at all would leave a SUCCESSFUL chapter without pages, which
+            // re-queueing could never fix.
+            if (attempt.onDisk().isEmpty() && imageService.stagedPageNumbers(staging).isEmpty())
             {
-                case PageDownloader source -> fetchPageByPage(source, data, fetch, processing);
-                case GalleryDlDownloader source -> fetchWithGalleryDl(source, fetch, processing);
-                default -> throw new PermanentDownloadException("The source of " + link.galleryId()
-                        + " fetches its pages in no way this app knows.");
-            };
-        }
-        finally
-        {
-            // After the close, so the count is complete; on failure too, since the next attempt inherits these
-            // pages. Not when a failed write or a discard has already cleared the record.
-            compressedPages += processing.compressedPages();
-            if (stagedByThisProcess == previous)
-            {
-                stagedByThisProcess = previous.plusCompressed(processing.compressedPages());
+                throw new UncheckedIOException(new IOException("No page of " + attempt.link().galleryId()
+                        + " could be downloaded"));
             }
+            stopIfInterrupted(attempt.link());
+            // Checked right before the publish too, so only the publish itself is uncovered.
+            stopIfCancelled(attempt);
         }
-        if (skipped > 0)
-        {
-            log.warn("Finished downloading {} of {} image(s) for chapter {} ({}) - {} could not be fetched "
-                            + "and were skipped on request", missing.size() - skipped, missing.size(), chapterId,
-                    link.galleryId(), skipped);
-        }
-        else
-        {
-            log.info("Finished downloading {} image(s) for chapter {} ({})", missing.size(), chapterId,
-                    link.galleryId());
-        }
-        // A lenient run that got no page at all would leave a SUCCESSFUL chapter without pages, which
-        // re-queueing could never fix.
-        if (onDisk.isEmpty() && imageService.stagedPageNumbers(staging).isEmpty())
-        {
-            throw new UncheckedIOException(new IOException("No page of " + link.galleryId() + " could be downloaded"));
-        }
-
-        stopIfInterrupted(link);
-        // Removed from the queue during the download: publishing a partial set and marking it SUCCESSFUL
-        // could never be undone. Checked right before the publish, so only the publish itself is uncovered.
-        if (!queueService.exists(item.getId()))
+        catch (Cancelled cancelled)
         {
             discardStaged(chapterId);
-            throw new PermanentDownloadException("Download of " + link.galleryId()
-                    + " was cancelled - its queue item was removed");
-        }
-        // For a chapter delete path that forgets the queue row: nothing would ever clean up these pages.
-        if (!Objects.equals(importService.findChapterId(link.galleryId()).orElse(null), chapterId))
-        {
-            discardStaged(chapterId);
-            throw new PermanentDownloadException("Download of " + link.galleryId()
-                    + " was cancelled - its chapter was deleted");
+            throw cancelled;
         }
 
-        // --- 7. publish in one move ---------------------------------------------------------------
-        phase.accept("Publishing images");
-        // Before the first page lands, so a crash while publishing leaves something the next run finishes:
-        // only a PENDING chapter gets its absent pages fetched. A re-download's queue row repeats the whole
-        // replacement instead.
-        if (!item.isReplacePages() && status != DownloadStatus.PENDING)
-        {
-            chapterService.setDownloadStatus(chapterId, DownloadStatus.PENDING);
-            status = DownloadStatus.PENDING;
-        }
-        // Before the publish too: nothing rebuilds the mode from the files, and a rerun with nothing left to
-        // compress would never record it. A mode ahead of its pages is put right by a full-quality
-        // re-download; a missing one never is.
-        recordCompression(chapterId, item, compressedPages);
+        attempt.phase().accept("Publishing images");
         int published;
         try
         {
-            published = item.isReplacePages()
-                    ? publishReplacing(chapterId, staging, missing, skipped > 0)
-                    : imageService.publishStagedPages(chapterId, staging);
+            published = publishReplacing(chapterId, staging, attempt.missing(), skipped > 0);
             stagedByThisProcess = null;
         }
         catch (IOException e)
@@ -307,27 +385,254 @@ public class ChapterDownloadService
             throw new UncheckedIOException("Could not publish the downloaded pages of chapter " + chapterId, e);
         }
         log.info("Finished publishing images for chapter {} ({}) - {} page(s) published",
-                chapterId, link.galleryId(), published);
+                chapterId, attempt.link().galleryId(), published);
 
         chapterService.syncImageStats(chapterId);
         // Also after a lenient run: its missing pages are on purpose, so re-queueing must be a no-op.
-        markSuccessful(chapterId, status);
+        markSuccessful(chapterId, attempt.status());
         return chapterId;
     }
 
-    /** What both ways of fetching need to know about this attempt. */
-    private record Fetch(ResourceLink link, DownloadQueueItem item, int chapterId, List<Integer> missing,
-                         Set<Integer> staged, Path staging, Consumer<String> phase)
+    private static void logFinished(Attempt attempt, int skipped)
     {
+        if (skipped > 0)
+        {
+            log.warn("Finished downloading {} of {} image(s) for chapter {} ({}) - {} could not be fetched "
+                            + "and were skipped on request", attempt.missing().size() - skipped,
+                    attempt.missing().size(), attempt.chapterId(), attempt.link().galleryId(), skipped);
+        }
+        else
+        {
+            log.info("Finished downloading {} image(s) for chapter {} ({})", attempt.missing().size(),
+                    attempt.chapterId(), attempt.link().galleryId());
+        }
+    }
+
+    // ---- where a fetched page goes -------------------------------------------------------------------------
+
+    private interface Destination
+    {
+        /** A page fetched into memory. */
+        void accept(int page, String extension, byte[] bytes) throws IOException;
+
+        /** A whole page gallery-dl wrote into a folder of its own, which may be moved away from there. */
+        void accept(int page, Path file) throws IOException;
+    }
+
+    /** A full-quality re-download's pages, kept back until every one has arrived. */
+    private final class Staging implements Destination
+    {
+        private final Path dir;
+
+        Staging(Path dir)
+        {
+            this.dir = dir;
+        }
+
+        @Override
+        public void accept(int page, String extension, byte[] bytes) throws IOException
+        {
+            imageService.stagePage(dir, page, extension, bytes);
+        }
+
+        @Override
+        public void accept(int page, Path file) throws IOException
+        {
+            imageService.stageFile(dir, page, file);
+        }
+    }
+
+    /** Pages stored as fetched. */
+    private final class ChapterFolder implements Destination
+    {
+        private final int chapterId;
+
+        ChapterFolder(int chapterId)
+        {
+            this.chapterId = chapterId;
+        }
+
+        @Override
+        public void accept(int page, String extension, byte[] bytes) throws IOException
+        {
+            imageService.landPage(chapterId, page, extension, bytes);
+        }
+
+        @Override
+        public void accept(int page, Path file) throws IOException
+        {
+            imageService.landFile(chapterId, page, file);
+        }
+    }
+
+    /**
+     * Pages to compress: staged for the encoder, which hands each to {@link EncodedPages}. A page that could not
+     * move into the chapter's folder stops the download at the next page, which would most likely fail the same
+     * way.
+     */
+    private final class ThroughEncoder implements Destination
+    {
+        private final Path staging;
+        private final ImagePostProcessor.Run run;
+        private final EncodedPages encoded;
+
+        ThroughEncoder(Path staging, ImagePostProcessor.Run run, EncodedPages encoded)
+        {
+            this.staging = staging;
+            this.run = run;
+            this.encoded = encoded;
+        }
+
+        @Override
+        public void accept(int page, String extension, byte[] bytes) throws IOException
+        {
+            stopIfOneFailed();
+            run.page(imageService.stagePage(staging, page, extension, bytes));
+        }
+
+        @Override
+        public void accept(int page, Path file) throws IOException
+        {
+            stopIfOneFailed();
+            run.page(imageService.stageFile(staging, page, file));
+        }
+
+        private void stopIfOneFailed() throws PageNotSaved
+        {
+            PageNotSaved failed = encoded.failure();
+            if (failed != null)
+            {
+                throw failed;
+            }
+        }
+    }
+
+    /**
+     * Moves each page into the chapter's folder the moment its encoder is done, on the encoder's thread, re-encoded
+     * or kept as it was. A failure waits for the download's own thread, the only one that may fail the attempt.
+     */
+    private final class EncodedPages implements ImagePostProcessor.Processed
+    {
+        private final int chapterId;
+        private final AtomicInteger reEncoded = new AtomicInteger();
+        /** The first page that could not move in. Later pages still try: each one that lands is kept. */
+        private final AtomicReference<PageNotSaved> failure = new AtomicReference<>();
+
+        EncodedPages(int chapterId)
+        {
+            this.chapterId = chapterId;
+        }
+
+        @Override
+        public void page(Path file, boolean wasReEncoded)
+        {
+            try
+            {
+                imageService.landStagedPage(chapterId, file);
+                if (wasReEncoded)
+                {
+                    reEncoded.incrementAndGet();
+                }
+            }
+            catch (IOException | RuntimeException e)
+            {
+                failure.compareAndSet(null, PageNotSaved.of(ImageDirectory.pageNumber(file.getFileName().toString()),
+                        e instanceof IOException io ? io : new IOException(e)));
+            }
+        }
+
+        /** Re-encoded pages that landed; complete once the run is closed. */
+        int reEncoded()
+        {
+            return reEncoded.get();
+        }
+
+        PageNotSaved failure()
+        {
+            return failure.get();
+        }
+    }
+
+    /**
+     * A page that could not be written into staging or the chapter's folder. Never a page to skip, even in lenient
+     * mode: a full disk would skip every page and still mark the chapter {@code SUCCESSFUL}. Told apart from
+     * gallery-dl's own failures, which come back the same way.
+     */
+    private static final class PageNotSaved extends IOException
+    {
+        private final int page;
+
+        private PageNotSaved(int page, IOException cause)
+        {
+            super(cause.getMessage(), cause);
+            this.page = page;
+        }
+
+        /** {@code failure} itself when it already is one, about an earlier page than {@code page}. */
+        static PageNotSaved of(int page, IOException failure)
+        {
+            return failure instanceof PageNotSaved notSaved ? notSaved : new PageNotSaved(page, failure);
+        }
+    }
+
+    private static UncheckedIOException notSaved(Fetch fetch, PageNotSaved e)
+    {
+        return new UncheckedIOException("Could not save page " + e.page + " of " + fetch.link().galleryId()
+                + " for chapter " + fetch.chapterId(), e);
+    }
+
+    // ---- fetching ------------------------------------------------------------------------------------------
+
+    /**
+     * What both ways of fetching need to know about this attempt.
+     *
+     * @param staged pages an earlier attempt of this process already staged
+     * @param staging the folder gallery-dl's own folder goes into
+     */
+    private record Fetch(Attempt attempt, Set<Integer> staged, Path staging, Destination destination)
+    {
+        ResourceLink link()
+        {
+            return attempt.link();
+        }
+
+        DownloadQueueItem item()
+        {
+            return attempt.item();
+        }
+
+        int chapterId()
+        {
+            return attempt.chapterId();
+        }
+
+        List<Integer> missing()
+        {
+            return attempt.missing();
+        }
+
         void reportProgress(int done)
         {
-            phase.accept("Downloading images (" + done + " of " + missing.size() + ")");
+            attempt.phase().accept("Downloading images (" + done + " of " + missing().size() + ")");
         }
     }
 
     /** @return how many pages were skipped (lenient mode only) */
-    private int fetchPageByPage(PageDownloader source, GalleryData data, Fetch fetch, ImagePostProcessor.Run processing)
+    private int fetchPages(Fetch fetch)
     {
+        return switch (fetch.link().downloader())
+        {
+            case PageDownloader source -> fetchPageByPage(source, fetch);
+            case GalleryDlDownloader source -> fetchWithGalleryDl(source, fetch);
+            default -> throw new PermanentDownloadException("The source of " + fetch.link().galleryId()
+                    + " fetches its pages in no way this app knows.");
+        };
+    }
+
+    /** @return how many pages were skipped (lenient mode only) */
+    private int fetchPageByPage(PageDownloader source, Fetch fetch)
+    {
+        GalleryData data = fetch.attempt().data();
         List<URI> pages = new ArrayList<>(data.getPageUrls() == null ? List.<URI>of() : data.getPageUrls());
         int skipped = 0;
         int done = (int) fetch.missing().stream().filter(fetch.staged()::contains).count();
@@ -340,6 +645,7 @@ public class ChapterDownloadService
             fetch.reportProgress(done++);
             // Not every source blocks in a way an interrupt ends (the mock reads files).
             stopIfInterrupted(fetch.link());
+            stopIfRemoved(fetch.attempt());
 
             URI url = pages.get(page - 1);
             byte[] bytes;
@@ -352,7 +658,7 @@ public class ChapterDownloadService
                 // An interrupt is no missing page: skipping would fail every page after it the same way.
                 if (!fetch.item().isIgnoreImageErrors() || Thread.currentThread().isInterrupted())
                 {
-                    // The chapter stays PENDING; publishing the rest would leave a gap nothing fills.
+                    // The chapter stays PENDING, so the next attempt fetches this page and the ones after it.
                     throw new UncheckedIOException("Could not download page " + page + " of "
                             + fetch.link().galleryId() + " from " + url, e);
                 }
@@ -363,29 +669,27 @@ public class ChapterDownloadService
             try
             {
                 // Numbered by source position, so a skipped page leaves a gap a later run can fill.
-                processing.page(imageService.stagePage(fetch.staging(), page, source.pageExtension(url), bytes));
+                fetch.destination().accept(page, source.pageExtension(url), bytes);
             }
             catch (IOException e)
             {
-                // A failed write is never skipped, even in lenient mode: a full staging disk would skip
-                // every page and still mark the chapter SUCCESSFUL. The page may be torn, so the next
-                // attempt must discard staging.
+                // Kept apart from the fetch, so lenient mode never skips it. A staged page may be torn, so the
+                // next attempt must discard staging.
                 stagedByThisProcess = null;
-                throw new UncheckedIOException("Could not stage page " + page + " of " + fetch.link().galleryId()
-                        + " for chapter " + fetch.chapterId(), e);
+                throw notSaved(fetch, PageNotSaved.of(page, e));
             }
         }
         return skipped;
     }
 
     /**
-     * gallery-dl writes into a folder of its own inside staging: on the same filesystem, so a page is moved into
-     * staging by a rename, and a gallery-dl left running by a killed app writes only where nothing reads.
-     * Discarding staging removes it with the rest.
+     * gallery-dl writes into a folder of its own inside staging: a page moves on from there by a rename wherever
+     * staging shares a filesystem with the page's next folder, and a gallery-dl left running by a killed app writes
+     * only where nothing reads. Discarding staging removes it with the rest.
      *
      * @return how many pages were skipped (lenient mode only)
      */
-    private int fetchWithGalleryDl(GalleryDlDownloader source, Fetch fetch, ImagePostProcessor.Run processing)
+    private int fetchWithGalleryDl(GalleryDlDownloader source, Fetch fetch)
     {
         SortedSet<Integer> wanted = new TreeSet<>(fetch.missing());
         wanted.removeAll(fetch.staged());
@@ -403,25 +707,22 @@ public class ChapterDownloadService
         {
             outcome = source.downloadPages(fetch.link().resourceId(), options, wanted, runFolder, (page, file) ->
             {
-                Path stagedPage;
                 try
                 {
-                    stagedPage = imageService.stageFile(fetch.staging(), page, file);
+                    fetch.destination().accept(page, file);
                 }
                 catch (IOException e)
                 {
-                    throw new StagingFailed(page, e);
+                    throw PageNotSaved.of(page, e);
                 }
-                processing.page(stagedPage);
                 fetch.reportProgress(before + arrived.incrementAndGet());
             });
         }
-        catch (StagingFailed e)
+        catch (PageNotSaved e)
         {
             // Never skipped, even in lenient mode: the next page would fail the same way.
             stagedByThisProcess = null;
-            throw new UncheckedIOException("Could not stage page " + e.page + " of " + galleryId + " for chapter "
-                    + fetch.chapterId(), e.getCause() instanceof IOException io ? io : e);
+            throw notSaved(fetch, e);
         }
         catch (IOException e)
         {
@@ -444,10 +745,10 @@ public class ChapterDownloadService
             return 0;
         }
         String why = outcome.problem() == null ? "" : " - " + outcome.problem();
-        // A failed write is never skipped either: a full staging disk would skip every page.
+        // A failed write is never skipped either: a full disk would skip every page.
         if (!fetch.item().isIgnoreImageErrors() || outcome.writeFailed())
         {
-            // The pages that arrived stay staged, so the next attempt asks only for the rest.
+            // The pages that arrived are kept, so the next attempt asks only for the rest.
             throw new UncheckedIOException(new IOException("Could not download page(s) " + GalleryDl.rangeSpec(failed)
                     + " of " + galleryId + why));
         }
@@ -455,17 +756,53 @@ public class ChapterDownloadService
         return failed.size();
     }
 
-    /** A page gallery-dl delivered that could not be moved into staging; told apart from gallery-dl's failures. */
-    private static final class StagingFailed extends IOException
-    {
-        private final int page;
+    // ---- called off ----------------------------------------------------------------------------------------
 
-        StagingFailed(int page, IOException cause)
+    /** A download called off while it ran; permanent, as nothing is left to retry. */
+    private static final class Cancelled extends PermanentDownloadException
+    {
+        private Cancelled(String galleryId, String why)
         {
-            super(cause.getMessage(), cause);
-            this.page = page;
+            super("Download of " + galleryId + " was cancelled - " + why);
         }
     }
+
+    /**
+     * A download whose queue row or chapter is gone never finishes: a partial set marked {@code SUCCESSFUL} could
+     * never be completed. The chapter is checked too, for a delete path that forgets the queue row.
+     */
+    private void stopIfCancelled(Attempt attempt)
+    {
+        if (!chapterExists(attempt))
+        {
+            throw new Cancelled(attempt.link().galleryId(), "its chapter was deleted");
+        }
+        if (!queueService.exists(attempt.item().getId()))
+        {
+            throw new Cancelled(attempt.link().galleryId(), "its queue item was removed");
+        }
+    }
+
+    /**
+     * Before each page fetched one at a time, so a download called off stops there, not after its last page. Not
+     * between the pages of a gallery-dl run: they arrive on gallery-dl's thread, and the pipeline touches the
+     * database only on its own.
+     */
+    private void stopIfRemoved(Attempt attempt)
+    {
+        if (!queueService.exists(attempt.item().getId()))
+        {
+            stopIfCancelled(attempt);
+        }
+    }
+
+    private boolean chapterExists(Attempt attempt)
+    {
+        return Objects.equals(importService.findChapterId(attempt.link().galleryId()).orElse(null),
+                attempt.chapterId());
+    }
+
+    // ---- replacing -----------------------------------------------------------------------------------------
 
     /**
      * Takes the Image Compression run lock, unlike other downloads, because it overwrites and deletes
@@ -528,14 +865,7 @@ public class ChapterDownloadService
                 + "of chapter " + chapterId + " cannot be replaced yet - retry once it has finished."));
     }
 
-    /** A re-download clears the mode instead, in {@link #publishReplacing}. */
-    private void recordCompression(int chapterId, DownloadQueueItem item, int compressedPages)
-    {
-        if (compressedPages > 0)
-        {
-            chapterService.setCompressionMode(chapterId, item.getCompressionMode());
-        }
-    }
+    // ---- small steps ---------------------------------------------------------------------------------------
 
     /**
      * "Not {@code SUCCESSFUL}" rather than "is {@code PENDING}": a {@code NONE} chapter whose pages a
@@ -577,7 +907,7 @@ public class ChapterDownloadService
         }
     }
 
-    /** An aborted download stops before its next page and never publishes. */
+    /** An aborted download stops before its next page and never finishes its chapter. */
     private static void stopIfInterrupted(ResourceLink link)
     {
         if (Thread.currentThread().isInterrupted())

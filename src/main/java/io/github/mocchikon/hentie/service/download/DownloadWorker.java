@@ -228,8 +228,8 @@ public class DownloadWorker
     /**
      * Stops the item in flight by interrupting its thread, which every step of the pipeline answers (a page fetch,
      * gallery-dl, which is killed, a backoff), and moves it to the Failed list, where it can be retried or removed.
-     * Staged pages are discarded, published ones stay: an abort while publishing leaves the chapter {@code PENDING},
-     * as a crash would, and a retry fetches only what is missing.
+     * The pages that already landed stay, with the chapter {@code PENDING}, as after a crash, so a retry fetches only
+     * what is missing.
      *
      * @return the link being aborted, or empty when nothing was running
      */
@@ -296,8 +296,9 @@ public class DownloadWorker
 
     /**
      * Here rather than on {@link DownloadQueueService} because only the worker knows if the item is running.
-     * A running item's staging is left alone: deleting it would let the worker publish a partial chapter as
-     * {@code SUCCESSFUL}. The worker sees the row is gone before publishing and discards staging itself.
+     * A running item's staging is left alone: its encoder may be reading a page there, and the full-quality
+     * re-download keeps every page there until it publishes. The worker sees the row is gone, stops without
+     * finishing the chapter, and discards staging itself.
      */
     public void remove(int id)
     {

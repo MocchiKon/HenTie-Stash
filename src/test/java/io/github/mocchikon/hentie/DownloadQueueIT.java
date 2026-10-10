@@ -273,6 +273,49 @@ class DownloadQueueIT
         }
     }
 
+    /** A page is written under a name that is no page and renamed once whole, so one cut off mid-write never counts. */
+    @Test
+    void shouldFetchAPageAgainWhenTheAppDiedWhileSavingIt() throws IOException
+    {
+        // GIVEN a PENDING chapter with page 1 saved, and page 2 cut off mid-write by a killed run.
+        queueService.enqueue(List.of("mock:900"), TestDownloads.choices(NO_COMPRESSION, false));
+        ResourceLink link = registry.parse("mock:900").orElseThrow();
+        int chapterId = importService.importChapter(
+                link.downloader().downloadGalleryInfo(link.resourceId()), link.galleryId());
+        importService.recordDownloaded(link.galleryId(), chapterId);
+        em.flush();
+        try
+        {
+            Path chapterDir = chapterDir(chapterId);
+            Files.createDirectories(chapterDir);
+            Files.writeString(chapterDir.resolve("1.webp"), "page 1 of 900");
+            Files.writeString(chapterDir.resolve("2.webp.part"), "half of page 2");
+            assertThat(imageService.pageNumbersOnDisk(chapterId)).containsExactly(1);
+
+            // WHEN the app comes back up and works the still-queued item.
+            assertThat(worker.processNext()).isTrue();
+            em.flush();
+            em.clear();
+
+            // THEN page 2 is there whole, and nothing half-written is left beside it...
+            assertThat(imageService.pageUrls(chapterId))
+                    .containsExactly("/data/" + chapterId + "/1.webp", "/data/" + chapterId + "/2.webp");
+            assertThat(Files.readString(chapterDir.resolve("2.webp"))).isEqualTo("page 2 of 900");
+            try (var entries = Files.list(chapterDir))
+            {
+                assertThat(entries.map(p -> p.getFileName().toString())).containsExactlyInAnyOrder("1.webp", "2.webp");
+            }
+            // ...and the chapter is finished.
+            Chapter chapter = chapterRepository.findById(chapterId).orElseThrow();
+            assertThat(chapter.getDownloadStatus()).isEqualTo(DownloadStatus.SUCCESSFUL);
+            assertThat(chapter.getPageNum()).isEqualTo(2);
+        }
+        finally
+        {
+            cleanUp(chapterId);
+        }
+    }
+
     /** Once finished, the pages are the user's; a "does the count match?" check would undo their deletes. */
     @Test
     void shouldNotPutBackAPageTheUserDeletedFromASuccessfulChapter() throws IOException
@@ -349,10 +392,10 @@ class DownloadQueueIT
 
     /**
      * Only a {@code PENDING} chapter gets its absent pages fetched, so a chapter filled from empty must be
-     * {@code PENDING} before its first page lands, or a publish stopped part-way would leave it half-filled.
+     * {@code PENDING} before its first page lands, or a download stopped part-way would leave it half-filled.
      */
     @Test
-    void shouldFinishFillingAHandAddedChapterWhenItsPublishStoppedPartWay() throws IOException
+    void shouldFinishFillingAHandAddedChapterWhenItsDownloadStoppedPartWay() throws IOException
     {
         // GIVEN a hand-added chapter carrying the gallery id, with no pages...
         queueService.enqueue(List.of("mock:900"), TestDownloads.choices(NO_COMPRESSION, false));
@@ -364,7 +407,7 @@ class DownloadQueueIT
         em.flush();
         try
         {
-            // ...and a folder squatting on page 2's name, so the publish fails part-way, as a crash would stop it.
+            // ...and a folder squatting on page 2's name, so saving fails part-way, as a crash would stop it.
             Path squatter = Files.createDirectories(chapterDir(chapterId).resolve("2.webp"));
             Files.writeString(squatter.resolve("occupied.txt"), "not a page");
             assertThat(worker.processNext()).isTrue();
@@ -372,6 +415,7 @@ class DownloadQueueIT
             em.clear();
             assertThat(chapterRepository.findById(chapterId).orElseThrow().getDownloadStatus())
                     .isEqualTo(DownloadStatus.PENDING);
+            assertThat(imageService.pageNumbersOnDisk(chapterId)).containsExactly(1);
             assertThat(queueRepository.findByLink("mock:900").orElseThrow().getError()).isNull();
 
             // WHEN the folder is gone and the still-queued item runs again.
@@ -394,9 +438,12 @@ class DownloadQueueIT
         }
     }
 
-    /** Publishing half a chapter would make it look complete, and the missing pages would never be fetched. */
+    /**
+     * The page that arrived is kept, but the chapter is not finished: marked {@code SUCCESSFUL} with a gap, it would
+     * look complete, and its missing page would never be fetched.
+     */
     @Test
-    void shouldGiveUpAfterTheConfiguredAttemptsAndPublishNothingWhenAPageCannotBeFetched()
+    void shouldGiveUpAfterTheConfiguredAttemptsAndLeaveTheChapterPendingWhenAPageCannotBeFetched()
     {
         // GIVEN a gallery whose second page is missing from the source.
         queueService.enqueue(List.of("mock:901"), TestDownloads.choices(NO_COMPRESSION, false));
@@ -409,6 +456,7 @@ class DownloadQueueIT
                 assertThat(worker.processNext()).isTrue();
             }
             em.flush();
+            em.clear();
 
             // THEN the item is failed, with the attempts recorded and the reason kept for the user.
             DownloadQueueItem item = queueRepository.findByLink("mock:901").orElseThrow();
@@ -417,12 +465,15 @@ class DownloadQueueIT
             assertThat(queueService.failedCount()).isPositive();
             assertThat(queueService.nextPending()).isEmpty();   // out of the worker's way
 
-            // AND the metadata is there, but nothing was published or left staged.
+            // AND the page that arrived is in the chapter, counted, and nothing is left staged...
             Chapter chapter = chapterRepository.findByGalleryId("mock:901").orElseThrow();
             chapterId = chapter.getId();
             assertThat(item.getChapterId()).isEqualTo(chapterId);
-            assertThat(imageService.pageUrls(chapterId)).isEmpty();
+            assertThat(imageService.pageUrls(chapterId)).containsExactly("/data/" + chapterId + "/1.webp");
+            assertThat(chapter.getPageNum()).isEqualTo(1);
             assertThat(Files.exists(imageService.stagingDir(chapterId, false))).isFalse();
+            // ...where a retry fetches what is missing.
+            assertThat(chapter.getDownloadStatus()).isEqualTo(DownloadStatus.PENDING);
         }
         finally
         {
@@ -464,12 +515,12 @@ class DownloadQueueIT
     }
 
     /**
-     * An in-process retry has no torn file to guard against, and discarding staging each attempt would re-fetch
-     * a whole gallery per attempt. Pages 1-2 are deleted from the source in between, so they can only come
-     * from staging.
+     * A page is in the chapter as soon as it arrives, so whatever stops the attempt that fetched it, no later one
+     * fetches it again. Pages 1-2 are deleted from the source in between, so they can only come from the first
+     * attempt.
      */
     @Test
-    void shouldKeepThePagesAlreadyStagedWhenTheSameProcessRetriesAFailedItem() throws IOException
+    void shouldKeepThePagesAnEarlierAttemptDownloadedWhenTheItemIsRetried() throws IOException
     {
         // GIVEN a three-page gallery whose last page the source does not have (yet).
         writeGallery("903", 3, 2);
@@ -477,12 +528,13 @@ class DownloadQueueIT
         Integer chapterId = null;
         try
         {
-            // ...and one attempt, which stages pages 1-2 and then fails on page 3.
+            // ...and one attempt, which saves pages 1-2 into the chapter, without staging them, and then fails on
+            // page 3.
             assertThat(worker.processNext()).isTrue();
             em.flush();
             chapterId = chapterRepository.findByGalleryId("mock:903").orElseThrow().getId();
-            assertThat(imageService.stagedPageNumbers(imageService.stagingDir(chapterId, false)))
-                    .containsExactlyInAnyOrder(1, 2);
+            assertThat(imageService.pageNumbersOnDisk(chapterId)).containsExactlyInAnyOrder(1, 2);
+            assertThat(Files.exists(imageService.stagingDir(chapterId, false))).isFalse();
             assertThat(queueRepository.findByLink("mock:903").orElseThrow().getError()).isNull();
 
             // WHEN the missing page turns up, and the fetched pages leave the source.
@@ -494,17 +546,16 @@ class DownloadQueueIT
             em.flush();
             em.clear();
 
-            // THEN the item finished, with all three pages published...
+            // THEN the item finished, with all three pages...
             assertThat(queueRepository.findByLink("mock:903")).isEmpty();
             assertThat(imageService.pageUrls(chapterId)).containsExactly(
                     "/data/" + chapterId + "/1.webp",
                     "/data/" + chapterId + "/2.webp",
                     "/data/" + chapterId + "/3.webp");
-            // ...and pages 1-2 carry the bytes attempt 1 staged.
+            // ...pages 1-2 being the bytes attempt 1 saved...
             assertThat(Files.readString(chapterDir(chapterId).resolve("1.webp"))).isEqualTo("page 1 of 903");
             assertThat(Files.readString(chapterDir(chapterId).resolve("3.webp"))).isEqualTo("page 3 of 903");
-            // ...staging is empty again, and the stats match the files.
-            assertThat(Files.exists(imageService.stagingDir(chapterId, false))).isFalse();
+            // ...and the stats match the files.
             assertThat(chapterRepository.findById(chapterId).orElseThrow().getPageNum()).isEqualTo(3);
             assertThat(chapterRepository.findById(chapterId).orElseThrow().getDownloadStatus())
                     .isEqualTo(DownloadStatus.SUCCESSFUL);
@@ -515,11 +566,11 @@ class DownloadQueueIT
         }
     }
 
-    /** Nothing else comes back for that folder, which on a RAM disk would hold memory until a reboot. */
+    /** Removing the item calls off what is still to come; the pages that arrived are the chapter's. */
     @Test
-    void shouldDiscardTheStagedPagesWhenAQueueItemIsRemoved()
+    void shouldKeepThePagesThatArrivedWhenAPartlyDownloadedItemIsRemoved()
     {
-        // GIVEN an item that failed one attempt part-way, so it is still pending with pages staged.
+        // GIVEN an item that failed one attempt part-way, so it is still pending with page 1 saved.
         queueService.enqueue(List.of("mock:901"), TestDownloads.choices(NO_COMPRESSION, false));
         Integer chapterId = null;
         try
@@ -530,14 +581,17 @@ class DownloadQueueIT
             DownloadQueueItem item = queueRepository.findByLink("mock:901").orElseThrow();
             assertThat(item.getError()).isNull();               // still pending, more attempts to come
             assertThat(item.getChapterId()).isEqualTo(chapterId);
-            assertThat(imageService.stagedPageNumbers(imageService.stagingDir(chapterId, false))).containsExactly(1);
 
             // WHEN the user removes it (through the worker, which owns the staging folder it is running).
             worker.remove(item.getId());
             em.flush();
+            em.clear();
 
-            // THEN the row is gone and so is everything it had staged.
+            // THEN the row is gone, while the page that arrived stays in a chapter still to be finished.
             assertThat(queueRepository.findByLink("mock:901")).isEmpty();
+            assertThat(imageService.pageNumbersOnDisk(chapterId)).containsExactly(1);
+            assertThat(chapterRepository.findById(chapterId).orElseThrow().getDownloadStatus())
+                    .isEqualTo(DownloadStatus.PENDING);
             assertThat(Files.exists(imageService.stagingDir(chapterId, false))).isFalse();
         }
         finally
@@ -587,13 +641,13 @@ class DownloadQueueIT
     }
 
     /**
-     * Otherwise the worker would publish into the folder of a deleted row, where nothing ever cleans the pages
-     * up, or re-import the gallery the user just deleted.
+     * Otherwise the worker would go on saving pages into the folder of a deleted row, where nothing ever cleans
+     * them up, or re-import the gallery the user just deleted.
      */
     @Test
-    void shouldCancelTheDownloadAndDiscardItsStagingWhenTheChapterIsDeleted()
+    void shouldCancelTheDownloadAndRemoveItsPagesWhenTheChapterIsDeleted()
     {
-        // GIVEN a pending item with a page staged, and a second item behind it
+        // GIVEN a pending item with a page saved, and a second item behind it
         queueService.enqueue(List.of("mock:901", "mock:902"), TestDownloads.choices(NO_COMPRESSION, false));
         Integer chapterId = null;
         try
@@ -601,15 +655,15 @@ class DownloadQueueIT
             assertThat(worker.processNext()).isTrue();
             em.flush();
             chapterId = chapterRepository.findByGalleryId("mock:901").orElseThrow().getId();
-            assertThat(imageService.stagedPageNumbers(imageService.stagingDir(chapterId, false))).containsExactly(1);
+            assertThat(imageService.pageNumbersOnDisk(chapterId)).containsExactly(1);
 
             // WHEN the user deletes the chapter
             chapterService.delete(chapterId);
             em.flush();
 
-            // THEN its queue row and staged page went with it, and the item behind it is next in line
+            // THEN its queue row and saved page went with it, and the item behind it is next in line
             assertThat(queueRepository.findByLink("mock:901")).isEmpty();
-            assertThat(Files.exists(imageService.stagingDir(chapterId, false))).isFalse();
+            assertThat(Files.exists(chapterDir(chapterId))).isFalse();
             assertThat(queueService.nextPending()).get().extracting(DownloadQueueItem::getLink).isEqualTo("mock:902");
         }
         finally

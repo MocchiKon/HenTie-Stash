@@ -48,7 +48,8 @@ public class GalleryImportService
     public Optional<ExistingChapter> findChapter(String galleryId)
     {
         return chapterRepository.findByGalleryId(galleryId)
-                .map(chapter -> new ExistingChapter(chapter.getId(), chapter.getDownloadStatus()));
+                .map(chapter -> new ExistingChapter(chapter.getId(), chapter.getDownloadStatus(),
+                        chapter.getCompressionMode()));
     }
 
     @Transactional(readOnly = true)
@@ -57,7 +58,7 @@ public class GalleryImportService
         return chapterRepository.findByGalleryId(galleryId).map(Chapter::getId);
     }
 
-    public record ExistingChapter(int id, DownloadStatus downloadStatus)
+    public record ExistingChapter(int id, DownloadStatus downloadStatus, String compressionMode)
     {
     }
 

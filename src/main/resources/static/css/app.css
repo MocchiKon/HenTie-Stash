@@ -237,6 +237,7 @@ input[type=file]::file-selector-button:hover { border-color: var(--accent); }
 .checkbox-row { display: flex; flex-wrap: wrap; gap: 1rem; }
 .checkbox { display: inline-flex; align-items: center; gap: .4rem; font-weight: 500; }
 .checkbox.big { display: flex; gap: .5rem; font-size: 1.05rem; }
+.checkbox + .field { margin-top: 1rem; }
 .inline-form { display: inline-flex; gap: .5rem; align-items: center; flex-wrap: nowrap; margin: 0 0 .5rem; }
 .inline-form input[type=text], .inline-form input[type=search], .inline-form input[type=number] { width: auto; }
 /* Responsive: grow to fill the row but allow shrinking (no fixed px width). */

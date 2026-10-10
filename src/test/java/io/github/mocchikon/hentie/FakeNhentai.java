@@ -18,6 +18,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -50,6 +51,7 @@ public final class FakeNhentai implements AutoCloseable
     private final Random tieOrder = new Random(1);
     private volatile boolean tiesLowestFirst;
     private volatile Runnable beforeSearch = () -> { };
+    private volatile Consumer<String> beforeImage = path -> { };
     private final List<String> searches = new CopyOnWriteArrayList<>();
 
     private static final Pattern UPLOADED_FILTER = Pattern.compile("uploaded:>(\\d+)([hd])");
@@ -239,6 +241,13 @@ public final class FakeNhentai implements AutoCloseable
         return this;
     }
 
+    /** Runs before every image is answered, given its path: something happening while a page is on its way. */
+    public FakeNhentai beforeEachImage(Consumer<String> action)
+    {
+        beforeImage = action;
+        return this;
+    }
+
     /** Every search as {@code "<query> page=<n>"}, decoded, in order. */
     public List<String> searches()
     {
@@ -332,6 +341,7 @@ public final class FakeNhentai implements AutoCloseable
                 }
                 else
                 {
+                    beforeImage.accept(path);
                     send(exchange, 200, image.contentType(), image.bytes());
                 }
             }

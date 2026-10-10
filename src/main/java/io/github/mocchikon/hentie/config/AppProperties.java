@@ -68,14 +68,14 @@ public class AppProperties
          * A subscription lists more only while fewer of its downloads wait. Listing far ahead would fill the queue
          * with rows carrying choices edited since, and a paused or deleted subscription would leave them behind.
          */
-        private int queueAhead = 100;
+        private int queueAhead = 50;
 
         /**
          * A subscription stops listing while this many of its downloads have failed: downloads that fail at once
          * (gallery-dl missing, unreadable cookies) would otherwise page a whole site into the Failed list. Checking
          * for new galleries goes on.
          */
-        private int failedLimit = 100;
+        private int failedLimit = 50;
 
         /** How long the runner sleeps when nothing is due; a change of a subscription wakes it sooner. */
         private int idleCheckSeconds = 30;

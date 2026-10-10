@@ -432,7 +432,7 @@ decides what to keep** — a `DataDownloader` never touches the database, and th
 the pipeline hands it (gallery-dl's run folder, see "gallery-dl").
 - **A new source is one class**, of one of two kinds: a **`PageDownloader`** fetches one page at a time from
   the addresses `GalleryData.pageUrls` lists (nhentai, chaika, mock), and the pipeline owns the loop, the
-  retries and the staging; a **`GalleryDlDownloader`** has gallery-dl fetch many pages into a folder
+  retries and where each page goes; a **`GalleryDlDownloader`** has gallery-dl fetch many pages into a folder
   (hitomi, e-hentai) and gives `GalleryData.pageCount` instead. `ChapterDownloadService` switches on the kind.
   `DataDownloaderRegistry` asks every bean whether it `accepts(link)`; two sources sharing a prefix fail at
   startup.
@@ -458,20 +458,22 @@ the pipeline hands it (gallery-dl's run folder, see "gallery-dl").
   missing pages on purpose — so re-queueing is a clean no-op. `NONE` never came from the pipeline and its
   images are never touched. Every skip path still calls `syncImageStats`. The status is **not** on
   `ChapterForm`: an edit must never promote a half-downloaded chapter.
-  - **A chapter is `PENDING` before its first page is published**, also one filled from empty (`NONE`, or
-    `SUCCESSFUL` with every page deleted). Otherwise a crash while publishing would leave it half-filled for
+  - **A chapter is `PENDING` before its first page lands**, also one filled from empty (`NONE`, or
+    `SUCCESSFUL` with every page deleted). Otherwise a crash or a failed attempt would leave it half-filled for
     good. The full-quality re-download is exempt: its queue row repeats the whole replacement.
 - **Nothing becomes `SUCCESSFUL` without pages.** A source listing no pages is a **transient** failure (it
   may serve metadata before images), so the item ends in the Failed list with the chapter still
   `PENDING`, where the user can see and retry it.
 - **The worker owns the staging folder of the item it runs.** Remove goes through `DownloadWorker.remove`,
-  because only the worker knows what is in flight; deleting staging from a request thread would let it
-  publish the remainder as `SUCCESSFUL`. For the in-flight item the folder is left alone, and
-  `ChapterDownloadService` checks its row still exists **right before publishing**. The chapter is found
-  by **gallery id**, never `download_queue.chapter_id` alone (written only by `recordFailure`).
-  - **Deleting a chapter cancels its download** (`ChapterRemoval`). Otherwise the worker would publish into
-    `data/<id>` of a deleted row, where the pages sit orphaned with nothing ever cleaning them up. The
-    pre-publish check also confirms the **chapter** still exists.
+  because only the worker knows what is in flight: an encoder may be reading a page there, and a full-quality
+  re-download keeps every page there until it publishes. For the in-flight item the folder is left alone, and
+  `ChapterDownloadService` checks its row still exists **before each page** fetched one at a time (a gallery-dl
+  run only once it ends) **and before finishing**: a download called off keeps what landed, but never finishes
+  its chapter, since a partial set marked `SUCCESSFUL` could never be completed. The chapter is found by
+  **gallery id**, never `download_queue.chapter_id` alone (written only by `recordFailure`).
+  - **Deleting a chapter cancels its download** (`ChapterRemoval` deletes the queue row). A page landing meanwhile
+    goes into the folder the delete just removed, so the worker deletes that folder again once it stops: nothing
+    else ever would. The checks also confirm the **chapter** still exists, for a delete path that forgets the row.
 - **Chapters are created through `ChapterService.create`**, like a hand-added one, so pretty title,
   canonical language, match key and auto-linking cannot drift. Metadata arrives as names;
   `MetadataService.resolveOrCreate` matches them case-insensitively and creates only what is new.
@@ -482,14 +484,23 @@ the pipeline hands it (gallery-dl's run folder, see "gallery-dl").
   only. The one refusal for the data itself is a gallery without any title.
 - **The pipeline is not `@Transactional`**: it spans minutes of network and disk work. Each DB touch is its
   own short transaction.
-- **Pages are staged, not written straight into `data/`** — a crash would leave a half-written page that
-  the next run (fetching only absent pages) takes as complete. Staging is discarded before every attempt.
-  **The staging folder is chosen per run** (see "Temporary image files") and kept in `StagedRun`, because
-  the automatic choice follows the compression mode and RAM disk free space; discards look in
-  **every** folder staging could have used (`ScratchSpace.everyRoot`).
-  - **Publishing is atomic per page**: an `ATOMIC_MOVE` on the same filesystem, otherwise copy to a `.part`
-    beside the target, fsync, rename. A plain `Files.move` across filesystems copies onto the final name —
-    the torn page this avoids. Don't simplify it.
+- **Each page lands in `data/<id>/` as soon as it is whole**, so a crash, an abort or a failed attempt loses only
+  the pages in flight: the chapter is `PENDING`, and the next attempt fetches what is still absent. A page stored
+  as fetched never touches staging; one to compress waits there only until its encoder is done, and moves in from
+  the encoder's thread (`ImagePostProcessor.Processed`). So such an attempt discards staging before and after
+  itself, looking in **every** folder staging could have used (`ScratchSpace.everyRoot`).
+  - **Only the full-quality re-download stages every page until the end** (see "Image compression"). Its folder
+    is kept in `StagedRun`, because the automatic choice follows RAM disk free space, and an in-process retry
+    inherits what it staged; its first attempt in a process discards staging, which a killed run may have torn.
+  - **A page appears whole or not at all**, because the next run fetches only absent page *numbers*: a torn page
+    under its own name would read as complete for ever. Fetched bytes are written as `<n>.<ext>.part` (no page
+    name) and renamed; a file is moved by an `ATOMIC_MOVE` on the same filesystem, otherwise copied to a `.part`
+    beside the target and renamed. **Every page is fsynced before its rename**, since nothing that writes one
+    (staging, gallery-dl, an encoder) syncs it: after a power cut the renamed page could be empty. A plain
+    `Files.move` across filesystems copies onto the final name — the torn page this avoids. Don't simplify it.
+  - **Only the worker's thread touches the database**; the encoder's thread and gallery-dl's move files only.
+    Hence the compression mode is recorded before fetching (see "Image compression"), and a gallery-dl run is not
+    checked for a removed row between its pages.
 - **"Avoid duplicated titles from other sources" is an opt-in, per-paste check**
   (`download_queue.avoid_duplicate_titles`). A gallery **new to the library** is refused when a chapter
   with **exactly** its `titleFull` comes from a **different** source (another prefix, or no gallery id).
@@ -514,7 +525,7 @@ the pipeline hands it (gallery-dl's run folder, see "gallery-dl").
   ever an explicit user action, so a network blip never quietly produces a chapter missing pages. A
   skipped page **keeps its position** (a gap), so it can drop into its slot later.
   - **It skips a failed fetch, never a failed write.** Keep fetch and write in separate `try` blocks:
-    together, a full staging disk would skip every page and still mark the chapter `SUCCESSFUL`.
+    together, a full disk would skip every page and still mark the chapter `SUCCESSFUL`.
 - **One worker thread**, started on `ApplicationReadyEvent` — that start *is* the resume. Single-threaded
   because matching runs on create and SQLite has one writer; no job framework. `processNext()` is public
   as the test seam. Pause is a **persisted** setting (the user's choice survives a restart).
@@ -533,9 +544,10 @@ the pipeline hands it (gallery-dl's run folder, see "gallery-dl").
     saying why.
 - **"Abort current download" interrupts the worker's thread** (`DownloadWorker.abortCurrent`), which every step
   answers (a fetch, gallery-dl, which is killed, a backoff; the pipeline also checks the flag before each page and
-  before publishing). The item goes to the Failed list as a **permanent** failure whatever the interrupt broke, staging
-  is discarded, and the flag is **cleared before recording it** (it would fail those writes) and after the item, so it
-  never reaches the next one. An abort while publishing leaves a `PENDING` chapter, as a crash would. **"Clear all"**
+  before finishing). The item goes to the Failed list as a **permanent** failure whatever the interrupt broke, staging
+  is discarded, and the flag is **cleared before recording it** (it would fail those writes; the pipeline's own
+  tidying up sets it aside the same way) and after the item, so it never reaches the next one. The pages that
+  landed stay, with the chapter `PENDING`, as after a crash. **"Clear all"**
   deletes every waiting row and aborts the running one, whose staging the worker discards itself; its row is gone, so
   it does not land on the Failed list. **Failed rows stay**: they wait for the user's retry or removal.
 - **Progress is `[done/total]` for the current batch** — successful rows are deleted, so no lifetime total.
@@ -593,9 +605,9 @@ to repeat. **`GalleryDlTool` is the only class that starts it; `GalleryDl` is ho
   `-j` always exits 0 and reports an error as `[-1, {error, message}]`.
 - **Pages are one run** with `--range` for exactly the missing pages (`1-3,7`), into **a run folder inside the
   chapter's staging folder** (`-D`, `-f {num}.{extension}`). gallery-dl writes `.part` files and prints a
-  file's path only once it is whole; each printed page is **moved** into staging (a rename) and handed to
-  compression at once. The run folder is per run, so a gallery-dl left running by a killed app writes only
-  where nothing reads; discarding staging removes it.
+  file's path only once it is whole; each printed page is **moved** on at once: into the chapter's folder, or
+  into staging for the encoder when the download compresses. The run folder is per run, so a gallery-dl left
+  running by a killed app writes only where nothing reads; discarding staging removes it.
 - **Failures are read from the exit status bits and gallery-dl's words** (`GalleryDl.classify`), the only
   things it reports, words first: a ban and a refused account share a bit. A failed page is no failure of the
   run (gallery-dl goes on); the pipeline sees it as missing. An error the extractor logs ends the run there, so it
@@ -760,7 +772,7 @@ decides** — a `SearchSource` never touches the database. Manage → Chapters �
 - **Its rows run after what the user asks for** (priority 1, see "Chapter downloading"). Deleting a subscription
   keeps them (`ON DELETE SET NULL`, the priority stays); pausing stops only the listing.
 - **Listing follows the downloads**: beyond its check a subscription lists only while fewer than
-  `app.subscriptions.queue-ahead` (100) of its rows wait and fewer than `failed-limit` (100) failed. A broad search
+  `app.subscriptions.queue-ahead` (50) of its rows wait and fewer than `failed-limit` (50) failed. A broad search
   would otherwise fill the queue with rows chosen before an edit, and downloads that fail at once (no gallery-dl,
   unreadable cookies) would page a whole site into the Failed list. Edited choices apply to what is queued from
   then on.
@@ -817,14 +829,17 @@ downloaded and uploaded images. Default mode is **None**: bytes are stored as th
     only by JS, and SQLite does not enforce `VARCHAR(n)`. Custom keys are canonicalized on the way in.
 - **`chapter.compression_mode` is the key of the mode that last re-encoded the chapter's pages; null while
   the pages are original.** It drives the "Compressed: <mode>" label and the full-quality re-download
-  offer. It is written **only when a run replaced a page** (`Summary.replaced() > 0`), by all four paths
-  (download, upload, per-chapter button, sweep); **anything new that re-encodes pages must record it**
-  (`ChapterService.setCompressionMode`). A download also counts pages an earlier in-process attempt
-  compressed (in `StagedRun`). A deleted custom mode reads "a mode since deleted". Not on `ChapterForm`.
+  offer. It is written **only when a run replaced a page** (`Summary.replaced() > 0`) by upload,
+  per-chapter button and sweep; **anything new that re-encodes pages must record it**
+  (`ChapterService.setCompressionMode`). A download records it **before fetching** and takes it back
+  (`ChapterService.restoreCompressionMode`, only while the chapter still names that mode) when its attempt
+  re-encoded no page. A deleted custom mode reads "a mode since deleted". Not on `ChapterForm`.
   - **Never written late.** Nothing rebuilds it from the files, and a rerun finds no input left in an
     encoded page, so a crash between the files and the label shows compressed pages as full quality for
-    good. A download writes it before publishing, the sweep after each chapter (not per slice). A label
-    ahead of its pages is harmless: a full-quality re-download clears it.
+    good. A download writes it before its first page could be re-encoded (the pages land from the encoder's
+    thread, which never touches the database), the sweep after each chapter (not per slice). A label ahead of
+    its pages is harmless: a full-quality re-download clears it. A crash before a download re-encoded its first
+    page leaves one.
 - **"Re-download in full quality" is a queue row with `replace_pages`**, offered only for a compressed
   chapter whose gallery id names a known source. `DataDownloaderRegistry.linkFor` rebuilds the link via
   `DataDownloader.link` and returns it only if it parses back to the same gallery id.
@@ -853,8 +868,8 @@ downloaded and uploaded images. Default mode is **None**: bytes are stored as th
   re-download's publish.)
 - **Uploads use the Settings mode; downloads carry theirs on the queue row** (it runs later and must
   survive a restart). The download form **starts at the Settings mode**, never at the last paste's choice,
-  via `storableKey` (a deleted mode starts at None). Re-pasting **replaces** the row's mode. An in-process
-  retry reuses staged pages **only under the same mode** (`StagedRun`), or a chapter would be half in each.
+  via `storableKey` (a deleted mode starts at None). Re-pasting **replaces** the row's mode. Pages an earlier
+  attempt saved stay as they were saved: a mode chosen afterwards applies to the pages still missing.
 - **Any failure keeps the original image and logs it** (missing binary, codec error, timeout, unknown
   mode). A download never fails because of a codec, and a page is never lost to one.
 - **The timeout works only because tool output is drained on its own thread** (`ImageToolRunner`). Reading
@@ -876,6 +891,8 @@ downloaded and uploaded images. Default mode is **None**: bytes are stored as th
   other images with **that base name** only — never `03.png` (a different page) or `3.json`. An interrupted
   run leaves both, so **`ImageDirectory.list`/`stats` skip a file superseded by an encoder output with the
   same base name**. `jxl` is in `IMAGE_EXTENSIONS` so the app's own output is listed.
+  - **The encoder's output is fsynced before it takes the page's name** (`ImageService.publishPage`): the
+    original is deleted next, and a power cut could keep the rename but not the bytes.
 - **Intermediates go in the compression work folder** (`ScratchSpace.compressionWork()`, `<root>/<chapterId>`)
   for every kind of run. A run resolves the folder once and removes its `<id>` folder (and the root)
   **only if empty** afterwards.
@@ -887,9 +904,10 @@ downloaded and uploaded images. Default mode is **None**: bytes are stored as th
     areas sharing a root.
   - **`discardStagedPages` leaves the work folder alone** (a sweep may be using it); `deleteAll` removes
     it. Leftovers from a killed process are cleared at startup (`ScratchSpace.removeLeftovers`).
-- **Downloads hand over each page as it lands**: `ImagePostProcessor.Run` wraps the fetch loop and
-  `close()` waits for the rest. It must close on **every** exit (try-with-resources), or an encoder could
-  still be writing while staging is discarded or published.
+- **Downloads hand over each page as it arrives** and get it back on the encoder's thread, re-encoded or kept
+  (even after an unexpected failure, or it would never reach its chapter), to move it into the chapter's folder
+  at once. `ImagePostProcessor.Run` wraps the fetch loop and `close()` waits for the rest. It must close on
+  **every** exit (try-with-resources), or an encoder could still be writing while staging is discarded.
 - **Compression never runs inside a transaction** (seconds to minutes per page, one SQLite writer).
   `ChapterImageService` saves, compresses, then calls `ChapterService.rescanImages` on another bean so its
   `@Transactional` applies. The sweep commits per slice.
@@ -957,8 +975,8 @@ choice. They are separate because they differ: staging only benefits from RAM fo
 intermediates always do, and the two caches live for weeks and need **their own size cap** each (a quarter
 of an automatic RAM disk each), so one cannot prune the other away.
 - **Automatic = a RAM disk if usable, else a dot-named folder in the data folder** — except **uncompressed
-  staging always stays in the data folder**, so publishing is a free atomic rename
-  (`ImagePostProcessor.compresses(mode)` decides).
+  staging always stays in the data folder** (gallery-dl's folder, a full-quality re-download), so moving a page
+  on is a free atomic rename (whether `ImagePostProcessor.start` gives a run decides).
 - **RAM disk detection is Linux-only** (`RamDiskDetector`): only there is it standard, identifiable
   (`tmpfs`) and size-limited. Windows/macOS RAM disks look like NTFS/APFS; the user sets folders by hand.
   `ramfs` is rejected (no limit). Candidates: `/dev/shm`, then `/tmp` (never aged out by
