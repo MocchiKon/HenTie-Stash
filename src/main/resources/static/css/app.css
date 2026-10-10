@@ -198,17 +198,8 @@ select {
 /* Brave on Android draws the native picker arrow out of CSS's reach, so the native chrome is removed
    and our own icon painted. That also removes the "open picker" trigger; app.js calls showPicker(). */
 input[type=date] {
-    appearance: none; -webkit-appearance: none; -moz-appearance: none;
-    padding-right: 2rem;
     cursor: pointer;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16' fill='none' stroke='%23a8a8a8' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='2.5' y='3.5' width='11' height='10' rx='1.5'/%3E%3Cpath d='M2.5 6.5h11M5.5 2v3M10.5 2v3'/%3E%3C/svg%3E");
-    background-repeat: no-repeat;
-    background-position: right 0.85rem center;
-    background-size: 1rem;
 }
-input[type=date]::-webkit-calendar-picker-indicator { display: none; -webkit-appearance: none; }
-input[type=date]::-webkit-inner-spin-button,
-input[type=date]::-webkit-outer-spin-button { display: none; -webkit-appearance: none; }
 /* File inputs (image upload): themed, with a button-styled chooser. */
 input[type=file] {
     max-width: 100%;
@@ -689,6 +680,7 @@ a.meta-gallery:hover { color: var(--text); }
     background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius);
 }
 .queue-item.failed { border-color: var(--danger); }
+.queue-item.is-busy { opacity: .5; }
 .queue-item .inline-form { margin: 0; }
 /* One wrapper: margin-left:auto on each form would spread the buttons instead of grouping them. */
 .queue-actions { display: flex; flex-wrap: wrap; gap: .4rem; margin-left: auto; }

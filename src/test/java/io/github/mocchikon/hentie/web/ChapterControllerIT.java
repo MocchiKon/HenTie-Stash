@@ -639,6 +639,61 @@ class ChapterControllerIT
         }
     }
 
+    @Test
+    void shouldAnswerNoContentWhenAFailedQueueItemIsRetriedOrRemovedInPlace() throws Exception
+    {
+        // GIVEN two failed queue rows.
+        var first = TestDownloads.queueItem("mock:8007", "mock:8007");
+        first.setError("page 2 could not be downloaded");
+        first.setAttempts(3);
+        int retriedId = downloadQueueRepository.save(first).getId();
+        var second = TestDownloads.queueItem("mock:8008", "mock:8008");
+        second.setError("page 2 could not be downloaded");
+        second.setAttempts(3);
+        int removedId = downloadQueueRepository.save(second).getId();
+        try
+        {
+            // WHEN the page is rendered, THEN every form of a failed row is marked for app.js to post in place.
+            String html = mvc.perform(get("/chapter/queue").with(user("user")))
+                    .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+            assertThat(html).containsPattern("<form method=\"post\" action=\"/chapter/queue/" + retriedId
+                    + "/retry\" class=\"inline-form queue-in-place\">");
+            assertThat(html).containsPattern("<form method=\"post\" action=\"/chapter/queue/" + removedId
+                    + "/remove\" class=\"inline-form queue-in-place\">");
+            assertThat(html).contains("data-failed-count");
+
+            // WHEN one row's "Retry ignoring image errors" is posted in place.
+            mvc.perform(post("/chapter/queue/" + retriedId + "/retry").with(user("user")).with(csrf())
+                            .param("ignoreImageErrors", "true").param("inPlace", "true"))
+                    // THEN no redirect, no body...
+                    .andExpect(status().isNoContent())
+                    .andExpect(content().string(""));
+            // ...and the row is pending again, in the lenient mode.
+            DownloadQueueItem retried = downloadQueueRepository.findById(retriedId).orElseThrow();
+            assertThat(retried.getError()).isNull();
+            assertThat(retried.getAttempts()).isZero();
+            assertThat(retried.isIgnoreImageErrors()).isTrue();
+
+            // WHEN the other row's "Remove" is posted in place.
+            mvc.perform(post("/chapter/queue/" + removedId + "/remove").with(user("user")).with(csrf())
+                            .param("inPlace", "true"))
+                    .andExpect(status().isNoContent());
+            // THEN it is gone.
+            assertThat(downloadQueueRepository.existsById(removedId)).isFalse();
+
+            // WHEN a row already gone is retried in place, THEN it is done all the same: it is off the Failed list.
+            mvc.perform(post("/chapter/queue/" + removedId + "/retry").with(user("user")).with(csrf())
+                            .param("inPlace", "true"))
+                    .andExpect(status().isNoContent());
+            assertThat(downloadQueueRepository.existsById(removedId)).isFalse();
+        }
+        finally
+        {
+            downloadQueueRepository.findById(retriedId).ifPresent(downloadQueueRepository::delete);
+            downloadQueueRepository.findById(removedId).ifPresent(downloadQueueRepository::delete);
+        }
+    }
+
     /** Every other retry of such a row would be refused again. The button clears only the flag. */
     @Test
     void shouldOfferRetryAllowingDuplicateTitleOnlyOnAFailedRowCarryingTheFlag() throws Exception

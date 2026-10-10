@@ -695,11 +695,61 @@
     });
     // --- Download queue: reload while there is something to watch ---
     //     A reload, not a polling endpoint, can never disagree with what the server renders. It stops once
-    //     the queue drains or is paused, so an idle tab costs nothing.
+    //     the queue drains or is paused, so an idle tab costs nothing. A reload keeps the scroll position.
     (function () {
         var panel = document.getElementById("download-queue");
-        if (!panel || panel.getAttribute("data-active") !== "true") { return; }
-        window.setTimeout(function () { window.location.reload(); }, 3000);
+        if (!panel) { return; }
+        var timer = null;
+        var inFlight = 0;
+        function reloadSoon() {
+            window.clearTimeout(timer);
+            timer = window.setTimeout(function () {
+                // A reload would cut off a row's answer, and the row would be left half-done on screen.
+                if (inFlight > 0) { reloadSoon(); } else { window.location.reload(); }
+            }, 3000);
+        }
+        if (panel.getAttribute("data-active") === "true") { reloadSoon(); }
+
+        // --- Failed rows: retry or remove in place, so a long list does not jump back to the top each time ---
+        //     Only a 204 counts as done: an expired login also answers with a redirect. A busy library keeps the
+        //     row; anything else falls back to a plain post. A retried row is waiting now, so the page reloads
+        //     shortly to show it there. Registered after confirm-delete, so a declined confirmation arrives
+        //     defaultPrevented.
+        document.addEventListener("submit", function (e) {
+            var form = e.target;
+            if (e.defaultPrevented || !form.classList || !form.classList.contains("queue-in-place")) { return; }
+            e.preventDefault();
+            var row = form.closest(".queue-item");
+            var buttons = row.querySelectorAll("button");
+            var body = new URLSearchParams(new FormData(form));
+            body.append("inPlace", "true");
+            buttons.forEach(function (b) { b.disabled = true; });
+            row.classList.add("is-busy");
+            inFlight++;
+            fetch(form.action, { method: "POST", body: body, redirect: "manual", headers: JSON_ANSWER })
+                .then(function (r) {
+                    if (r.status === 503) {
+                        return busyMessage(r).then(function (message) {
+                            row.classList.remove("is-busy");
+                            buttons.forEach(function (b) { b.disabled = false; });
+                            window.alert(message);
+                        });
+                    }
+                    if (r.status !== 204) { throw new Error("HTTP " + r.status); }
+                    var list = row.parentNode;
+                    row.remove();
+                    document.querySelectorAll("[data-failed-count]").forEach(function (count) {
+                        count.textContent = Math.max(0, (parseInt(count.textContent, 10) || 0) - 1);
+                    });
+                    // The list is capped: an empty one may have more rows behind it, or none left at all.
+                    if (!list.querySelector(".queue-item")) { window.clearTimeout(timer); window.location.reload(); }
+                    else if (/\/retry$/.test(form.action)) { reloadSoon(); }
+                })
+                .catch(function () {
+                    form.submit();   // fires no submit event, so no handler runs again
+                })
+                .finally(function () { inFlight--; });
+        });
     })();
     // --- Image Compression dropdowns: "Custom" navigates, it does not select ---
     //     "Custom" is not a mode and must never be stored, so picking it restores the previous choice.

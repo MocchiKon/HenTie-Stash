@@ -542,6 +542,10 @@ the pipeline hands it (gallery-dl's run folder, see "gallery-dl").
 - **The queue page's two lists are capped (25) with no pagination — don't add it.** Counts are exact;
   only rows are cut, and the page says so. The queue empties itself: the waiting list is in execution
   order, bulk actions cover **every** matching row, and paging a self-refreshing list makes no sense.
+- **A failed row's Retry and Remove post in place** (`app.js`, `queue-in-place` forms, `inPlace` → 204, like the
+  page delete), so working down a long list keeps its scroll position. The row goes and the counts follow; a
+  retry then reloads the page shortly (a reload keeps the scroll), since the row is waiting now. A list emptied
+  this way reloads at once: the cap may hide more rows.
 - Queueing redirects to the **queue**, the only page that shows the outcome. Unrecognized links are refused
   at enqueue. Re-pasting a failed link revives its row **by parsed `gallery_id`, not link text** (the
   registry accepts many spellings of one gallery, while `link` is UNIQUE under BINARY collation). The link

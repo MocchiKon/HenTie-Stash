@@ -34,7 +34,7 @@ public class DownloadQueueService
      * itself, the visible rows are the ones about to run, bulk actions cover every row, and page state on a
      * self-refreshing list of disappearing rows would mean nothing.
      */
-    public static final int LIST_LIMIT = 25;
+    public static final int LIST_LIMIT = 5;
 
     /** What the user asked for first, then what subscriptions found, each oldest first. */
     private static final Sort PENDING_ORDER = Sort.by("priority", "id");

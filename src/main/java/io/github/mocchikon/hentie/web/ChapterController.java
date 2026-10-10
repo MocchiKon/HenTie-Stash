@@ -53,7 +53,7 @@ public class ChapterController
     private static final String REDIRECT_CHAPTER = "redirect:/chapter/";
     /** The {@code page} value that opens the viewer on the chapter's last page. */
     static final String LAST_PAGE = "last";
-    /** Added by {@code app.js} to an in-place image delete ({@link #deleteImageInPlace}). */
+    /** Added by {@code app.js} to the actions it runs without leaving the page (an image delete, a failed queue row). */
     static final String IN_PLACE = "inPlace";
 
     private final ChapterService chapterService;
@@ -330,6 +330,25 @@ public class ChapterController
         return REDIRECT_CHAPTER_QUEUE;
     }
 
+    /**
+     * The queue page's failed rows retry without leaving the page, which keeps its scroll position in a long
+     * list. 204 even for a row that is gone (removed in another tab): either way it no longer belongs on the
+     * Failed list, and only a 204 proves the request reached the app, since an expired login also redirects.
+     */
+    @PostMapping(value = "/queue/{id:\\d+}/retry", params = IN_PLACE)
+    @ResponseBody
+    public ResponseEntity<Void> retryQueuedInPlace(@PathVariable int id,
+                                                   @RequestParam(defaultValue = "false") boolean ignoreImageErrors,
+                                                   @RequestParam(name = "allowDuplicateTitle", defaultValue = "false")
+                                                   boolean allowDuplicateTitle)
+    {
+        if (downloadQueueService.retry(id, ignoreImageErrors, allowDuplicateTitle))
+        {
+            downloadWorker.kick();
+        }
+        return ResponseEntity.noContent().build();
+    }
+
     @PostMapping("/queue/clear-failed")
     public String clearFailed(RedirectAttributes redirectAttributes)
     {
@@ -359,6 +378,15 @@ public class ChapterController
     {
         downloadWorker.remove(id);
         return REDIRECT_CHAPTER_QUEUE;
+    }
+
+    /** See {@link #retryQueuedInPlace} for why it answers 204. */
+    @PostMapping(value = "/queue/{id:\\d+}/remove", params = IN_PLACE)
+    @ResponseBody
+    public ResponseEntity<Void> removeQueuedInPlace(@PathVariable int id)
+    {
+        downloadWorker.remove(id);
+        return ResponseEntity.noContent().build();
     }
 
     // --- Existing chapters (numeric ids only, so /new, /download and /queue never clash) ---

@@ -150,7 +150,7 @@
 
     <section class="manage-section" th:unless="${#lists.isEmpty(failed)}">
         <h2 class="section-title">
-            Failed (<span th:text="${progress.failed()}">0</span>)
+            Failed (<span data-failed-count th:text="${progress.failed()}">0</span>)
         </h2>
         <p class="hint">
             These gave up after several attempts and are out of the worker's way. Retrying starts them from
@@ -178,7 +178,8 @@
                 <button type="submit" class="btn btn-danger">Delete all failed</button>
             </form>
         </div>
-        <ul class="queue-list">
+        <!-- Its rows' forms are posted in place by app.js, so retrying or removing one keeps the scroll position. -->
+        <ul class="queue-list" id="failed-list">
             <li class="queue-item failed" th:each="item : ${failed}">
                 <span class="queue-link" th:text="${item.link}">mock:1212</span>
                 <span class="hint wrap-anywhere" th:if="${item.fromSubscription}"
@@ -189,25 +190,25 @@
                 <span class="hint" th:if="${item.avoidDuplicateTitles}">avoiding duplicated titles</span>
                 <span class="queue-error" th:text="${item.error}">Something went wrong</span>
                 <div class="queue-actions">
-                    <form method="post" th:action="@{'/chapter/queue/' + ${item.id} + '/retry'}" class="inline-form">
+                    <form method="post" th:action="@{'/chapter/queue/' + ${item.id} + '/retry'}" class="inline-form queue-in-place">
                         <input type="hidden" name="ignoreImageErrors" value="false">
                         <button type="submit" class="btn">Retry</button>
                     </form>
-                    <form method="post" th:action="@{'/chapter/queue/' + ${item.id} + '/retry'}" class="inline-form">
+                    <form method="post" th:action="@{'/chapter/queue/' + ${item.id} + '/retry'}" class="inline-form queue-in-place">
                         <input type="hidden" name="ignoreImageErrors" value="true">
                         <button type="submit" class="btn" title="Keep whatever pages download">
                             Retry ignoring image errors
                         </button>
                     </form>
                     <!-- The Retry buttons above keep the check, so only this one can get past the refusal. -->
-                    <form method="post" th:action="@{'/chapter/queue/' + ${item.id} + '/retry'}" class="inline-form"
+                    <form method="post" th:action="@{'/chapter/queue/' + ${item.id} + '/retry'}" class="inline-form queue-in-place"
                           th:if="${item.avoidDuplicateTitles}">
                         <input type="hidden" name="allowDuplicateTitle" value="true">
                         <button type="submit" class="btn" title="Download it even if another source has a chapter with this title">
                             Retry allowing duplicate title
                         </button>
                     </form>
-                    <form method="post" th:action="@{'/chapter/queue/' + ${item.id} + '/remove'}" class="inline-form">
+                    <form method="post" th:action="@{'/chapter/queue/' + ${item.id} + '/remove'}" class="inline-form queue-in-place">
                         <button type="submit" class="btn btn-danger">Remove</button>
                     </form>
                 </div>
@@ -215,7 +216,7 @@
         </ul>
         <p class="hint" th:if="${progress.failed() > listLimit}">
             Showing the first <span th:text="${listLimit}">25</span> of
-            <span th:text="${progress.failed()}">0</span>.
+            <span data-failed-count th:text="${progress.failed()}">0</span>.
         </p>
     </section>
 </main>
