@@ -61,11 +61,11 @@
         <!-- Failures and rows waiting for a ban count too: total() is done + runnable only, so it alone would call
              the queue empty above them. -->
         <p class="hint" th:if="${progress.total() == 0 and progress.pending() == 0 and progress.failed() == 0}">
-            The queue is empty. Anything you queue is downloaded in the background — you can close this
+            The queue is empty. Anything you queue is downloaded in the background - you can close this
             page and come back to it.
         </p>
         <p class="hint" th:if="${progress.total() == 0 and progress.pending() == 0 and progress.failed() > 0}">
-            Nothing is waiting to download. The failed item(s) below are all that is left — retry or
+            Nothing is waiting to download. The failed item(s) below are all that is left - retry or
             remove them.
         </p>
 
@@ -84,7 +84,7 @@
 
         <p th:if="${progress.currentLink() != null}" class="queue-current">
             <span class="queue-link" th:text="${progress.currentLink()}">mock:1</span>
-            <span class="hint" th:text="'— ' + ${progress.currentPhase()}">— Downloading images</span>
+            <span class="hint" th:text="'- ' + ${progress.currentPhase()}">- Downloading images</span>
         </p>
 
         <div class="btn-row">
@@ -157,7 +157,7 @@
             the beginning; pages already downloaded are kept and not fetched again, so only what is missing
             is fetched.
             <strong>Ignoring image errors</strong> keeps whatever pages do download instead of failing on
-            the first one the source cannot produce — for a gallery that is genuinely missing a page. The
+            the first one the source cannot produce - for a gallery that is genuinely missing a page. The
             chapter then counts as finished, gap and all, so queueing the link again will not go back for
             it: delete the chapter's images if you want the whole gallery fetched afresh.
             A link queued <strong>avoiding duplicated titles</strong> keeps that check when retried; its own

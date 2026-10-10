@@ -20,9 +20,7 @@
     <section class="manage-section">
         <h2 class="section-title">Image Compression</h2>
         <p class="hint">
-            Your own downscaling and re-encoding modes, offered in the Image Compression dropdowns
-            beside the built-in ones. Which mode is actually used is chosen in Settings for uploads and
-            on the Download page for each paste, which starts at the Settings mode.
+            Your own downscaling and re-encoding modes, offered in the Image Compression dropdowns beside the built-in ones.
         </p>
         <div class="edit-actions">
             <a class="btn btn-accent" th:href="@{/compression-modes}">Image Compression modes</a>
@@ -170,7 +168,7 @@
                 <span th:text="${foldResult.merged()}">0</span> merged into an existing item.
                 <span th:if="${foldResult.blocked() > 0}">
                     <span th:text="${foldResult.blocked()}">0</span> left as they were because a rule rules
-                    the rewritten name out — see "Manage current rules" for that section.
+                    the rewritten name out. See "Manage current rules" for that section.
                 </span>
             </p>
         </div>
@@ -180,7 +178,7 @@
                 title against the existing series - the same thing that happens automatically when a
                 chapter is added. Chapters that are already in a series are left untouched, and a chapter
                 that matches nothing gets a series of its own.
-                May take a long while for a large library — it works through all of them in one go. You can
+                May take a long while for a large library as it works through all of them in one go. You can
                 open the app in another tab meanwhile and keep browsing or editing as normal.
             </p>
             <form method="post" th:action="@{/manage/match-chapters}" class="inline-form long-running">
@@ -197,7 +195,7 @@
                 Downscales and re-encodes every chapter's images with the Image Compression mode chosen in
                 Settings, which is currently
                 <strong th:text="${compressionModeName}">None</strong>.
-                May take a very long time for a large library — it works through all of them in one go. You
+                May take a very long time for a large library as it works through all of them in one go. You
                 can open the app in another tab meanwhile and keep browsing or editing as normal.
             </p>
             <form method="post" th:action="@{/manage/compress-images}" class="inline-form long-running">
