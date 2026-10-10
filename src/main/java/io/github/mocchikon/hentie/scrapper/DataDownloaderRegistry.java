@@ -106,11 +106,16 @@ public class DataDownloaderRegistry
         return downloaders.stream().filter(downloader -> downloader.accepts(trimmedLink)).findFirst();
     }
 
+    // hidden
+    private static final Set<String> HIDDEN_SOURCES = Set.of("mock", "chaika");
+
     /** Prefix to an example link, sorted by prefix, for the Download page. */
     public Map<String, String> linkExamples()
     {
         var examples = new LinkedHashMap<String, String>();
-        downloaders.stream().sorted(Comparator.comparing(DataDownloader::sourcePrefix))
+        downloaders.stream()
+                .filter(downloader -> !HIDDEN_SOURCES.contains(downloader.sourcePrefix()))
+                .sorted(Comparator.comparing(DataDownloader::sourcePrefix))
                 .forEach(downloader -> examples.put(downloader.sourcePrefix(), downloader.linkExample()));
         return examples;
     }

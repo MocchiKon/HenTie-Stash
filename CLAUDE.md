@@ -748,6 +748,14 @@ decides** — a `SearchSource` never touches the database. Manage → Chapters �
 - **Re-checks catch tags added after upload**: every `recheck_every_hours` a check stops not at the head but at the
   head as it was `recheck_depth_hours` ago. The search lists no upload times, so `subscription_checkpoint` keeps
   the head with a time when it grows (at most one an hour), pruned past the one a re-check stops at.
+  - **"Ago" counts from when the re-check was due, not from now** (`SubscriptionWalk.recheckCutoff`), so a re-check
+    after the app was off still lists what was uploaded just before it stopped.
+  - **A catch-up's checkpoint takes the time its top was seen** (`top_seen_at`), not the time it ended, which may be
+    days later and would send the next re-check down the whole catch-up again.
+  - **A check after the walk lost sight of the search** (no top seen for longer than the depth: the app off, the site
+    failing) **deletes the older checkpoints**, once its own stop is taken. What it finds was uploaded over that whole
+    time and is listed in one go; a re-check reaching below it would list a year again. The price: what was uploaded
+    just before the walk came back and tagged after it is not listed again.
 - **Counters count a gallery the first time it is listed** (above the head or below the tail); one listed again
   counts only if it gets queued.
 - **The runner** (`SubscriptionRunner`): one platform daemon thread per `SearchSource`, so a site sitting out a 429

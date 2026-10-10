@@ -18,6 +18,11 @@ import java.util.function.LongPredicate;
  * below it is still true. A check during a catch-up stops at its top. A <b>re-check</b> is a check whose stop is
  * older than the head, for galleries tagged since they were first passed.
  * <p>
+ * A check <b>sees the top</b> of the search when everything above its stop is listed or left to a catch-up. Only a
+ * check during a catch-up with more than a page above it does not. A walk that has not seen the top for longer than a
+ * re-check reaches back has <b>lost sight</b> of it (the app was off, or the site failed for days): what the next
+ * check finds was uploaded over that whole time and is listed in one go, mostly long after its tags settled.
+ * <p>
  * Galleries are compared by position in the site's order, never by page, so a head, tail or stop whose gallery was
  * deleted works all the same.
  */
@@ -86,8 +91,9 @@ public final class SubscriptionWalk
      * @param next       the walk afterwards, without the cursor
      * @param cursor     where {@link #next(String)} puts the cursor for continuing below the page
      * @param newestGrew the head moved up, so where it was is worth a checkpoint
+     * @param sawTop     a check that saw the top of the search
      */
-    public record Transition(List<Listed> listed, State next, CursorField cursor, boolean newestGrew)
+    public record Transition(List<Listed> listed, State next, CursorField cursor, boolean newestGrew, boolean sawTop)
     {
         public State next(String cursorToken)
         {
@@ -117,7 +123,7 @@ public final class SubscriptionWalk
         List<String> ids = page.resourceIds();
         if (ids.isEmpty())
         {
-            return new Transition(List.of(), state, CursorField.NONE, false);
+            return new Transition(List.of(), state, CursorField.NONE, false, true);
         }
         if (state.newest() == null)
         {
@@ -125,7 +131,7 @@ public final class SubscriptionWalk
             State next = new State(positions.galleryId(ids.getFirst()), positions.galleryId(ids.getLast()), null,
                     !page.more(), null, null, null);
             return new Transition(listed(ids, positions, position -> true), next,
-                    page.more() ? CursorField.OLDEST : CursorField.NONE, true);
+                    page.more() ? CursorField.OLDEST : CursorField.NONE, true, true);
         }
         long newest = positions.of(state.newest());
         List<String> above = above(ids, step.stop(), positions);
@@ -138,24 +144,25 @@ public final class SubscriptionWalk
             // for the check after the catch-up, which lists it above the head the catch-up leaves.
             if (!reachesStop)
             {
-                return new Transition(List.of(), state, CursorField.NONE, false);
+                return new Transition(List.of(), state, CursorField.NONE, false, false);
             }
             String top = newer(state.catchUpTop(), above.isEmpty() ? null : positions.galleryId(above.getFirst()),
                     positions);
             State next = new State(state.newest(), state.oldest(), state.oldestCursor(), state.reachedEnd(), top,
                     state.catchUpCursor(), state.catchUpStop());
-            return new Transition(listed, next, CursorField.NONE, false);
+            return new Transition(listed, next, CursorField.NONE, false, true);
         }
         if (reachesStop)
         {
             String head = newer(state.newest(), above.isEmpty() ? null : positions.galleryId(above.getFirst()),
                     positions);
-            return new Transition(listed, withNewest(state, head), CursorField.NONE, !head.equals(state.newest()));
+            return new Transition(listed, withNewest(state, head), CursorField.NONE, !head.equals(state.newest()),
+                    true);
         }
         // More than a page above the stop: later steps carry the catch-up down, and the head moves once it is done.
         State next = new State(state.newest(), state.oldest(), state.oldestCursor(), state.reachedEnd(),
                 positions.galleryId(ids.getFirst()), null, step.stop());
-        return new Transition(listed, next, CursorField.CATCH_UP, false);
+        return new Transition(listed, next, CursorField.CATCH_UP, false, true);
     }
 
     private static Transition catchUp(State state, SearchPage page, Positions positions)
@@ -168,9 +175,9 @@ public final class SubscriptionWalk
         {
             String head = newer(state.newest(), state.catchUpTop(), positions);
             State next = new State(head, state.oldest(), state.oldestCursor(), state.reachedEnd(), null, null, null);
-            return new Transition(listed, next, CursorField.NONE, !head.equals(state.newest()));
+            return new Transition(listed, next, CursorField.NONE, !head.equals(state.newest()), false);
         }
-        return new Transition(listed, state, CursorField.CATCH_UP, false);
+        return new Transition(listed, state, CursorField.CATCH_UP, false, false);
     }
 
     private static Transition backfill(State state, SearchPage page, Positions positions)
@@ -182,12 +189,12 @@ public final class SubscriptionWalk
         if (ids.isEmpty())
         {
             return new Transition(listed, new State(state.newest(), state.oldest(), null, true, state.catchUpTop(),
-                    state.catchUpCursor(), state.catchUpStop()), CursorField.NONE, false);
+                    state.catchUpCursor(), state.catchUpStop()), CursorField.NONE, false, false);
         }
         String tail = older(state.oldest(), positions.galleryId(ids.getLast()), positions);
         State next = new State(state.newest(), tail, null, !page.more(), state.catchUpTop(), state.catchUpCursor(),
                 state.catchUpStop());
-        return new Transition(listed, next, page.more() ? CursorField.OLDEST : CursorField.NONE, false);
+        return new Transition(listed, next, page.more() ? CursorField.OLDEST : CursorField.NONE, false, false);
     }
 
     /** The prefix of a newest-first page that lies above the stop; all of it without one. */
@@ -243,6 +250,24 @@ public final class SubscriptionWalk
     static boolean recheckDue(LocalDateTime lastRecheckedAt, int everyHours, LocalDateTime now)
     {
         return everyHours > 0 && (lastRecheckedAt == null || !now.isBefore(lastRecheckedAt.plusHours(everyHours)));
+    }
+
+    /**
+     * Where a re-check's "the last N hours" begin. A late re-check reaches back from when it was due, not from now, as
+     * far as one on time would have: otherwise what was uploaded shortly before the app stopped, and tagged while it
+     * was off, would never be listed again.
+     */
+    static LocalDateTime recheckCutoff(LocalDateTime lastRecheckedAt, int everyHours, int depthHours,
+                                       LocalDateTime now)
+    {
+        LocalDateTime due = lastRecheckedAt == null ? now : lastRecheckedAt.plusHours(everyHours);
+        return (due.isBefore(now) ? due : now).minusHours(depthHours);
+    }
+
+    /** See the class comment; never before the walk's first check. */
+    static boolean lostSight(LocalDateTime topSeenAt, int depthHours, LocalDateTime now)
+    {
+        return topSeenAt != null && topSeenAt.isBefore(now.minusHours(depthHours));
     }
 
     /**

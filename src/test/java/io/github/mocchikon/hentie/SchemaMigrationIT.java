@@ -30,7 +30,7 @@ class SchemaMigrationIT
     void shouldMatchTheEntityMappingsWhenSchemaComesFromMigrations() // TODO After releasing change assert to contains
     {
         // Starting the context is the real check; this assertion keeps the test from passing vacuously.
-        assertThat(appliedMigrations()).containsExactly("1", "2", "3", "4");
+        assertThat(appliedMigrations()).containsExactly("1", "2", "3", "4", "5");
     }
 
     @Test

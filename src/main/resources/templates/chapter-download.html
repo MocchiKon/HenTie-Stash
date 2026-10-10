@@ -26,13 +26,12 @@
             </p>
             <p class="hint">Sources currently available, with the kind of link each takes:</p>
             <ul class="hint source-examples">
-                <li th:each="example : ${linkExamples}"><strong th:text="${example.key}">mock</strong>:
-                    <code class="wrap-anywhere" th:text="${example.value}">mock:&lt;id&gt;</code></li>
+                <li th:each="example : ${linkExamples}"><strong th:text="${example.key}">nhentai</strong>:
+                    <code class="wrap-anywhere" th:text="${example.value}">nhentai:&lt;id&gt;</code></li>
             </ul>
             <p class="hint">
                 For e-hentai/exhentai paste the gallery link (<code>/g/&lt;gid&gt;/&lt;token&gt;/</code>), not a
-                page's (<code>/s/…</code>); for chaika the archive link (<code>/archive/&lt;id&gt;/</code>), not the
-                gallery's.
+                page's (<code>/s/…</code>).
             </p>
         </div>
         <div class="field">
@@ -65,7 +64,7 @@
             </p>
         </div>
         <fieldset th:replace="~{fragments/components :: galleryDlOptions(legend='gallery-dl (hitomi, e-hentai/exhentai)',
-                intro='These sources are downloaded by gallery-dl. nhentai and chaika ignore these choices. They start at the defaults from Settings and are remembered on each queued link.',
+                intro='These sources are downloaded by gallery-dl. nhentai ignores these choices. They start at the defaults from Settings and are remembered on each queued link.',
                 cookiesBrowser=${cookiesBrowser}, downloadOriginals=${downloadOriginals}, requestDelay=${requestDelay},
                 delayError=${delayError}, shownFor=null)}"></fieldset>
         <div class="edit-actions">

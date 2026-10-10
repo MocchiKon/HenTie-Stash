@@ -256,6 +256,7 @@ public class SubscriptionService
         apply(subscription, State.EMPTY);
         subscription.setLastCheckedAt(null);
         subscription.setLastRecheckedAt(LocalDateTime.now());
+        subscription.setTopSeenAt(null);
         subscription.setResultTotal(null);
         subscription.setQueuedCount(0);
         subscription.setInLibraryCount(0);
@@ -436,9 +437,11 @@ public class SubscriptionService
     /**
      * What the runner fetches for a subscription, decided from a snapshot of its row; applied only while the row
      * still says the same.
+     *
+     * @param lostSight a check after the walk lost sight of the search (see {@link SubscriptionWalk})
      */
     public record PlannedStep(int subscriptionId, int revision, String title, String site, String query,
-                              State state, Step step)
+                              State state, Step step, boolean lostSight)
     {
     }
 
@@ -484,7 +487,7 @@ public class SubscriptionService
         if (state.catchingUp() && mayList(subscription, limits))
         {
             return Optional.of(planned(subscription, state,
-                    new Step(Kind.CATCH_UP, state.catchUpCursor(), state.catchUpStop(), false)));
+                    new Step(Kind.CATCH_UP, state.catchUpCursor(), state.catchUpStop(), false), false));
         }
         // A re-check waits for a catch-up to end: it has a stop of its own below the head.
         boolean recheck = state.newest() != null && !state.catchingUp() && SubscriptionWalk.recheckDue(
@@ -493,13 +496,15 @@ public class SubscriptionService
         {
             String stop = state.catchingUp() ? state.catchUpTop()
                     : recheck ? recheckStop(subscription, state, positions(source), now) : state.newest();
-            return Optional.of(planned(subscription, state, new Step(Kind.CHECK, null, stop, recheck)));
+            boolean lostSight = state.newest() != null && !state.catchingUp() && SubscriptionWalk.lostSight(
+                    subscription.getTopSeenAt(), subscription.getRecheckDepthHours(), now);
+            return Optional.of(planned(subscription, state, new Step(Kind.CHECK, null, stop, recheck), lostSight));
         }
         if (state.oldest() != null && !state.reachedEnd() && state.oldestCursor() != null
                 && mayList(subscription, limits))
         {
             return Optional.of(planned(subscription, state, new Step(Kind.BACKFILL, state.oldestCursor(), null,
-                    false)));
+                    false), false));
         }
         return Optional.empty();
     }
@@ -511,21 +516,25 @@ public class SubscriptionService
                 && queueService.failedFor(subscription.getId()) < limits.getFailedLimit();
     }
 
-    private static PlannedStep planned(Subscription subscription, State state, Step step)
+    private static PlannedStep planned(Subscription subscription, State state, Step step, boolean lostSight)
     {
         return new PlannedStep(subscription.getId(), subscription.getRevision(), title(subscription),
-                subscription.getSource(), subscription.getQuery(), state, step);
+                subscription.getSource(), subscription.getQuery(), state, step, lostSight);
     }
 
     /**
-     * The head as it was {@code recheck_depth_hours} ago; the oldest checkpoint while the subscription is younger.
-     * Never above the head, or the galleries between them would be passed over.
+     * The head as it was {@code recheck_depth_hours} before the re-check was due
+     * ({@link SubscriptionWalk#recheckCutoff}); the oldest checkpoint when there is none that old: the subscription is
+     * younger, or the walk lost sight of the search since. Never above the head, or the galleries between them would
+     * be passed over.
      */
     private String recheckStop(Subscription subscription, State state, SubscriptionWalk.Positions positions,
                                LocalDateTime now)
     {
+        LocalDateTime cutoff = SubscriptionWalk.recheckCutoff(subscription.getLastRecheckedAt(),
+                subscription.getRecheckEveryHours(), subscription.getRecheckDepthHours(), now);
         String stop = checkpoints.findFirstBySubscriptionIdAndRecordedAtLessThanEqualOrderByRecordedAtDesc(
-                        subscription.getId(), now.minusHours(subscription.getRecheckDepthHours()))
+                        subscription.getId(), cutoff)
                 .or(() -> checkpoints.findFirstBySubscriptionIdOrderByRecordedAtAsc(subscription.getId()))
                 .map(SubscriptionCheckpoint::getGalleryId)
                 .orElse(state.newest());
@@ -557,6 +566,10 @@ public class SubscriptionService
 
         State next = transition.next(cursor);
         apply(subscription, next);
+        // A catch-up's top was the newest gallery when a check last saw the top, not when the catch-up ended, which
+        // may be days later: a checkpoint that late would send the next re-check down the whole catch-up again.
+        LocalDateTime checkpointAt = planned.step().kind() == Kind.CATCH_UP && subscription.getTopSeenAt() != null
+                ? subscription.getTopSeenAt() : now;
         if (planned.step().kind() == Kind.CHECK)
         {
             subscription.setLastCheckedAt(now);
@@ -564,15 +577,25 @@ public class SubscriptionService
             {
                 subscription.setLastRecheckedAt(now);
             }
+            if (transition.sawTop())
+            {
+                subscription.setTopSeenAt(now);
+            }
         }
         if (page.total() != null)
         {
             subscription.setResultTotal(Math.toIntExact(Math.min(page.total(), Integer.MAX_VALUE)));
         }
         clearError(subscription);
+        if (planned.lostSight())
+        {
+            // Everything this check finds above the old head is listed now, in one go, and mostly uploaded long before.
+            // A re-check reaching below it would list all of it again; this check's own stop was taken already.
+            checkpoints.deleteAllOf(subscription.getId());
+        }
         if (transition.newestGrew() && next.newest() != null)
         {
-            recordCheckpoint(subscription.getId(), next.newest(), now);
+            recordCheckpoint(subscription.getId(), next.newest(), checkpointAt);
         }
         if (planned.step().recheck())
         {
@@ -659,16 +682,16 @@ public class SubscriptionService
         return new DownloadChoices(subscription.getCompressionMode(), subscription.isAvoidDuplicateTitles(), galleryDl);
     }
 
-    private void recordCheckpoint(int subscriptionId, String newest, LocalDateTime now)
+    private void recordCheckpoint(int subscriptionId, String newest, LocalDateTime at)
     {
         boolean due = checkpoints.findFirstBySubscriptionIdOrderByRecordedAtDesc(subscriptionId)
-                .map(latest -> !latest.getRecordedAt().isAfter(now.minus(CHECKPOINT_SPACING)))
+                .map(latest -> !latest.getRecordedAt().isAfter(at.minus(CHECKPOINT_SPACING)))
                 .orElse(true);
         if (due)
         {
             var checkpoint = new SubscriptionCheckpoint();
             checkpoint.setSubscriptionId(subscriptionId);
-            checkpoint.setRecordedAt(now);
+            checkpoint.setRecordedAt(at);
             checkpoint.setGalleryId(newest);
             checkpoints.save(checkpoint);
         }
