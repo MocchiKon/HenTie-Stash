@@ -640,7 +640,16 @@
                         throw new Error(message);
                     });
                 }
+                if (r.status === 400) {
+                    return r.json().catch(function () { return {}; }).then(function (answer) {
+                        var message = answer.message || 'Not a chapter number.';
+                        window.alert(message);
+                        throw new Error(message);
+                    });
+                }
                 if (!r.ok) { throw new Error(); }
+                return r.json().then(function (answer) { input.value = answer.chapterNum; });
+            }).then(function () {
                 btn.textContent = '✓';
                 // Empty numbers sort last.
                 var cards = Array.prototype.slice.call(chapterGrid.querySelectorAll('.edit-card'));

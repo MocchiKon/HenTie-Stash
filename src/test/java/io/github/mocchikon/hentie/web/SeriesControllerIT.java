@@ -1,36 +1,32 @@
 package io.github.mocchikon.hentie.web;
 
-import java.util.List;
-
-import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.ResultActions;
-
 import io.github.mocchikon.hentie.dto.ChapterForm;
+import io.github.mocchikon.hentie.dto.ChapterNumber;
 import io.github.mocchikon.hentie.dto.SeriesForm;
 import io.github.mocchikon.hentie.entity.Status;
 import io.github.mocchikon.hentie.repository.ChapterRepository;
 import io.github.mocchikon.hentie.repository.SeriesRepository;
 import io.github.mocchikon.hentie.service.ChapterService;
 import io.github.mocchikon.hentie.service.SeriesService;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
 
-import static org.assertj.core.api.Assertions.*;
+import java.util.List;
+
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.flash;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.model;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrlPattern;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.view;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 /** Commits to the shared DB, so titles are unique to this suite. */
 @SpringBootTest
@@ -218,10 +214,94 @@ class SeriesControllerIT
         // WHEN
         mvc.perform(post("/series/" + seriesId + "/chapters/" + chapterId + "/num")
                         .with(user("user")).with(csrf()).param("chapterNum", "4.5"))
-                .andExpect(status().isOk());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.chapterNum").value("4.50"));
+        mvc.perform(post("/series/" + seriesId + "/chapters/" + chapterId + "/num")
+                        .with(user("user")).with(csrf()).param("chapterNum", "21556.1265"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.chapterNum").value("21556.1265"));
 
         // THEN
-        assertThat(chapterRepository.findById(chapterId).orElseThrow().getChapterNum()).isEqualTo(4.5f);
+        assertThat(chapterRepository.findById(chapterId).orElseThrow().getChapterNum()).isEqualTo(21556.1265);
+    }
+
+    @Test
+    void shouldRefuseAndKeepTheNumberWhenTheUpdatedChapterNumHasMoreDigitsThanADoubleHolds() throws Exception
+    {
+        // GIVEN
+        int seriesId = newSeries("srw-num-precise");
+        int chapterId = newChapter("srw-num-precise-ch 3");
+        seriesService.addChapters(seriesId, List.of(chapterId));
+
+        // WHEN
+        mvc.perform(post("/series/" + seriesId + "/chapters/" + chapterId + "/num")
+                        .with(user("user")).with(csrf()).param("chapterNum", "9007199254740993"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value(ChapterNumber.TOO_PRECISE));
+
+        // THEN
+        assertThat(chapterRepository.findById(chapterId).orElseThrow().getChapterNum()).isEqualTo(3.0);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"abc", "NaN", "Infinity", "-3", "1e3", "2f", ""})
+    void shouldRefuseAndKeepTheNumberWhenTheUpdatedChapterNumIsNoPlainNumber(String typed) throws Exception
+    {
+        // GIVEN
+        int seriesId = newSeries("srw-num-refused");
+        int chapterId = newChapter("srw-num-refused-ch 3");
+        seriesService.addChapters(seriesId, List.of(chapterId));
+
+        // WHEN
+        mvc.perform(post("/series/" + seriesId + "/chapters/" + chapterId + "/num")
+                        .with(user("user")).with(csrf()).param("chapterNum", typed))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value(ChapterNumber.INVALID));
+
+        // THEN
+        assertThat(chapterRepository.findById(chapterId).orElseThrow().getChapterNum()).isEqualTo(3.0);
+    }
+
+    @Test
+    void shouldReshowTheTypedNumbersWithAMessageWhenASavedChapterNumIsNoPlainNumber() throws Exception
+    {
+        // GIVEN
+        int seriesId = newSeries("srw-form-num");
+        int chapterId = newChapter("srw-form-num-ch 3");
+        seriesService.addChapters(seriesId, List.of(chapterId));
+
+        // WHEN
+        ResultActions result = mvc.perform(post("/series/" + seriesId).with(user("user")).with(csrf())
+                .param("titleFull", "srw-form-num-renamed").param("status", "REVIEWED")
+                .param("chapterNums[" + chapterId + "]", "1e3"));
+
+        // THEN
+        result.andExpect(status().isOk())
+                .andExpect(view().name("series-edit"))
+                .andExpect(content().string(containsString(ChapterNumber.INVALID)))
+                .andExpect(content().string(containsString("value=\"1e3\"")));
+        assertThat(chapterRepository.findById(chapterId).orElseThrow().getChapterNum()).isEqualTo(3.0);
+        assertThat(seriesRepository.findById(seriesId).orElseThrow().getTitleFull()).isEqualTo("srw-form-num");
+    }
+
+    @Test
+    void shouldSaveAndShowBothDecimalsWhenAChapterNumIsSavedWithTheForm() throws Exception
+    {
+        // GIVEN
+        int seriesId = newSeries("srw-form-num-ok");
+        int chapterId = newChapter("srw-form-num-ok-ch");
+        seriesService.addChapters(seriesId, List.of(chapterId));
+
+        // WHEN
+        mvc.perform(post("/series/" + seriesId).with(user("user")).with(csrf())
+                        .param("titleFull", "srw-form-num-ok").param("status", "REVIEWED")
+                        .param("chapterNums[" + chapterId + "]", "2.1"))
+                .andExpect(status().is3xxRedirection());
+
+        // THEN
+        assertThat(chapterRepository.findById(chapterId).orElseThrow().getChapterNum()).isEqualTo(2.1);
+        mvc.perform(get("/series/" + seriesId + "/edit").with(user("user")))
+                .andExpect(content().string(containsString("value=\"2.10\"")));
     }
 
     @Test

@@ -82,7 +82,7 @@ public class Chapter
 
     // Set by series operations only, not by the chapter edit form.
     @Column(name = "chapter_num")
-    private Float chapterNum;
+    private Double chapterNum;
 
     // The DB default lets the H2 import insert rows without this column. Materialized for search; never
     // trust it without a resync (ChapterService.syncImageStats).

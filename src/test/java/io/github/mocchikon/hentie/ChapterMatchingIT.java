@@ -145,12 +145,12 @@ class ChapterMatchingIT
         assertThat(series(familyB).getId()).isNotEqualTo(series(familyA).getId());
 
         // AND the numbers come from the titles, so both languages of one chapter share a number.
-        assertThat(reload(base).getChapterNum()).isCloseTo(1.0f, within(0.001f));
-        assertThat(reload(baseJp).getChapterNum()).isCloseTo(1.0f, within(0.001f));
-        assertThat(reload(second).getChapterNum()).isCloseTo(2.0f, within(0.001f));
-        assertThat(reload(secondPart2).getChapterNum()).isCloseTo(4.02f, within(0.001f));
-        assertThat(reload(secondOmake).getChapterNum()).isCloseTo(2.01f, within(0.001f));
-        assertThat(reload(decorated).getChapterNum()).isCloseTo(5.01f, within(0.001f));
+        assertThat(reload(base).getChapterNum()).isCloseTo(1.0, within(0.001));
+        assertThat(reload(baseJp).getChapterNum()).isCloseTo(1.0, within(0.001));
+        assertThat(reload(second).getChapterNum()).isCloseTo(2.0, within(0.001));
+        assertThat(reload(secondPart2).getChapterNum()).isCloseTo(4.02, within(0.001));
+        assertThat(reload(secondOmake).getChapterNum()).isCloseTo(2.01, within(0.001));
+        assertThat(reload(decorated).getChapterNum()).isCloseTo(5.01, within(0.001));
 
         // The sweep sees every unlinked chapter in the database, so assert the shape, not totals.
         assertThat(result.getScanned()).isGreaterThanOrEqualTo(13);
@@ -189,9 +189,9 @@ class ChapterMatchingIT
         // THEN each family is one series, numbered from the titles.
         assertThat(seriesId(reload(misspelled))).isEqualTo(seriesId(reload(tales)));
         assertThat(seriesId(reload(translated))).isEqualTo(seriesId(reload(base)));
-        assertThat(reload(translated).getChapterNum()).isCloseTo(2.0f, within(0.001f));
+        assertThat(reload(translated).getChapterNum()).isCloseTo(2.0, within(0.001));
         assertThat(seriesId(reload(original))).isEqualTo(seriesId(reload(romanized)));
-        assertThat(reload(original).getChapterNum()).isCloseTo(2.0f, within(0.001f));
+        assertThat(reload(original).getChapterNum()).isCloseTo(2.0, within(0.001));
         assertThat(List.of(seriesId(reload(tales)), seriesId(reload(base)), seriesId(reload(romanized))))
                 .doesNotHaveDuplicates();
         // AND the sweep wrote the native keys it matched by.
@@ -214,7 +214,7 @@ class ChapterMatchingIT
         series.setStatus(Status.REVIEWED);
         em.persist(series);
         linked.setSeries(series);
-        linked.setChapterNum(9.5f);
+        linked.setChapterNum(9.5);
         chapterRepository.save(linked);
         em.flush();
 
@@ -229,10 +229,10 @@ class ChapterMatchingIT
 
         // AND the linked chapter kept both its series and its hand-set number - it was never scanned.
         assertThat(seriesId(reload(linked))).isEqualTo(series.getId());
-        assertThat(reload(linked).getChapterNum()).isCloseTo(9.5f, within(0.001f));
+        assertThat(reload(linked).getChapterNum()).isCloseTo(9.5, within(0.001));
         // AND the loose one was matched into it.
         assertThat(seriesId(reload(loose))).isEqualTo(series.getId());
-        assertThat(reload(loose).getChapterNum()).isCloseTo(3.0f, within(0.001f));
+        assertThat(reload(loose).getChapterNum()).isCloseTo(3.0, within(0.001));
         // AND linking into an existing series leaves its hand-picked name alone.
         assertThat(series(series.getId()).getTitle()).isEqualTo("Kept Series");
         assertThat(series(series.getId()).getTitleFull()).isEqualTo("Kept Series");

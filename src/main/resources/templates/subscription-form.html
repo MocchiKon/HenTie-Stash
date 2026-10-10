@@ -62,27 +62,29 @@
             </p>
         </div>
 
-        <div class="field-row">
-            <div class="field">
-                <label for="recheckEveryHours">Re-check recent galleries every (hours)</label>
-                <input type="number" id="recheckEveryHours" th:field="*{recheckEveryHours}" class="short-input"
-                       required min="0" max="720" step="1">
-                <p class="field-error" th:if="${#fields.hasErrors('recheckEveryHours')}"
-                   th:errors="*{recheckEveryHours}">error</p>
-            </div>
-            <div class="field">
-                <label for="recheckDepthHours">Going back (hours)</label>
-                <input type="number" id="recheckDepthHours" th:field="*{recheckDepthHours}" class="short-input"
-                       required min="1" max="720" step="1">
-                <p class="field-error" th:if="${#fields.hasErrors('recheckDepthHours')}"
-                   th:errors="*{recheckDepthHours}">error</p>
-            </div>
+        <div class="field">
+            <label for="recheckEveryHours">Re-check recent galleries every (hours)</label>
+            <input type="number" id="recheckEveryHours" th:field="*{recheckEveryHours}" class="short-input"
+                   required min="0" max="720" step="1">
+            <p class="field-error" th:if="${#fields.hasErrors('recheckEveryHours')}"
+               th:errors="*{recheckEveryHours}">error</p>
+            <p class="hint">
+                Tags are often added to a gallery after it was uploaded, so a gallery may match the search only after
+                it was first passed. A re-check lists recent galleries again and queues those that match now.
+                0 hours = never.
+            </p>
         </div>
-        <p class="hint">
-            Tags are often added to a gallery after it was uploaded, so a gallery may match the search only after it
-            was first passed. A re-check lists the galleries uploaded in the last hours again and queues those that
-            match now. 0 hours = never.
-        </p>
+
+        <div class="field">
+            <label for="recheckDepthHours">Going back (hours)</label>
+            <input type="number" id="recheckDepthHours" th:field="*{recheckDepthHours}" class="short-input"
+                   required min="1" max="720" step="1">
+            <p class="field-error" th:if="${#fields.hasErrors('recheckDepthHours')}"
+               th:errors="*{recheckDepthHours}">error</p>
+            <p class="hint">
+                How far back a re-check reaches: the galleries uploaded in this many last hours are listed again.
+            </p>
+        </div>
 
         <div class="field">
             <label for="compressionMode">Image Compression</label>

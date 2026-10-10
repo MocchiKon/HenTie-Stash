@@ -278,7 +278,7 @@ public class SeriesService
      * count.
      */
     @Transactional
-    public void addChaptersDeferred(int seriesId, Map<Integer, Float> chapterNums)
+    public void addChaptersDeferred(int seriesId, Map<Integer, Double> chapterNums)
     {
         attachChapters(get(seriesId), chapterNums);
     }
@@ -290,7 +290,7 @@ public class SeriesService
      * override copied from the first chapter would freeze the facets at what that one carried.
      */
     @Transactional
-    public int createForMatchDeferred(String titleFull, String titlePretty, Map<Integer, Float> chapterNums)
+    public int createForMatchDeferred(String titleFull, String titlePretty, Map<Integer, Double> chapterNums)
     {
         var series = new Series();
         series.setTitleFull(titleFull);
@@ -306,7 +306,7 @@ public class SeriesService
     }
 
     @Transactional
-    public void updateChapterNum(int seriesId, int chapterId, float chapterNum)
+    public void updateChapterNum(int seriesId, int chapterId, double chapterNum)
     {
         Chapter chapter = chapterRepository.findById(chapterId).orElse(null);
         if (chapter != null && chapter.getSeries() != null && chapter.getSeries().getId().equals(seriesId))
@@ -335,7 +335,8 @@ public class SeriesService
     public List<ChapterCardDto> editChapterCards(int seriesId)
     {
         return chapterRepository.findBySeriesIdOrderByChapterNumAscIdAsc(seriesId).stream()
-                .map(c -> new ChapterCardDto(c.getId(), imageService.thumbnailUrl(c.getId()), c.getTitleFull(), c.getChapterNum()))
+                .map(c -> new ChapterCardDto(c.getId(), imageService.thumbnailUrl(c.getId()), c.getTitleFull(),
+                        ChapterNumber.format(c.getChapterNum())))
                 .toList();
     }
 
@@ -382,7 +383,7 @@ public class SeriesService
         {
             return;
         }
-        var withoutNumbers = new LinkedHashMap<Integer, Float>();
+        var withoutNumbers = new LinkedHashMap<Integer, Double>();
         chapterIds.forEach(id -> withoutNumbers.put(id, null));
         attachChapters(series, withoutNumbers);
     }
@@ -391,7 +392,7 @@ public class SeriesService
      * A null number keeps the chapter's own (it may have been set by hand); a chapter with none gets the one
      * its title implies. A constant fallback would give every chapter linked by hand the same number.
      */
-    private void attachChapters(Series series, Map<Integer, Float> chapterNums)
+    private void attachChapters(Series series, Map<Integer, Double> chapterNums)
     {
         if (chapterNums == null || chapterNums.isEmpty())
         {
@@ -400,7 +401,7 @@ public class SeriesService
         attachLoaded(series, chapterRepository.findAllById(chapterNums.keySet()), chapterNums);
     }
 
-    private void attachLoaded(Series series, List<Chapter> chapters, Map<Integer, Float> chapterNums)
+    private void attachLoaded(Series series, List<Chapter> chapters, Map<Integer, Double> chapterNums)
     {
         Set<Integer> formerSeriesIds = new HashSet<>();
         for (Chapter chapter : chapters)
@@ -411,7 +412,7 @@ public class SeriesService
                 formerSeriesIds.add(former.getId());
             }
             chapter.setSeries(series);
-            Float matched = chapterNums.get(chapter.getId());
+            Double matched = chapterNums.get(chapter.getId());
             if (matched != null)
             {
                 chapter.setChapterNum(matched);
@@ -528,20 +529,26 @@ public class SeriesService
         return (override != null && !override.isEmpty()) ? new ArrayList<>(override) : derived.get();
     }
 
-    private void saveChapterNums(Map<Integer, Float> chapterNums)
+    /** @throws IllegalArgumentException for a number the form's validation should have refused */
+    private void saveChapterNums(Map<Integer, String> typed)
     {
-        if (chapterNums == null || chapterNums.isEmpty())
+        if (typed == null || typed.isEmpty())
         {
             return;
         }
-        List<Integer> ids = chapterNums.entrySet().stream()
-                .filter(e -> e.getValue() != null)
-                .map(Map.Entry::getKey)
-                .toList();
-        List<Chapter> chapters = chapterRepository.findAllById(ids);
+        var chapterNums = new HashMap<Integer, Double>();
+        typed.forEach((id, text) ->
+        {
+            Double num = ChapterNumber.parse(text);
+            if (num != null)
+            {
+                chapterNums.put(id, num);
+            }
+        });
+        List<Chapter> chapters = chapterRepository.findAllById(chapterNums.keySet());
         for (Chapter c : chapters)
         {
-            Float num = chapterNums.get(c.getId());
+            Double num = chapterNums.get(c.getId());
             if (num != null)
             {
                 c.setChapterNum(num);

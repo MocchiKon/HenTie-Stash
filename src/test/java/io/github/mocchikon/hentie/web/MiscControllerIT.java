@@ -483,7 +483,7 @@ class MiscControllerIT
         // THEN it joins as chapter 3, not as a placeholder 1.
         var linked = chapterRepository.findById(chapterId).orElseThrow();
         assertThat(linked.getSeries().getId()).isEqualTo(seriesId);
-        assertThat(linked.getChapterNum()).isEqualTo(3f);
+        assertThat(linked.getChapterNum()).isEqualTo(3.0);
     }
 
     // --- Link chapters ---------------------------------------------------------
@@ -564,9 +564,9 @@ class MiscControllerIT
         var secondNow = chapterRepository.findById(second).orElseThrow();
         var thirdNow = chapterRepository.findById(third).orElseThrow();
         assertThat(secondNow.getSeries().getId()).isEqualTo(seriesId);
-        assertThat(secondNow.getChapterNum()).isEqualTo(2f);
+        assertThat(secondNow.getChapterNum()).isEqualTo(2.0);
         assertThat(thirdNow.getSeries().getId()).isEqualTo(seriesId);
-        assertThat(thirdNow.getChapterNum()).isEqualTo(3f);
+        assertThat(thirdNow.getChapterNum()).isEqualTo(3.0);
 
         // ...and the page it lands on says so.
         mvc.perform(get("/series/" + seriesId + "/link-chapters").flashAttr("linked", 2).with(user("user")))

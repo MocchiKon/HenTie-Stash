@@ -118,8 +118,8 @@ class ChapterMatchingServiceIT
         assertThat(series.getTitle()).isEqualTo("Autolink Saga");
         assertThat(series.getTitleFull()).isEqualTo("Autolink Saga");
         // ...numbered from their own titles...
-        assertThat(chapter(first).getChapterNum()).isCloseTo(1.0f, within(0.001f));
-        assertThat(chapter(second).getChapterNum()).isCloseTo(2.0f, within(0.001f));
+        assertThat(chapter(first).getChapterNum()).isCloseTo(1.0, within(0.001));
+        assertThat(chapter(second).getChapterNum()).isCloseTo(2.0, within(0.001));
         // ...and the series is a bare, unreviewed shell whose facets stay derived from its chapters.
         assertThat(series.getStatus()).isEqualTo(Status.NEW);
         assertThat(series.getScoreSource()).isEqualTo(ScoreSource.DERIVED);
@@ -138,7 +138,7 @@ class ChapterMatchingServiceIT
         Series series = seriesOf(id);
         assertThat(series.getTitleFull()).isEqualTo("[Scan] Bracket Saga (Zed)");
         assertThat(series.getTitle()).isEqualTo("Bracket Saga");
-        assertThat(chapter(id).getChapterNum()).isCloseTo(2.01f, within(0.001f));
+        assertThat(chapter(id).getChapterNum()).isCloseTo(2.01, within(0.001));
     }
 
     @Test
@@ -152,7 +152,7 @@ class ChapterMatchingServiceIT
         Series series = seriesOf(id);
         assertThat(series.getTitle()).isEqualTo("Naruto");
         assertThat(series.getTitleFull()).isEqualTo("Naruto");
-        assertThat(chapter(id).getChapterNum()).isCloseTo(2.0f, within(0.001f));
+        assertThat(chapter(id).getChapterNum()).isCloseTo(2.0, within(0.001));
 
         // AND the next one in the family joins it rather than starting its own.
         int third = create("Naruto 3", "Naruto 3", artist);
@@ -240,8 +240,8 @@ class ChapterMatchingServiceIT
         assertThat(series.getTitleFull()).isEqualTo("Comic Hero [Digital]");
 
         // ...ordered by their dates...
-        assertThat(chapter(june2024).getChapterNum()).isCloseTo(2024.06f, within(0.001f));
-        assertThat(chapter(january2026).getChapterNum()).isCloseTo(2026.01f, within(0.001f));
+        assertThat(chapter(june2024).getChapterNum()).isCloseTo(2024.06, within(0.001));
+        assertThat(chapter(january2026).getChapterNum()).isCloseTo(2026.01, within(0.001));
         assertThat(chapter(june2024).getChapterNum()).isLessThan(chapter(january2026).getChapterNum());
 
         // ...while each chapter keeps its dated title; only the series name drops the date.
@@ -268,10 +268,10 @@ class ChapterMatchingServiceIT
         assertThat(chapter(cjk).getSeries().getId()).isEqualTo(run);
         assertThat(seriesOf(yearFirst).getTitle()).isEqualTo("Comic Weekly");
 
-        assertThat(chapter(yearFirst).getChapterNum()).isCloseTo(2024.06f, within(0.001f));
-        assertThat(chapter(monthFirst).getChapterNum()).isCloseTo(2024.07f, within(0.001f));
-        assertThat(chapter(withDay).getChapterNum()).isCloseTo(2024.08f, within(0.001f));
-        assertThat(chapter(cjk).getChapterNum()).isCloseTo(2024.09f, within(0.001f));
+        assertThat(chapter(yearFirst).getChapterNum()).isCloseTo(2024.06, within(0.001));
+        assertThat(chapter(monthFirst).getChapterNum()).isCloseTo(2024.07, within(0.001));
+        assertThat(chapter(withDay).getChapterNum()).isCloseTo(2024.08, within(0.001));
+        assertThat(chapter(cjk).getChapterNum()).isCloseTo(2024.09, within(0.001));
     }
 
     @Test
@@ -322,8 +322,8 @@ class ChapterMatchingServiceIT
         int series = seriesOf(original).getId();
         assertThat(chapter(romanized).getSeries().getId()).isEqualTo(series);
         assertThat(chapter(translated).getSeries().getId()).isEqualTo(series);
-        assertThat(chapter(translated).getChapterNum()).isCloseTo(4.0f, within(0.001f));
-        assertThat(chapter(original).getChapterNum()).isCloseTo(2.0f, within(0.001f));
+        assertThat(chapter(translated).getChapterNum()).isCloseTo(4.0, within(0.001));
+        assertThat(chapter(original).getChapterNum()).isCloseTo(2.0, within(0.001));
     }
 
     @Test
@@ -353,7 +353,7 @@ class ChapterMatchingServiceIT
 
         // THEN it joins the base, numbered from before the separator.
         assertThat(chapter(sibling).getSeries().getId()).isEqualTo(seriesOf(base).getId());
-        assertThat(chapter(sibling).getChapterNum()).isCloseTo(2.0f, within(0.001f));
+        assertThat(chapter(sibling).getChapterNum()).isCloseTo(2.0, within(0.001));
     }
 
     @Test
@@ -372,8 +372,8 @@ class ChapterMatchingServiceIT
         assertThat(chapter(second).getSeries().getId()).isEqualTo(series.getId());
         assertThat(chapter(third).getSeries().getId()).isEqualTo(series.getId());
         assertThat(series.getTitle()).isEqualTo("Subtitle Saga - The Return");
-        assertThat(chapter(second).getChapterNum()).isCloseTo(2.0f, within(0.001f));
-        assertThat(chapter(third).getChapterNum()).isCloseTo(3.0f, within(0.001f));
+        assertThat(chapter(second).getChapterNum()).isCloseTo(2.0, within(0.001));
+        assertThat(chapter(third).getChapterNum()).isCloseTo(3.0, within(0.001));
     }
 
     @Test
@@ -402,7 +402,7 @@ class ChapterMatchingServiceIT
 
         // THEN it joins: a work drawn by many has a new line-up every time, so the artists veto nothing.
         assertThat(chapter(later).getSeries().getId()).isEqualTo(seriesOf(first).getId());
-        assertThat(chapter(later).getChapterNum()).isCloseTo(8.0f, within(0.001f));
+        assertThat(chapter(later).getChapterNum()).isCloseTo(8.0, within(0.001));
     }
 
     @Test
@@ -421,7 +421,7 @@ class ChapterMatchingServiceIT
 
         // THEN the chapter is in the curated series...
         assertThat(chapter(chapterId).getSeries().getId()).isEqualTo(curated);
-        assertThat(chapter(chapterId).getChapterNum()).isCloseTo(1.0f, within(0.001f));
+        assertThat(chapter(chapterId).getChapterNum()).isCloseTo(1.0, within(0.001));
         // ...and the emptied series is gone rather than lingering in search.
         assertThat(seriesRepository.findById(autoCreated)).isEmpty();
         assertThat(seriesRepository.findById(curated)).isPresent();

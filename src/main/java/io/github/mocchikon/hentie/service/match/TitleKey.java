@@ -158,7 +158,7 @@ public final class TitleKey
     /** {@value #BLOCK_LENGTH} leading characters of the key, spaces removed. */
     private final String matchBlock;
 
-    private final float chapterNum;
+    private final double chapterNum;
 
     /** Whether the title holds a number at all: a chapter number of 1 may only mean it holds none. */
     private final boolean numbered;
@@ -169,7 +169,7 @@ public final class TitleKey
 
     private final String prettyTitle;
 
-    private TitleKey(String matchKey, List<String> tokens, String matchBlock, float chapterNum, boolean numbered,
+    private TitleKey(String matchKey, List<String> tokens, String matchBlock, double chapterNum, boolean numbered,
                      String baseTitleFull, String baseTitlePretty, String prettyTitle)
     {
         this.matchKey = matchKey;
@@ -241,7 +241,7 @@ public final class TitleKey
      * The number {@code titleFull} implies, else the one its native title does: an English title without a
      * number may translate a numbered Japanese one.
      */
-    public static float chapterNum(TitleKey title, String nativeTitle)
+    public static double chapterNum(TitleKey title, String nativeTitle)
     {
         if (title.isNumbered() || StringUtils.isBlank(nativeTitle))
         {
@@ -326,7 +326,7 @@ public final class TitleKey
      * Depends on the title only, so the same chapter in two languages gets the same number and prev/next
      * lines up across languages.
      */
-    private static float chapterNum(List<Segment> markers)
+    private static double chapterNum(List<Segment> markers)
     {
         List<Segment> counted = markers.stream()
                 .filter(marker -> marker.number() != null || marker.word() == null
@@ -347,8 +347,8 @@ public final class TitleKey
         {
             sub = counted.size() < 2 ? 0 : positive(counted.get(1).number(), 1);
         }
-        float fraction = sub / 100f;
-        return Math.round((main + fraction) * 100f) / 100f;
+        double fraction = sub / 100.0;
+        return Math.round((main + fraction) * 100) / 100.0;
     }
 
     private static int positive(Integer value, int fallback)
@@ -896,7 +896,7 @@ public final class TitleKey
      * Accepts {@code 2024-06}, {@code 01-2026}, {@code 2024年06月}, {@code 15-06-2024}.
      * <p>
      * A 4-digit year is required: {@code "06-05"} could be month-day, day-month or a chapter range, and a
-     * wrong guess would merge unrelated runs. The day is dropped, because a {@code float} chapter number
+     * wrong guess would merge unrelated runs. The day is dropped, because the chapter number
      * has room for the month only. In {@code DD-MM-YYYY} the middle number is the month.
      */
     private static IssueDate issueDate(String normalizedWord)

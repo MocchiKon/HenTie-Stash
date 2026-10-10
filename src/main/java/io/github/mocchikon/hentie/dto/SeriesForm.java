@@ -46,6 +46,6 @@ public class SeriesForm
     /** To attach. */
     private List<Integer> chapterIds = new ArrayList<>();
 
-    /** Chapter id to chapter number. */
-    private Map<Integer, Float> chapterNums = new HashMap<>();
+    /** Chapter id to chapter number as typed ({@link ChapterNumber}); blank leaves the number as it is. */
+    private Map<Integer, String> chapterNums = new HashMap<>();
 }

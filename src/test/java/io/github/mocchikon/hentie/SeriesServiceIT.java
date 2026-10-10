@@ -133,9 +133,9 @@ class SeriesServiceIT
         Chapter plainNow = chapterRepository.findById(plain.getId()).orElseThrow();
         Chapter numberedNow = chapterRepository.findById(numbered.getId()).orElseThrow();
         assertThat(plainNow.getSeries().getId()).isEqualTo(id);
-        assertThat(plainNow.getChapterNum()).isEqualTo(1f);
+        assertThat(plainNow.getChapterNum()).isEqualTo(1.0);
         assertThat(numberedNow.getSeries().getId()).isEqualTo(id);
-        assertThat(numberedNow.getChapterNum()).isEqualTo(4f);
+        assertThat(numberedNow.getChapterNum()).isEqualTo(4.0);
     }
 
     @Test
@@ -445,11 +445,11 @@ class SeriesServiceIT
         Chapter thirdNow = chapterRepository.findById(third.getId()).orElseThrow();
         Chapter omakeNow = chapterRepository.findById(omake.getId()).orElseThrow();
         assertThat(thirdNow.getSeries().getId()).isEqualTo(id);
-        assertThat(thirdNow.getChapterNum()).isEqualTo(3f);
+        assertThat(thirdNow.getChapterNum()).isEqualTo(3.0);
         assertThat(omakeNow.getSeries().getId()).isEqualTo(id);
-        assertThat(omakeNow.getChapterNum()).isCloseTo(2.01f, within(0.001f));
+        assertThat(omakeNow.getChapterNum()).isCloseTo(2.01, within(0.001));
         // ...the member keeps the number it had...
-        assertThat(chapterRepository.findById(member.getId()).orElseThrow().getChapterNum()).isEqualTo(1f);
+        assertThat(chapterRepository.findById(member.getId()).orElseThrow().getChapterNum()).isEqualTo(1.0);
         // ...and the series is recomputed over its new chapters.
         assertThat(seriesRepository.findById(id).orElseThrow().getScore()).isEqualTo((short) 6);
     }
@@ -464,8 +464,8 @@ class SeriesServiceIT
         int former = seriesService.create(form("Former Home"));
         seriesService.addChapters(former, List.of(moving.getId()));
         em.flush();
-        assertThat(chapterRepository.findById(moving.getId()).orElseThrow().getChapterNum()).isEqualTo(5f);
-        seriesService.updateChapterNum(former, moving.getId(), 7.5f);
+        assertThat(chapterRepository.findById(moving.getId()).orElseThrow().getChapterNum()).isEqualTo(5.0);
+        seriesService.updateChapterNum(former, moving.getId(), 7.5);
         int target = seriesService.create(form("New Home"));
         em.flush();
 
@@ -478,7 +478,7 @@ class SeriesServiceIT
         assertThat(added).isEqualTo(1);
         Chapter moved = chapterRepository.findById(moving.getId()).orElseThrow();
         assertThat(moved.getSeries().getId()).isEqualTo(target);
-        assertThat(moved.getChapterNum()).isEqualTo(7.5f);
+        assertThat(moved.getChapterNum()).isEqualTo(7.5);
         assertThat(seriesRepository.findById(former)).isEmpty();
     }
 
@@ -664,7 +664,7 @@ class SeriesServiceIT
         Series series = seriesRepository.findById(id).orElseThrow();
         Chapter c = chapter("rc", "English", null, List.of());
         c.setSeries(series);
-        c.setChapterNum(2f);
+        c.setChapterNum(2.0);
         chapterRepository.save(c);
         em.flush();
         em.clear();
@@ -710,21 +710,21 @@ class SeriesServiceIT
         Series series = seriesRepository.findById(id).orElseThrow();
         Chapter c = chapter("rn", "English", null, List.of());
         c.setSeries(series);
-        c.setChapterNum(1f);
+        c.setChapterNum(1.0);
         chapterRepository.save(c);
         em.flush();
         em.clear();
 
         // WHEN + THEN
-        seriesService.updateChapterNum(id, c.getId(), 5.5f);
+        seriesService.updateChapterNum(id, c.getId(), 5.5);
         em.flush();
         em.clear();
-        assertThat(chapterRepository.findById(c.getId()).orElseThrow().getChapterNum()).isEqualTo(5.5f);
+        assertThat(chapterRepository.findById(c.getId()).orElseThrow().getChapterNum()).isEqualTo(5.5);
 
-        seriesService.updateChapterNum(id + 999, c.getId(), 9f);
+        seriesService.updateChapterNum(id + 999, c.getId(), 9.0);
         em.flush();
         em.clear();
-        assertThat(chapterRepository.findById(c.getId()).orElseThrow().getChapterNum()).isEqualTo(5.5f);
+        assertThat(chapterRepository.findById(c.getId()).orElseThrow().getChapterNum()).isEqualTo(5.5);
     }
 
     @Test
@@ -783,14 +783,14 @@ class SeriesServiceIT
         // WHEN
         SeriesForm edit = form("Renumber Via Update");
         edit.setId(id);
-        edit.setChapterNums(new HashMap<>(Map.of(a.getId(), 2.5f, b.getId(), 1.5f)));
+        edit.setChapterNums(new HashMap<>(Map.of(a.getId(), "2.5", b.getId(), "1.5")));
         seriesService.update(edit);
         em.flush();
         em.clear();
 
         // THEN
-        assertThat(chapterRepository.findById(a.getId()).orElseThrow().getChapterNum()).isEqualTo(2.5f);
-        assertThat(chapterRepository.findById(b.getId()).orElseThrow().getChapterNum()).isEqualTo(1.5f);
+        assertThat(chapterRepository.findById(a.getId()).orElseThrow().getChapterNum()).isEqualTo(2.5);
+        assertThat(chapterRepository.findById(b.getId()).orElseThrow().getChapterNum()).isEqualTo(1.5);
     }
 
     @Test
@@ -872,11 +872,11 @@ class SeriesServiceIT
 
         Chapter c1 = chapter("cleanup-sd-c1", "English", null, List.of());
         c1.setSeries(series);
-        c1.setChapterNum(1f);
+        c1.setChapterNum(1.0);
         chapterRepository.save(c1);
         Chapter c2 = chapter("cleanup-sd-c2", "Japanese", null, List.of());
         c2.setSeries(series);
-        c2.setChapterNum(2f);
+        c2.setChapterNum(2.0);
         chapterRepository.save(c2);
 
         SeriesForm siblingForm = form("Cleanup Sibling Series");
@@ -922,11 +922,11 @@ class SeriesServiceIT
 
         Chapter c1 = chapter("dwc-c1", "English", (short) 8, List.of(sharedTag));
         c1.setSeries(series);
-        c1.setChapterNum(1f);
+        c1.setChapterNum(1.0);
         chapterRepository.save(c1);
         Chapter c2 = chapter("dwc-c2", "Japanese", null, List.of());
         c2.setSeries(series);
-        c2.setChapterNum(2f);
+        c2.setChapterNum(2.0);
         chapterRepository.save(c2);
 
         SeriesForm siblingForm = form("Delete With Chapters Sibling");
@@ -985,7 +985,7 @@ class SeriesServiceIT
         cacheManager.getCache(CacheConfig.SEARCH_COUNT).put("stale-total", 42L);
 
         // WHEN its last chapter is moved away by the deferred (bulk) path.
-        seriesService.addChaptersDeferred(target, Map.of(c.getId(), 1f));
+        seriesService.addChaptersDeferred(target, Map.of(c.getId(), 1.0));
         em.flush();
         em.clear();
 
@@ -1011,7 +1011,7 @@ class SeriesServiceIT
         cacheManager.getCache(CacheConfig.SEARCH_COUNT).put("still-valid", 42L);
 
         // WHEN one of them moves, leaving the source non-empty.
-        seriesService.addChaptersDeferred(target, Map.of(moving.getId(), 1f));
+        seriesService.addChaptersDeferred(target, Map.of(moving.getId(), 1.0));
         em.flush();
         em.clear();
 

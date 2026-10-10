@@ -10,6 +10,6 @@ public class ChapterCardDto
     private Integer id;
     private String thumbnailUrl;
     private String titleFull;
-    /** Null for a chapter in no series. */
-    private Float chapterNum;
+    /** As {@link ChapterNumber#format} writes it; null for a chapter in no series. */
+    private String chapterNum;
 }

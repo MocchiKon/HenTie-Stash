@@ -101,7 +101,7 @@ code { background: var(--surface-2); padding: .1em .35em; border-radius: 4px; }
 
 /* ===== Layout ===== */
 .container { width: 100%; max-width: clamp(1500px, 80dvw, 80dvw); margin: 0 auto; padding: 1.25rem 1rem 4rem; }
-.container.narrow { max-width: 640px; }
+.container.narrow { max-width: 840px; }
 .section-title { border-bottom: 1px solid var(--border); padding-bottom: .35rem; margin: 1rem 0 1rem; }
 .hint { color: var(--muted); font-size: .9rem; }
 /* A path has no spaces to break at, and a long one must not widen the page. */

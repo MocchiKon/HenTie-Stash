@@ -233,7 +233,7 @@ class ChapterDivisionServiceIT
         track(part.chapterId());
         assertThat(part.seriesId()).isEqualTo(compilation.getSeries().getId());
         assertThat(part.seriesTitle()).isEqualTo(compilation.getSeries().getTitle());
-        assertThat(chapter(part.chapterId()).getChapterNum()).isCloseTo(2.0f, within(0.001f));
+        assertThat(chapter(part.chapterId()).getChapterNum()).isCloseTo(2.0, within(0.001));
         // ...and the compilation is still where it was.
         assertThat(chapter(id).getSeries().getId()).isEqualTo(compilation.getSeries().getId());
     }

@@ -1359,7 +1359,10 @@ narrow width after any CSS/template change.
   word-break: break-word`, their flex parents `min-width: 0`. Test with a 250+ character title.
 - **Chapter-number inputs use `step="any"`** (numbers are `main + sub/100`, dated issues `year.month`), or
   native validation blocks the whole series form. The rendered `value` must use a period, never a locale
-  comma.
+  comma, and at least two decimals when there are any (`ChapterNumber.format`: part 10 is `2.10`, never `2.1`).
+  **The server accepts plain digits only** (`ChapterNumber.problem`; any number of them, with any number of
+  decimals), on the form and the inline Update alike: binding to a number would also take `NaN`, `Infinity`,
+  `-3` and `1e3`. A number a double cannot hold exactly is refused, never saved rounded.
 - **The detail `<h1>` prints `titleFull` in three spans** (`dto/TitleParts`): the pretty title in the middle,
   the bracket decoration muted around it; nothing is muted if the pretty title is not contained. **The spans
   stay on one source line without whitespace** — Thymeleaf would render a newline as a space.

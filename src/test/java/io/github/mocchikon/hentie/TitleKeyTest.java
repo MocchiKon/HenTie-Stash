@@ -53,14 +53,14 @@ class TitleKeyTest
             // A bare year is just an ordinary trailing number.
             "Comic Hero 2024,        comic hero, 2024.0",
     })
-    void shouldStripMarkersAndDeriveTheChapterNumberWhenParsingATitle(String title, String key, float number)
+    void shouldStripMarkersAndDeriveTheChapterNumberWhenParsingATitle(String title, String key, double number)
     {
         // WHEN
         var parsed = TitleKey.of(title);
 
         // THEN
         assertThat(parsed.getMatchKey()).isEqualTo(key);
-        assertThat(parsed.getChapterNum()).isCloseTo(number, within(0.001f));
+        assertThat(parsed.getChapterNum()).isCloseTo(number, within(0.001));
     }
 
     @ParameterizedTest(name = "\"{0}\" -> key \"{1}\", chapter {2}")
@@ -109,14 +109,14 @@ class TitleKeyTest
             "異世界勇者 3話                                       | 異世界勇者                             | 3.0",
             "異世界勇者100%                                       | 異世界勇者100                          | 1.0",
     })
-    void shouldFindTheNumberWhereverATitleWritesItWhenParsingATitle(String title, String key, float number)
+    void shouldFindTheNumberWhereverATitleWritesItWhenParsingATitle(String title, String key, double number)
     {
         // WHEN
         var parsed = TitleKey.of(title);
 
         // THEN
         assertThat(parsed.getMatchKey()).isEqualTo(key);
-        assertThat(parsed.getChapterNum()).isCloseTo(number, within(0.001f));
+        assertThat(parsed.getChapterNum()).isCloseTo(number, within(0.001));
         assertThat(TitleKey.of(parsed.getBaseTitleFull()).getMatchKey())
                 .as("the series named after it keys the same")
                 .isEqualTo(key);
@@ -127,7 +127,7 @@ class TitleKeyTest
     {
         // "R18", "am10" and "girlfriend-1.5" are names; only Japanese text or an ellipsis glues a number on.
         assertThat(TitleKey.of("Isekai Yuusha R18").getMatchKey()).isEqualTo("isekai yuusha r18");
-        assertThat(TitleKey.of("Isekai Yuusha-2").getChapterNum()).isCloseTo(1.0f, within(0.001f));
+        assertThat(TitleKey.of("Isekai Yuusha-2").getChapterNum()).isCloseTo(1.0, within(0.001));
         // A falling pair is no range (it may be a date), and years are no range either.
         assertThat(TitleKey.of("Comic Hero 06-05").getMatchKey()).isEqualTo("comic hero 06 05");
         assertThat(TitleKey.of("Comic Hero 2024-2026").getMatchKey()).isEqualTo("comic hero 2024 2026");
@@ -174,10 +174,10 @@ class TitleKeyTest
     void shouldTakeTheNativeTitlesNumberOnlyWhenTheTitleHasNone()
     {
         TitleKey unnumbered = TitleKey.of("Hero of Another World");
-        assertThat(TitleKey.chapterNum(unnumbered, "異世界勇者 第3話")).isCloseTo(3.0f, within(0.001f));
+        assertThat(TitleKey.chapterNum(unnumbered, "異世界勇者 第3話")).isCloseTo(3.0, within(0.001));
         assertThat(TitleKey.chapterNum(TitleKey.of("Hero of Another World 2"), "異世界勇者 第3話"))
-                .isCloseTo(2.0f, within(0.001f));
-        assertThat(TitleKey.chapterNum(unnumbered, null)).isCloseTo(1.0f, within(0.001f));
+                .isCloseTo(2.0, within(0.001));
+        assertThat(TitleKey.chapterNum(unnumbered, null)).isCloseTo(1.0, within(0.001));
     }
 
     @Test
@@ -231,7 +231,7 @@ class TitleKeyTest
         // An empty key, or a bare "part", would be shared by every unrelated work, so the number stays in
         // the key; the chapter number is still read off it.
         assertThat(TitleKey.of("Part 2").getMatchKey()).isEqualTo("part 2");
-        assertThat(TitleKey.of("Part 2").getChapterNum()).isCloseTo(2.0f, within(0.001f));
+        assertThat(TitleKey.of("Part 2").getChapterNum()).isCloseTo(2.0, within(0.001));
         assertThat(TitleKey.baseTitlePretty("Part 2")).isEqualTo("Part 2");
         assertThat(TitleKey.baseTitleFull("(Alpha)")).isEqualTo("(Alpha)");
 
@@ -245,13 +245,13 @@ class TitleKeyTest
     {
         // A blocked strip keeps the marker in the key but still yields its number, or two spellings of one
         // chapter would number differently.
-        assertThat(TitleKey.of("The vol.2").getChapterNum()).isCloseTo(2.0f, within(0.001f));
-        assertThat(TitleKey.of("The 2").getChapterNum()).isCloseTo(2.0f, within(0.001f));
+        assertThat(TitleKey.of("The vol.2").getChapterNum()).isCloseTo(2.0, within(0.001));
+        assertThat(TitleKey.of("The 2").getChapterNum()).isCloseTo(2.0, within(0.001));
         assertThat(TitleKey.of("The vol.2").getMatchKey()).isEqualTo("the vol 2");
 
         // An unnumbered blocked marker must not shift main/sub.
-        assertThat(TitleKey.of("The End").getChapterNum()).isCloseTo(1.0f, within(0.001f));
-        assertThat(TitleKey.of("The Final 2").getChapterNum()).isCloseTo(2.0f, within(0.001f));
+        assertThat(TitleKey.of("The End").getChapterNum()).isCloseTo(1.0, within(0.001));
+        assertThat(TitleKey.of("The Final 2").getChapterNum()).isCloseTo(2.0, within(0.001));
     }
 
     @Test
@@ -263,8 +263,8 @@ class TitleKeyTest
 
         assertThat(june2024.getMatchKey()).isEqualTo(january2026.getMatchKey()).isEqualTo("comic hero");
         assertThat(june2024.getChapterNum()).isLessThan(january2026.getChapterNum());
-        assertThat(june2024.getChapterNum()).isCloseTo(2024.06f, within(0.001f));
-        assertThat(january2026.getChapterNum()).isCloseTo(2026.01f, within(0.001f));
+        assertThat(june2024.getChapterNum()).isCloseTo(2024.06, within(0.001));
+        assertThat(january2026.getChapterNum()).isCloseTo(2026.01, within(0.001));
 
         // The series is named after the work: brackets survive only in the full title, the date in neither.
         assertThat(june2024.getBaseTitleFull()).isEqualTo("Comic Hero [Digital]");
@@ -278,8 +278,8 @@ class TitleKeyTest
         // 年 / 月 / 号 are letters and survive normalization, so the date recognizer must treat them as
         // separators itself.
         assertThat(TitleKey.of("Comic Hero 2024年06月").getMatchKey()).isEqualTo("comic hero");
-        assertThat(TitleKey.of("Comic Hero 2024年06月").getChapterNum()).isCloseTo(2024.06f, within(0.001f));
-        assertThat(TitleKey.of("Comic Hero 2024年06月号").getChapterNum()).isCloseTo(2024.06f, within(0.001f));
+        assertThat(TitleKey.of("Comic Hero 2024年06月").getChapterNum()).isCloseTo(2024.06, within(0.001));
+        assertThat(TitleKey.of("Comic Hero 2024年06月号").getChapterNum()).isCloseTo(2024.06, within(0.001));
     }
 
     @Test
@@ -306,7 +306,7 @@ class TitleKeyTest
         int nextYear = LocalDate.now().getYear() + 1;
         assertThat(TitleKey.of("Comic Hero " + nextYear + "-06").getMatchKey()).isEqualTo("comic hero");
         assertThat(TitleKey.of("Comic Hero " + nextYear + "-06").getChapterNum())
-                .isCloseTo(nextYear + 0.06f, within(0.001f));
+                .isCloseTo(nextYear + 0.06, within(0.001));
 
         int tooFar = nextYear + 1;
         assertThat(TitleKey.of("Comic Hero " + tooFar + "-06").getMatchKey())
@@ -322,7 +322,7 @@ class TitleKeyTest
         // Without a 4-digit year it is not guessed at: "06-05" could be month-day, day-month or a range,
         // and a wrong guess would misorder issues and merge unrelated runs.
         assertThat(TitleKey.of("Comic Hero 06-05").getMatchKey()).isEqualTo("comic hero 06 05");
-        assertThat(TitleKey.of("Comic Hero 06-05").getChapterNum()).isCloseTo(1.0f, within(0.001f));
+        assertThat(TitleKey.of("Comic Hero 06-05").getChapterNum()).isCloseTo(1.0, within(0.001));
         // An impossible month, and two years with no month, are not dates either.
         assertThat(TitleKey.of("Comic Hero 2024-13").getMatchKey()).isEqualTo("comic hero 2024 13");
         assertThat(TitleKey.of("Comic Hero 2024-2026").getMatchKey()).isEqualTo("comic hero 2024 2026");
@@ -330,7 +330,7 @@ class TitleKeyTest
         assertThat(TitleKey.of("Comic Hero 3024-06").getMatchKey()).isEqualTo("comic hero 3024 06");
         // "am10" is not all digits, so the time of day stays untouched.
         assertThat(TitleKey.of("Ohayo am10:00").getMatchKey()).isEqualTo("ohayo am10 00");
-        assertThat(TitleKey.of("Ohayo am10:00").getChapterNum()).isCloseTo(1.0f, within(0.001f));
+        assertThat(TitleKey.of("Ohayo am10:00").getChapterNum()).isCloseTo(1.0, within(0.001));
     }
 
     @Test
@@ -341,13 +341,13 @@ class TitleKeyTest
                 .isEqualTo("comic hero 2024 06 special");
         // Inside a bracket group it is decoration, so it neither strips nor numbers.
         assertThat(TitleKey.of("Comic Hero (2024-06)").getMatchKey()).isEqualTo("comic hero");
-        assertThat(TitleKey.of("Comic Hero (2024-06)").getChapterNum()).isCloseTo(1.0f, within(0.001f));
+        assertThat(TitleKey.of("Comic Hero (2024-06)").getChapterNum()).isCloseTo(1.0, within(0.001));
         assertThat(TitleKey.baseTitleFull("Comic Hero (2024-06)")).isEqualTo("Comic Hero (2024-06)");
         // A bracket AFTER the date is skipped over, so the date is still the tail.
         assertThat(TitleKey.of("Comic Hero 2024-06 [Digital]").getMatchKey()).isEqualTo("comic hero");
         // Blocked by the stopword guard: the word stays, the number is still read off it.
         assertThat(TitleKey.of("The 2024-06").getMatchKey()).isEqualTo("the 2024 06");
-        assertThat(TitleKey.of("The 2024-06").getChapterNum()).isCloseTo(2024.06f, within(0.001f));
+        assertThat(TitleKey.of("The 2024-06").getChapterNum()).isCloseTo(2024.06, within(0.001));
     }
 
     @Test
@@ -355,13 +355,13 @@ class TitleKeyTest
     {
         // "part2"/"ch2" are common in scraped titles; as plain words they would split a family.
         assertThat(TitleKey.of("Isekai Yuusha part2").getMatchKey()).isEqualTo("isekai yuusha");
-        assertThat(TitleKey.of("Isekai Yuusha part2").getChapterNum()).isCloseTo(2.0f, within(0.001f));
+        assertThat(TitleKey.of("Isekai Yuusha part2").getChapterNum()).isCloseTo(2.0, within(0.001));
         assertThat(TitleKey.of("Isekai Yuusha ch3").getMatchKey()).isEqualTo("isekai yuusha");
-        assertThat(TitleKey.of("Isekai Yuusha ch3").getChapterNum()).isCloseTo(3.0f, within(0.001f));
+        assertThat(TitleKey.of("Isekai Yuusha ch3").getChapterNum()).isCloseTo(3.0, within(0.001));
 
         // Only a WHOLE marker word counts, so a title word that merely ends in digits is left alone.
         assertThat(TitleKey.of("Ohayo am10").getMatchKey()).isEqualTo("ohayo am10");
-        assertThat(TitleKey.of("Ohayo am10").getChapterNum()).isCloseTo(1.0f, within(0.001f));
+        assertThat(TitleKey.of("Ohayo am10").getChapterNum()).isCloseTo(1.0, within(0.001));
     }
 
     @Test
@@ -369,7 +369,7 @@ class TitleKeyTest
     {
         // The stopword guard is about which word survives, not how many.
         assertThat(TitleKey.of("Naruto 2").getMatchKey()).isEqualTo("naruto");
-        assertThat(TitleKey.of("Naruto 2").getChapterNum()).isCloseTo(2.0f, within(0.001f));
+        assertThat(TitleKey.of("Naruto 2").getChapterNum()).isCloseTo(2.0, within(0.001));
         assertThat(TitleKey.baseTitlePretty("Naruto 2")).isEqualTo("Naruto");
         assertThat(TitleKey.baseTitleFull("[Scan] Naruto 2 (Kishi)")).isEqualTo("[Scan] Naruto (Kishi)");
     }
@@ -387,7 +387,7 @@ class TitleKeyTest
         // Also for a marker carrying a number, and for a bare trailing number.
         assertThat(TitleKey.of("The Final 2").getMatchKey()).isEqualTo("the final");
         assertThat(TitleKey.of("The 2").getMatchKey()).isEqualTo("the 2");
-        assertThat(TitleKey.of("The 2").getChapterNum()).isCloseTo(2.0f, within(0.001f));
+        assertThat(TitleKey.of("The 2").getChapterNum()).isCloseTo(2.0, within(0.001));
     }
 
     @Test
@@ -414,7 +414,7 @@ class TitleKeyTest
 
         var long250 = "Word ".repeat(50).trim();
         assertThat(TitleKey.of(long250).getMatchKey()).startsWith("word word");
-        assertThat(TitleKey.of(long250).getChapterNum()).isCloseTo(1.0f, within(0.001f));
+        assertThat(TitleKey.of(long250).getChapterNum()).isCloseTo(1.0, within(0.001));
     }
 
     @Test
