@@ -539,7 +539,7 @@ the pipeline hands it (gallery-dl's run folder, see "gallery-dl").
   deletes every waiting row and aborts the running one, whose staging the worker discards itself; its row is gone, so
   it does not land on the Failed list. **Failed rows stay**: they wait for the user's retry or removal.
 - **Progress is `[done/total]` for the current batch** — successful rows are deleted, so no lifetime total.
-- **The queue page's two lists are capped (200) with no pagination — don't add it.** Counts are exact;
+- **The queue page's two lists are capped (25) with no pagination — don't add it.** Counts are exact;
   only rows are cut, and the page says so. The queue empties itself: the waiting list is in execution
   order, bulk actions cover **every** matching row, and paging a self-refreshing list makes no sense.
 - Queueing redirects to the **queue**, the only page that shows the outcome. Unrecognized links are refused

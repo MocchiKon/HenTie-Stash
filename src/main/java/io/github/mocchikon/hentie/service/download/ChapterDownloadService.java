@@ -319,6 +319,10 @@ public class ChapterDownloadService
     private record Fetch(ResourceLink link, DownloadQueueItem item, int chapterId, List<Integer> missing,
                          Set<Integer> staged, Path staging, Consumer<String> phase)
     {
+        void reportProgress(int done)
+        {
+            phase.accept("Downloading images (" + done + " of " + missing.size() + ")");
+        }
     }
 
     /** @return how many pages were skipped (lenient mode only) */
@@ -326,12 +330,14 @@ public class ChapterDownloadService
     {
         List<URI> pages = new ArrayList<>(data.getPageUrls() == null ? List.<URI>of() : data.getPageUrls());
         int skipped = 0;
+        int done = (int) fetch.missing().stream().filter(fetch.staged()::contains).count();
         for (int page : fetch.missing())
         {
             if (fetch.staged().contains(page))
             {
                 continue;
             }
+            fetch.reportProgress(done++);
             // Not every source blocks in a way an interrupt ends (the mock reads files).
             stopIfInterrupted(fetch.link());
 
@@ -407,8 +413,7 @@ public class ChapterDownloadService
                     throw new StagingFailed(page, e);
                 }
                 processing.page(stagedPage);
-                fetch.phase().accept("Downloading images (" + (before + arrived.incrementAndGet()) + " of "
-                        + fetch.missing().size() + ")");
+                fetch.reportProgress(before + arrived.incrementAndGet());
             });
         }
         catch (StagingFailed e)

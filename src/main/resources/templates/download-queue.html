@@ -143,7 +143,7 @@
             </li>
         </ul>
         <p class="hint" th:if="${progress.pending() > listLimit}">
-            Showing the first <span th:text="${listLimit}">200</span> of
+            Showing the first <span th:text="${listLimit}">25</span> of
             <span th:text="${progress.pending()}">0</span>.
         </p>
     </section>
@@ -214,7 +214,7 @@
             </li>
         </ul>
         <p class="hint" th:if="${progress.failed() > listLimit}">
-            Showing the first <span th:text="${listLimit}">200</span> of
+            Showing the first <span th:text="${listLimit}">25</span> of
             <span th:text="${progress.failed()}">0</span>.
         </p>
     </section>
