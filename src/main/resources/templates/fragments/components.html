@@ -176,12 +176,14 @@
 </div>
 
 <!-- The gallery-dl choices of a paste or a subscription: one copy, so both offer and explain the same. shownFor
-     (space-separated site keys) lets app.js hide it while another site is chosen; it shows without JavaScript. -->
+     (space-separated site keys) lets app.js hide it while another site is chosen; it shows without JavaScript.
+     The Download page's model adds the *LinkMarkers, so app.js shows each choice only for pasted links that read it. -->
 <fieldset th:fragment="galleryDlOptions(legend, intro, cookiesBrowser, downloadOriginals, requestDelay, delayError, shownFor)"
-          class="gallery-dl-options" th:attr="data-shown-for=${shownFor}">
+          class="gallery-dl-options"
+          th:attr="data-shown-for=${shownFor},data-shown-for-links=${galleryDlLinkMarkers}">
     <legend th:text="${legend}">gallery-dl</legend>
     <p class="hint" th:text="${intro}">These sources are downloaded by gallery-dl.</p>
-    <div class="field">
+    <div class="field" th:attr="data-shown-for-links=${cookiesLinkMarkers}">
         <label for="cookiesBrowser">Use cookies when downloading</label>
         <select id="cookiesBrowser" name="cookiesBrowser" class="capped-select">
             <option value="" th:selected="${#strings.isEmpty(cookiesBrowser)}">No cookies</option>
@@ -194,17 +196,17 @@
             gallery-dl reads the cookies of the browser you are logged in with
             (<code>--cookies-from-browser</code>). For e-hentai/exhentai only: hitomi needs no login. With
             cookies, e-hentai galleries are downloaded from exhentai.org, or from e-hentai.org if your
-            account has no ExHentai access. Firefox works best: on Windows, Chrome, Edge and Brave encrypt
+            account has no ExHentai access. Firefox works best, some browsers encrypt
             their cookies in a way gallery-dl cannot read.
         </p>
     </div>
-    <div class="field">
+    <div class="field" th:attr="data-shown-for-links=${originalsLinkMarkers}">
         <label class="checkbox big">
             <input type="checkbox" name="downloadOriginals" value="true" th:checked="${downloadOriginals}">
             <span>Download originals</span>
         </label>
         <p class="hint">
-            e-hentai/exhentai only; hitomi never serves the originals. Unticked: the resampled image (usually
+            e-hentai/exhentai only, hitomi never serves the originals. Unticked: the resampled image (usually
             1280 px wide, or your account's "Image Size" setting), 1 point of your image limit per page.
             Ticked: the original file. It needs cookies of a logged-in account (without them the resampled
             image is used), costs 1 point plus 1 per 0.1 MB of the file (a 3 MB page costs 31), and can cost

@@ -19,6 +19,7 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -84,6 +85,20 @@ class EhentaiDownloaderTest
         assertThat(downloader.pageLinkTemplate()).isEqualTo("https://e-hentai.org/g/{id}/");
         assertThat(downloader.pageLinkTemplate(null)).isEqualTo("https://e-hentai.org/g/{id}/");
         assertThat(downloader.pageLinkTemplate("exhentai")).isEqualTo("https://exhentai.org/g/{id}/");
+    }
+
+    @Test
+    void shouldMarkEveryKindOfGalleryLink()
+    {
+        var downloader = new EhentaiDownloader(new EhentaiProperties(), null, mock(SettingsService.class));
+        var links = List.of("https://e-hentai.org/g/618395/0439fa3666/", "https://exhentai.org/g/618395/0439FA3666/?p=2",
+                "http://E-HENTAI.org/mpv/0618395/0439fa3666/#page3", "EHENTAI: 618395 / 0439fa3666",
+                downloader.link("618395/0439fa3666"));
+
+        // WHEN + THEN the Download page shows gallery-dl's choices for each.
+        assertThat(links).allSatisfy(link -> assertThat(downloader.accepts(link)).isTrue())
+                .allSatisfy(link -> assertThat(link.toLowerCase(Locale.ROOT))
+                        .containsAnyOf(downloader.linkMarkers().toArray(String[]::new)));
     }
 
     @Test

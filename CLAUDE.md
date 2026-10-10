@@ -606,7 +606,10 @@ to repeat. **`GalleryDlTool` is the only class that starts it; `GalleryDl` is ho
 - **The Download page's choices** (`GalleryDlOptions`): cookies (`--cookies-from-browser <browser>`), originals
   and the delay, on the queue row like the compression mode (re-paste replaces, retry keeps; a full-quality
   re-download takes Settings' defaults). The form starts at Settings' defaults every visit; an unreadable delay
-  is shown on the form with the links kept, never replaced. **The delay maps per source**: e-hentai gets
+  is shown on the form with the links kept, never replaced. The Download page hides each of them (JS, hidden not
+  disabled) until the pasted text contains a `GalleryDlDownloader.linkMarkers` of a source that reads it
+  (`readsCookies`, `offersOriginals`; the delay every source), **which every link it accepts must hold**, or its
+  choices are hidden from it. **The delay maps per source**: e-hentai gets
   `--sleep-request` (each image needs one page/API request there, which its ban counts), hitomi `--sleep`
   (its extractor makes one request per gallery, so a request delay would never fall between images).
 

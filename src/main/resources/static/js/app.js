@@ -732,6 +732,26 @@
         sync();
     });
 
+    // --- Download page: gallery-dl's choices only for pasted links that read them ---
+    //     Each [data-shown-for-links] lists text that every link of a source reading it contains, so such a link is
+    //     never missed; text that merely mentions a site shows it for nothing. Hidden, never disabled, like the
+    //     fields above. Whatever holds a field error always shows.
+    document.querySelectorAll("textarea[data-shows-for-links]").forEach(function (links) {
+        var form = links.closest("form");
+        if (!form) { return; }
+        var shown = form.querySelectorAll("[data-shown-for-links]");
+        var sync = function () {
+            var text = links.value.toLowerCase();
+            shown.forEach(function (element) {
+                var markers = element.getAttribute("data-shown-for-links").split(/\s+/).filter(Boolean);
+                element.hidden = !element.querySelector(".field-error")
+                    && !markers.some(function (marker) { return text.indexOf(marker) >= 0; });
+            });
+        };
+        links.addEventListener("input", sync);
+        sync();
+    });
+
     // --- Settings: the password asked for when login is turned on while none exists ---
     //     Required only while "Require login" is ticked, so saving another setting never asks for one. The
     //     server enforces it anyway; this only saves a round trip.

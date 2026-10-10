@@ -10,15 +10,22 @@ There is no internet account, no cloud, no installation wizard — just one prog
 
 ## 1. Running it
 
-You need **Java 21 (or newer)** installed once. If you don't have it, download the free
-"Temurin 21" installer from <https://adoptium.net/> and run it.
+There are two downloads:
 
-Then, in the folder that contains the program:
+| Download | For | Java needed? |
+|----------|-----|--------------|
+| **`HenTie-windows.zip`** | Windows | **No** — Java comes with it (the `jre` folder) |
+| **`HenTie-all-platforms.zip`** | Windows, Linux, macOS | **Yes, Java 21 (or newer)** |
+
+If you need Java, download the free "Temurin 21" installer from <https://adoptium.net/> and run it.
+
+Unzip the download and keep everything in the folder together (`HenTie.exe` needs its `jre` folder
+next to it, and both need `bin`). Then, in that folder:
 
 | You are on… | Do this |
 |-------------|---------|
 | **Windows** | Double-click **`HenTie.exe`** (or **`start.bat`**) |
-| Anything else | Double-click **`HenTie.jar`**, or run `java -jar HenTie.jar` in a terminal |
+| Anything else | Run **`start.sh`**, double-click **`HenTie.jar`**, or run `java -jar HenTie.jar` in a terminal |
 
 A black window may appear — **leave it open** while you use the app (closing it stops the app).
 Your browser should open automatically at <http://localhost:8080>. If it doesn't, open that
@@ -149,5 +156,7 @@ one-time H2 → SQLite data-migration steps.
 ./mvnw clean package
 ```
 
-This produces `target/HenTie.jar` (runs anywhere with Java) and, on Windows, `target/HenTie.exe`.
+This produces `target/HenTie.jar` (runs anywhere with Java) and, on Windows, `target/HenTie.exe` with
+a bundled Java runtime in `target/jre` (the exe needs it beside it, or an installed Java 21+).
+`./mvnw package -PpackageForRelease` also builds the release zips.
 See [CLAUDE.md](CLAUDE.md) for the architecture and developer notes.

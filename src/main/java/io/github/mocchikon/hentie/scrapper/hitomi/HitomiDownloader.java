@@ -93,6 +93,24 @@ public class HitomiDownloader implements GalleryDlDownloader
         return "https://hitomi.la/doujinshi/title-english-123456.html";
     }
 
+    @Override
+    public Set<String> linkMarkers()
+    {
+        return Set.of("hitomi.la", PREFIX + ":");
+    }
+
+    @Override
+    public boolean readsCookies()
+    {
+        return false;
+    }
+
+    @Override
+    public boolean offersOriginals()
+    {
+        return false;
+    }
+
     private static String idIn(String link)
     {
         return DataDownloader.matchLink(link, PREFIXED_ID, GALLERY_URL).map(m -> m.group(1)).orElse(null);

@@ -18,13 +18,10 @@
     <form class="edit-form" method="post" th:action="@{/chapter/download}">
         <div class="field">
             <label>Links</label>
-            <textarea name="links" class="link-input" autofocus th:text="${links}"
-                      placeholder="Paste one link per line, e.g.&#10;https://nhentai.net/g/123456/&#10;nhentai:123457"></textarea>
             <p class="hint">
-                One link per line — hundreds are fine. Each is downloaded in the background, one at a
-                time; you can carry on using the app while that happens.
+                One link per line. Each is downloaded in the background, one at a time.
             </p>
-            <p class="hint">Sources currently available, with the kind of link each takes:</p>
+            <p class="hint">Sources currently available:</p>
             <ul class="hint source-examples">
                 <li th:each="example : ${linkExamples}"><strong th:text="${example.key}">nhentai</strong>:
                     <code class="wrap-anywhere" th:text="${example.value}">nhentai:&lt;id&gt;</code></li>
@@ -33,6 +30,9 @@
                 For e-hentai/exhentai paste the gallery link (<code>/g/&lt;gid&gt;/&lt;token&gt;/</code>), not a
                 page's (<code>/s/…</code>).
             </p>
+            <textarea name="links" class="link-input" autofocus th:text="${links}"
+                      data-shows-for-links
+                      placeholder="Paste one link per line, e.g.&#10;https://nhentai.net/g/123456/&#10;nhentai:123457"></textarea>
         </div>
         <div class="field">
             <label>Image Compression</label>
@@ -43,11 +43,9 @@
                         th:selected="${m.key == compressionMode}">mode</option>
             </select>
             <p class="hint">
-                Starts at the default mode from Settings. Applies to the images of the chapters queued by
-                this form, and is remembered on each queued link — so changing it afterwards does not affect
-                what is already waiting. Pages are
-                downscaled and re-encoded as they download, and an image is kept as it is whenever the
-                saving does not clear the mode's thresholds.
+                Applies to the images of the chapters queued by
+                this form, and is remembered on each queued link (changing it afterwards does not affect
+                what is already waiting).
             </p>
         </div>
         <div class="field">
@@ -56,15 +54,12 @@
                 <span>Avoid duplicated titles from other sources</span>
             </label>
             <p class="hint">
-                A new chapter whose full title is exactly that of a chapter from a different source (or of
-                one added without a link) is not downloaded; it lands in the queue's Failed list naming the
-                chapter it matched. Chapters from the same source are never compared. Remembered on each
-                queued link — to let one through anyway, use its "Retry allowing duplicate title" button in
-                the queue, or paste it again with this unticked.
+                If checked then new chapters whose full title is exactly that of a chapter from a different source is not downloaded;
+                it lands in the queue's Failed list naming the chapter it matched. Chapters from the same source are never compared.
             </p>
         </div>
         <fieldset th:replace="~{fragments/components :: galleryDlOptions(legend='gallery-dl (hitomi, e-hentai/exhentai)',
-                intro='These sources are downloaded by gallery-dl. nhentai ignores these choices. They start at the defaults from Settings and are remembered on each queued link.',
+                intro='Affects sources which use gallery-dl. nhentai ignores these choices.',
                 cookiesBrowser=${cookiesBrowser}, downloadOriginals=${downloadOriginals}, requestDelay=${requestDelay},
                 delayError=${delayError}, shownFor=null)}"></fieldset>
         <div class="edit-actions">
@@ -93,7 +88,7 @@
                 <p class="hint">
                     Queues every gallery in your favourites on that site that is not in the library yet, with the
                     choices above. A gallery downloaded before and
-                    deleted since is left out; paste its link to download it again.
+                    deleted since is left out - paste its link to download it again.
                 </p>
                 <p class="hint" th:unless="${favouritesReady}">
                     The favourites list belongs to the owner of an API key: set the site's key in

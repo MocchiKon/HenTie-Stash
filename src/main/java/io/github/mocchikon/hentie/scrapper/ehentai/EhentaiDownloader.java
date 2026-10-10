@@ -117,6 +117,12 @@ public class EhentaiDownloader implements GalleryDlDownloader, SearchSource
 
     /** Always e-hentai.org: it parses back, and which domain is fetched from is decided per run. */
     @Override
+    public Set<String> linkMarkers()
+    {
+        return Set.of(EHENTAI, EXHENTAI, PREFIX + ":");
+    }
+
+    @Override
     public String link(String resourceId)
     {
         return galleryUrl(EHENTAI, resourceId);

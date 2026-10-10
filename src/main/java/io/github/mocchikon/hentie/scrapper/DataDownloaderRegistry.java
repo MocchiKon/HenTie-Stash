@@ -1,10 +1,12 @@
 package io.github.mocchikon.hentie.scrapper;
 
+import io.github.mocchikon.hentie.scrapper.gallerydl.GalleryDlDownloader;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
 import java.util.*;
+import java.util.function.Predicate;
 
 /**
  * <b>Asks every downloader</b> whether it accepts a link, never switches over known sources, so a new
@@ -118,6 +120,19 @@ public class DataDownloaderRegistry
                 .sorted(Comparator.comparing(DataDownloader::sourcePrefix))
                 .forEach(downloader -> examples.put(downloader.sourcePrefix(), downloader.linkExample()));
         return examples;
+    }
+
+    /** What the Download page looks for in the pasted text before it shows a gallery-dl choice the sources read. */
+    public List<String> galleryDlLinkMarkers(Predicate<GalleryDlDownloader> reads)
+    {
+        return downloaders.stream()
+                .filter(GalleryDlDownloader.class::isInstance)
+                .map(GalleryDlDownloader.class::cast)
+                .filter(reads)
+                .flatMap(downloader -> downloader.linkMarkers().stream())
+                .distinct()
+                .sorted()
+                .toList();
     }
 
     public List<String> sourcePrefixes()

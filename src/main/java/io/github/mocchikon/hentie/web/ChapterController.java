@@ -38,6 +38,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Predicate;
 
 @Controller
 @RequestMapping("/chapter")
@@ -133,6 +134,9 @@ public class ChapterController
     {
         model.addAttribute("links", links);
         model.addAttribute("linkExamples", downloaderRegistry.linkExamples());
+        model.addAttribute("galleryDlLinkMarkers", linkMarkers(downloader -> true));
+        model.addAttribute("cookiesLinkMarkers", linkMarkers(GalleryDlDownloader::readsCookies));
+        model.addAttribute("originalsLinkMarkers", linkMarkers(GalleryDlDownloader::offersOriginals));
         model.addAttribute("compressionMode", compressionMode);
         model.addAttribute("compressionModes", compressionModeService.options());
         model.addAttribute("avoidDuplicateTitles", avoidDuplicateTitles);
@@ -145,6 +149,11 @@ public class ChapterController
         model.addAttribute("favouritesSources", favouritesSources);
         model.addAttribute("favouritesReady",
                 favouritesSources.stream().anyMatch(FavouritesDownloadService.Option::ready));
+    }
+
+    private String linkMarkers(Predicate<GalleryDlDownloader> reads)
+    {
+        return String.join(" ", downloaderRegistry.galleryDlLinkMarkers(reads));
     }
 
     /**
