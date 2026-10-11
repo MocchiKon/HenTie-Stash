@@ -1,13 +1,5 @@
 package io.github.mocchikon.hentie;
 
-import java.util.List;
-import java.util.Locale;
-
-import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.transaction.annotation.Transactional;
-
 import io.github.mocchikon.hentie.dto.BuiltInCompressionMode;
 import io.github.mocchikon.hentie.dto.CompressionModeOption;
 import io.github.mocchikon.hentie.dto.CompressionProfile;
@@ -15,6 +7,13 @@ import io.github.mocchikon.hentie.entity.ImageCompressionMode;
 import io.github.mocchikon.hentie.entity.ImageEncoder;
 import io.github.mocchikon.hentie.repository.ImageCompressionModeRepository;
 import io.github.mocchikon.hentie.service.compress.ImageCompressionModeService;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
+import java.util.Locale;
 
 import static org.assertj.core.api.Assertions.*;
 
@@ -69,7 +68,7 @@ class ImageCompressionModeIT
         // rather than a second halving.
         CompressionProfile high = modeService.resolve("HIGH_REDUCTION").orElseThrow();
         assertThat(high.encoder()).isEqualTo(ImageEncoder.JXL);
-        assertThat(high.encoderArgs()).containsExactly("-q", "50", "-e", "10");
+        assertThat(high.encoderArgs()).containsExactly("-q", "60", "-e", "10");
         assertThat(high.magickArgs()).containsExactly("-filter", "lanczos", "-resize", "50%");
         assertThat(high.minRelativeReduction()).isEqualTo(20);
         assertThat(high.minAbsoluteReduction()).isEqualTo(20);
@@ -78,7 +77,7 @@ class ImageCompressionModeIT
         // WHEN + THEN Very high reduction: the same, but AVIF.
         CompressionProfile veryHigh = modeService.resolve("VERY_HIGH_REDUCTION").orElseThrow();
         assertThat(veryHigh.encoder()).isEqualTo(ImageEncoder.AVIF);
-        assertThat(veryHigh.encoderArgs()).containsExactly("-q", "40", "-s", "0");
+        assertThat(veryHigh.encoderArgs()).containsExactly("-q", "35", "-s", "0");
         assertThat(veryHigh.magickArgs()).containsExactly("-filter", "lanczos", "-resize", "50%");
         assertThat(veryHigh.minRelativeReduction()).isEqualTo(20);
         assertThat(veryHigh.minAbsoluteReduction()).isEqualTo(20);

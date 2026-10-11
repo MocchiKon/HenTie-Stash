@@ -104,6 +104,16 @@
             the same artist, and below about 60 the artist stops mattering at all.
         </p>
 
+        <label class="checkbox big">
+            <input type="checkbox" name="updateCheck" th:checked="${updateCheck}">
+            <span>Check for new versions</span>
+        </label>
+        <p class="hint">
+            Asks GitHub for the latest release when the app starts, and shows "Update Available" next to the logo when a
+            newer one is out. Nothing is downloaded or installed. See <a th:href="@{/guide#access-updates}">Guide
+            &rarr; Updates</a>.
+        </p>
+
         <h2 class="section-title" id="gallery-dl">Downloads with gallery-dl</h2>
         <p class="hint">
             hitomi and e-hentai/exhentai are downloaded by gallery-dl. Its status and updates are below the

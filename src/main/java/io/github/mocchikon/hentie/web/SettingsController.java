@@ -79,6 +79,7 @@ public class SettingsController
         model.addAttribute("titleDisplayMode", settingsService.getTitleDisplayMode());
         model.addAttribute("titleDisplayModes", TitleDisplayMode.values());
         model.addAttribute("matchAutoLink", settingsService.isMatchAutoLinkEnabled());
+        model.addAttribute("updateCheck", settingsService.isUpdateCheckEnabled());
         model.addAttribute("matchThreshold", settingsService.getMatchThreshold());
         model.addAttribute("compressionMode", settingsService.getImageCompressionMode());
         model.addAttribute("compressionModes", compressionModeService.options());
@@ -162,6 +163,7 @@ public class SettingsController
                        @RequestParam(required = false) String nhentaiApiKey,
                        @RequestParam TitleDisplayMode titleDisplayMode,
                        @RequestParam(name = "matchAutoLink", defaultValue = "false") boolean matchAutoLink,
+                       @RequestParam(name = "updateCheck", defaultValue = "false") boolean updateCheck,
                        @RequestParam(name = "matchThreshold",
                                defaultValue = "" + SettingsService.DEFAULT_MATCH_THRESHOLD) int matchThreshold,
                        @RequestParam(name = "compressionMode", required = false) String compressionMode,
@@ -184,6 +186,7 @@ public class SettingsController
         settingsService.setNhentaiApiKey(nhentaiApiKey);
         settingsService.setTitleDisplayMode(titleDisplayMode);
         settingsService.setMatchAutoLinkEnabled(matchAutoLink);
+        settingsService.setUpdateCheckEnabled(updateCheck);
         settingsService.setMatchThreshold(matchThreshold);
         // Never raw: "Custom" and other non-modes must not be stored.
         settingsService.setImageCompressionMode(compressionModeService.storableKey(compressionMode));

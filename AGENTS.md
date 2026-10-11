@@ -1127,6 +1127,23 @@ process.
 - **ComfyUI Settings fields are refused one by one**: a bad address, folder, workflow or missing script
   keeps its old value with a reason; the rest are saved, without "Settings saved.".
 
+## Update check (`service/UpdateCheckService`)
+A yellow "Update Available" badge beside the logo when GitHub's latest release of `MocchiKon/HenTie-Stash` is
+newer than the running version. The Guide's Updates section explains it.
+- **Nothing it does may fail the app** — no network, a rate limit, a removed repository, a bad answer or a bug
+  here. A failed check logs at DEBUG (an offline machine must not fill its log); a 404 (no release yet, repository
+  removed) means no badge. The check catches `Throwable` and runs on a thread of its own; the HTTP client is made
+  on first use, so startup never depends on it.
+- **Once per start, never periodically**, on a daemon thread, so startup and pages never wait for GitHub; the
+  navbar reads the answer kept in memory. A release published while the app runs shows from the next start.
+- **Settings → "Check for new versions"** (`updates.check`, seeded by `app.update-check.enabled-default`).
+  Turning it off hides the badge at once; turning it on takes effect at the next start.
+- **The running version is Maven's** (`build-info` goal → `BuildProperties`), so it is there under
+  `spring-boot:run` and in the tests too. Without it nothing is compared and no badge shows.
+- A tag that is no version is never newer; a release beats its own `-SNAPSHOT`, other qualifiers are not ordered.
+- **The link is the release's `html_url` only if it is an http(s) address**, else the Guide section.
+- Off by default in the test profile; `UpdateCheckWebIT` turns it on against a fake.
+
 ## Score & status
 - **Score is an integer 1–10 end to end** (DB `Short`, form/search `Integer`); the backend only narrows and
   clamps, never scales. The 0.5–5 half-star UI is presentation only: `<select>` values are 1–10 and views

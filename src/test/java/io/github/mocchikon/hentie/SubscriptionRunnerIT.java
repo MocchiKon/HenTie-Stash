@@ -241,7 +241,8 @@ class SubscriptionRunnerIT
     @Test
     void shouldCarryANewBatchDownAcrossPagesAndAFailure()
     {
-        // GIVEN a walked search, then 60 galleries newer than its head
+        // GIVEN a walked search, then 60 galleries newer than its head, with room in the queue for all of them
+        appProperties.getSubscriptions().setQueueAhead(1000);
         searchable(1, 10, Duration.ofDays(3));
         int id = subscribe("nhentai", "q");
         runAll();
@@ -346,7 +347,8 @@ class SubscriptionRunnerIT
     void shouldRecheckAroundAYearTheAppWasOffWithoutListingTheYearAgain()
     {
         // GIVEN a walked search whose head was 105 when the app stopped a year ago, its head 40 hours before that at
-        // 101, and its last re-check 12 hours before it stopped
+        // 101, and its last re-check 12 hours before it stopped, with room in the queue for everything listed after it
+        appProperties.getSubscriptions().setQueueAhead(1000);
         Instant stoppedAt = Instant.now().minus(Duration.ofDays(365));
         long[] galleries = {100, 101, 102, 103, 105};
         long[] hoursBeforeStop = {50, 45, 30, 20, 1};

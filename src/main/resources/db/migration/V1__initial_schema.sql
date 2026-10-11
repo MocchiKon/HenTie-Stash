@@ -66,7 +66,7 @@ create table series_tags (series_id integer not null references series (id) on d
 create table tag (id integer primary key autoincrement, name varchar(255) not null unique);
 
 -- metadata_rule - the standing decisions behind deleting, merging and renaming a tag/artist/character/
---     parody/group/category, so the next import does not bring the name back (see CLAUDE.md "Metadata rules").
+--     parody/group/category, so the next import does not bring the name back.
 --     source_name_lower is the ruled name, folded, and the only name kept: matching is case-insensitive,
 --     so a stored spelling would suggest the rule covers one capitalisation when it covers them all. Unique
 --     per type: one name has one fate, and re-recording a rule replaces it. target_id is the row a name is
@@ -76,7 +76,7 @@ create table tag (id integer primary key autoincrement, name varchar(255) not nu
 create table metadata_rule (id integer primary key autoincrement, target_id integer, source_name_lower varchar(255) not null, type varchar(20) not null);
 
 -- subscription - a saved search on a site whose galleries are queued for download on their own, first all of
---     them, then each new one (see CLAUDE.md "Subscriptions").
+--     them, then each new one.
 --   source              - the search site's key (nhentai, e-hentai, exhentai). A key, not an ordinal, because the
 --                         sites come from the sources registered at startup.
 --   query               - as the site's search takes it, normalized by the source
@@ -103,7 +103,7 @@ create table subscription (id integer primary key autoincrement, name varchar(25
 create table subscription_checkpoint (id integer primary key autoincrement, subscription_id integer not null references subscription (id) on delete cascade, recorded_at timestamp not null, gallery_id varchar(255) not null);
 
 -- download_queue - one row per pasted link, deleted only once the item has been carried all the way
---     through (see CLAUDE.md "Chapter downloading"). No status column on purpose: an "in progress" flag
+--     through. No status column on purpose: an "in progress" flag
 --     written before a power cut would be a lie, so pending is `error is null` and failed is
 --     `error is not null`. ignore_image_errors, compression_mode, avoid_duplicate_titles and replace_pages
 --     are the choices a paste or retry made, on the row because the download runs later, on the worker
@@ -112,7 +112,7 @@ create table subscription_checkpoint (id integer primary key autoincrement, subs
 --   download_originals - e-hentai's original files instead of the resampled ones
 --   request_delay      - seconds between two image requests, "0.4-0.65" or "2"; '' is no delay gallery-dl reads,
 --                        so a row holding it is refused rather than fetched without a delay
---     These three are the gallery-dl choices (see CLAUDE.md "gallery-dl"); only gallery-dl sources read them.
+--     These three are the gallery-dl choices; only gallery-dl sources read them.
 --   priority           - who asked: 0 the user (a paste, favourites, a retry of theirs), 1 a subscription. Lower
 --                        runs first. Stored values: never renumbered.
 --   subscription_id    - the subscription that queued the row; SET NULL when it is deleted, so its rows keep their
@@ -122,14 +122,14 @@ create table subscription_checkpoint (id integer primary key autoincrement, subs
 create table download_queue (id integer primary key autoincrement, attempts integer not null, chapter_id integer, queued_at timestamp not null, error varchar(2000), gallery_id varchar(255), link varchar(1000) not null unique, ignore_image_errors boolean not null default 0, compression_mode varchar(64) not null default 'NONE', avoid_duplicate_titles boolean not null default 0, replace_pages boolean not null default 0, cookies_browser varchar(32), download_originals boolean not null default 0, request_delay varchar(32) not null default '', priority integer not null default 0, subscription_id integer references subscription (id) on delete set null);
 create table downloaded_gallery (chapter_id integer not null, downloaded_at timestamp not null, gallery_id varchar(255) not null, primary key (gallery_id));
 
--- image_compression_mode - the modes the user defines (see CLAUDE.md "Image compression"). The three
+-- image_compression_mode - the modes the user defines. The three
 --     built-in ones are not rows: they come from image-compression-modes.properties, so they cannot be
 --     edited away and a fresh install has them without a seed. `name` is UNIQUE because the dropdown shows
 --     it. `encoder` is ORDINAL (0 JXL / 1 AVIF).
 create table image_compression_mode (id integer primary key autoincrement, name varchar(255) not null unique, encoder tinyint not null, encoder_args varchar(1000) not null, magick_args varchar(1000) not null, min_relative_reduction integer not null, min_absolute_reduction integer not null, formats varchar(255) not null);
 
 -- ===== Indexes =====
--- Sort and filter indexes for search (see CLAUDE.md "Indexing"):
+-- Sort and filter indexes for search:
 --   (<sort>, id, status) - walked in sort order, with several statuses filtered from the index alone
 --       instead of reading every row to see its status. SQLite keeps the rowid after the key anyway.
 --   (status, <sort>), (language, <sort>) - walked in sort order for one status or one chapter language.

@@ -46,6 +46,19 @@ public class AppProperties
 
     private Security security = new Security();
 
+    private UpdateCheck updateCheck = new UpdateCheck();
+
+    /** See {@code service.UpdateCheckService}. */
+    @Data
+    public static class UpdateCheck
+    {
+        /** Only seeds the Settings toggle. A property so the test profile can keep every suite from asking GitHub. */
+        private boolean enabledDefault = true;
+
+        /** GitHub's latest release, which leaves out drafts and pre-releases. */
+        private String url = "https://api.github.com/repos/MocchiKon/HenTie-Stash/releases/latest";
+    }
+
     /** See {@code security.FailedLoginGuard}. */
     @Data
     public static class Security

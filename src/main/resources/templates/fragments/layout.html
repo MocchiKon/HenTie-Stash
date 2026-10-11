@@ -15,6 +15,10 @@
 <nav th:fragment="nav" class="navbar">
     <div class="nav-inner">
         <a class="brand" th:href="@{/}"><img class="brand-logo" th:src="@{/images/logo.svg}" alt=""><span class="brand-name">Hen<span>Tie</span></span></a>
+        <a class="update-badge" th:if="${availableUpdate != null}"
+           th:href="${availableUpdate.url} ?: @{/guide#access-updates}"
+           th:target="${availableUpdate.url != null ? '_blank' : null}" rel="noopener noreferrer"
+           th:title="'HenTie ' + ${availableUpdate.version} + ' is available'">Update Available</a>
         <button class="nav-toggle" type="button" aria-label="Toggle menu">☰</button>
         <div class="nav-links">
             <a th:href="@{/guide}">Guide</a>

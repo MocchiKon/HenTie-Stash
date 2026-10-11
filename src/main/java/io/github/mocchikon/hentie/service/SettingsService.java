@@ -57,6 +57,8 @@ public class SettingsService
     public static final String EHENTAI_PASS_HASH = "ehentai.pass-hash";
     public static final String EHENTAI_IGNEOUS = "ehentai.igneous";
     public static final String MATCH_AUTO_LINK = "matching.auto-link";
+    /** Ask GitHub for a newer release (see {@code UpdateCheckService}). */
+    public static final String UPDATE_CHECK = "updates.check";
     public static final String MATCH_THRESHOLD = "matching.threshold";
     public static final String DOWNLOAD_PAUSED = "download.paused";
     /** Applies to uploads; a download carries its own mode on the queue row and only starts at this one. */
@@ -300,6 +302,12 @@ public class SettingsService
         }
     }
 
+    public boolean isUpdateCheckEnabled()
+    {
+        return Boolean.parseBoolean(cache.getOrDefault(UPDATE_CHECK,
+                Boolean.toString(appProperties.getUpdateCheck().isEnabledDefault())));
+    }
+
     public boolean isMatchAutoLinkEnabled()
     {
         return Boolean.parseBoolean(
@@ -484,6 +492,12 @@ public class SettingsService
     public void setShutDownOnFailedLogins(boolean enabled)
     {
         put(SHUT_DOWN_ON_FAILED_LOGINS, Boolean.toString(enabled));
+    }
+
+    @Transactional
+    public void setUpdateCheckEnabled(boolean enabled)
+    {
+        put(UPDATE_CHECK, Boolean.toString(enabled));
     }
 
     @Transactional

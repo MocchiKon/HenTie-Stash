@@ -35,6 +35,9 @@
 
     --star: #ffd34d;
 
+    --update-bg: #ffd400;
+    --update-text: var(--black);
+
     /* Behind a label laid over a page image, so it reads on any page. */
     --overlay-bg: rgba(0, 0, 0, .7);
 
@@ -84,6 +87,18 @@ code { background: var(--surface-2); padding: .1em .35em; border-radius: 4px; }
 .brand-name { color: var(--white); }
 .brand-name span { color: var(--accent); }
 .brand-logo { display: block; height: 2.25rem; width: auto; flex-shrink: 0; }
+.update-badge {
+    background: var(--update-bg);
+    color: var(--update-text);
+    font-size: .75rem;
+    font-weight: 700;
+    line-height: 1.2;
+    padding: .2rem .55rem;
+    border-radius: 999px;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+.update-badge:hover { filter: brightness(1.1); }
 .nav-links { display: flex; gap: 1.25rem; margin-left: auto; align-items: center; }
 .nav-links a, .link-btn {
     color: var(--text);
