@@ -12,8 +12,8 @@ There are two downloads:
 
 | Download | For | Java needed? |
 |----------|-----|--------------|
-| **`HenTie-windows.zip`** | Windows | **No** — Java comes with it (the `jre` folder) |
-| **`HenTie-all-platforms.zip`** | Windows, Linux, macOS | **Yes, Java 21 (or newer)** |
+| **`HenTie-<version>-windows.zip`** | Windows | **No** — Java comes with it (the `jre` folder) |
+| **`HenTie-<version>-all-platforms.zip`** | Windows, Linux, macOS | **Yes, Java 21 (or newer)** |
 
 If you need Java, download the free "Temurin 21" installer from <https://adoptium.net/> and run it.
 

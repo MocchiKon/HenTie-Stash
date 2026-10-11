@@ -56,8 +56,8 @@ Use Lombok for constructors and simple getters/setters.
 ./mvnw test -Pe2e                      # end-to-end tests (*E2E) against the real sites, and nothing else
 ./mvnw clean package                   # runs all tests; -DskipTests to skip
                                        # -> target/HenTie.jar and, on Windows, target/HenTie.exe
-./mvnw package -PpackageForRelease     # + target/HenTie-all-platforms.zip and, on Windows,
-                                       #   target/HenTie-windows.zip
+./mvnw package -PpackageForRelease     # + target/HenTie-<version>-all-platforms.zip and, on Windows,
+                                       #   target/HenTie-<version>-windows.zip
 ```
 DB is `./db/mydbNew.db` (WAL). Neither the file nor `./db` must exist: `config/DatabaseDirectory` creates
 the folder (xerial fails with `SQLITE_CANTOPEN` on a missing parent) and Flyway builds the schema. Images
