@@ -240,7 +240,7 @@ public class WorkflowCatalog
         {
             checked.keySet().removeIf(key -> key.baseUrl().equals(baseUrl));
             return new Listing(true, "ComfyUI has no '" + folder + "' folder in its user folder yet - export a "
-                    + "workflow into it (see COMFYUI.md).", List.of());
+                    + "workflow into it (see Tutorial → ComfyUI).", List.of());
         }
         var workflows = new ArrayList<WorkflowInfo>();
         var listed = new HashSet<FileVersion>();

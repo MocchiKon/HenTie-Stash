@@ -416,6 +416,36 @@ class MiscControllerIT
                 .andExpect(content().string(containsString("starts with login turned off")));
     }
 
+    // --- Tutorial --------------------------------------------------------------
+
+    @Test
+    void shouldRenderTheTutorialWithTheComfyUiGuideAndTheValuesInEffect() throws Exception
+    {
+        // WHEN
+        ResultActions result = mvc.perform(get("/tutorial").with(user("user")));
+
+        // THEN
+        result.andExpect(status().isOk())
+                .andExpect(view().name("tutorial"))
+                .andExpect(content().string(containsString("id=\"comfyui\"")))
+                .andExpect(content().string(containsString("File → Export (API)")))
+                .andExpect(content().string(containsString(appProperties.getPasswordFile())))
+                .andExpect(content().string(containsString(
+                        "within " + appProperties.getComfyui().getJobTimeoutSeconds() + " s")));
+    }
+
+    @Test
+    void shouldLinkTheTutorialBeforeSearchInTheNavbarAndFromTheComfyUiSettings() throws Exception
+    {
+        // WHEN
+        String html = mvc.perform(get("/settings").with(user("user")))
+                .andReturn().getResponse().getContentAsString();
+
+        // THEN
+        assertThat(html.indexOf("href=\"/tutorial\"")).isPositive().isLessThan(html.indexOf("href=\"/search\""));
+        assertThat(html).contains("href=\"/tutorial#comfyui\"").doesNotContain("COMFYUI.md");
+    }
+
     // --- Add to series ---------------------------------------------------------
 
     @Test

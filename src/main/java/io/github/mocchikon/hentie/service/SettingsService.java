@@ -77,7 +77,7 @@ public class SettingsService
     /** {@code <pid>:<start epoch millis>} of the ComfyUI the app launched, blank when none. */
     public static final String COMFYUI_LAUNCHED = "comfyui.launched-process";
 
-    /** The folder {@code COMFYUI.md} tells the user to export workflows into. */
+    /** The folder the tutorial page tells the user to export workflows into. */
     public static final String DEFAULT_COMFYUI_WORKFLOW_DIR = "api_workflows";
 
     public static final int DEFAULT_SEARCH_PAGE_SIZE = 36;

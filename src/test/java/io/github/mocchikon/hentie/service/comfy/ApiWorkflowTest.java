@@ -1,16 +1,16 @@
 package io.github.mocchikon.hentie.service.comfy;
 
-import java.nio.charset.StandardCharsets;
-
-import org.junit.jupiter.api.Test;
-
-import io.github.mocchikon.hentie.TestWorkflows;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import io.github.mocchikon.hentie.TestWorkflows;
+import org.junit.jupiter.api.Test;
 
-import static org.assertj.core.api.Assertions.*;
+import java.nio.charset.StandardCharsets;
 
-/** The workflow contract that {@code COMFYUI.md} promises the user. */
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+/** The workflow contract that the tutorial page promises the user. */
 class ApiWorkflowTest
 {
     private static final String UPSCALE = TestWorkflows.UPSCALE;

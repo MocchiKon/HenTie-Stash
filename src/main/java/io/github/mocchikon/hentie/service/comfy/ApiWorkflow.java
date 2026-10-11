@@ -1,5 +1,9 @@
 package io.github.mocchikon.hentie.service.comfy;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -10,12 +14,8 @@ import java.util.Locale;
 import java.util.Set;
 import java.util.function.Predicate;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
-
 /**
- * One API-format workflow, checked against the contract in {@code COMFYUI.md}: Input is the node titled
+ * One API-format workflow, checked against the contract the tutorial page (ComfyUI) gives the user: Input is the node titled
  * "Input", else the only Load Image; Output is the node titled "Output", else the only Save/Preview Image.
  * Everything else, seeds included, runs as exported, so a page always gives the same result, which is what
  * makes caching results correct.

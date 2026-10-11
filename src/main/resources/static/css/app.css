@@ -613,6 +613,35 @@ a.meta-gallery:hover { color: var(--text); }
 
 .danger-zone { margin-top: 2rem; }
 
+/* ===== Tutorial ===== */
+/* Links are unstyled app-wide (they are mostly cards and buttons); in running text they must look like links. */
+a.text-link, .tutorial a { text-decoration: underline; }
+a.text-link:hover, .tutorial a:hover { color: var(--accent); }
+.tutorial h3 { font-size: 1.02rem; margin: 1.5rem 0 .5rem; }
+/* Offsets anchor jumps below the sticky navbar. */
+.tutorial [id] { scroll-margin-top: calc(var(--bar-h) + .5rem); }
+.tutorial li { margin-bottom: .3rem; }
+.tutorial code, .tutorial td { overflow-wrap: anywhere; word-break: break-word; }
+.tutorial-toc { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: .5rem 1rem; margin: 1rem 0; }
+.tutorial-toc ol { padding-left: 1.25rem; margin: .25rem 0; }
+.tutorial-toc li { margin-bottom: .1rem; }
+.tutorial pre {
+    margin: .5rem 0 1rem; padding: .6rem .75rem; overflow-x: auto;
+    background: var(--chrome-bg); border: 1px solid var(--border); border-radius: var(--radius);
+    font-size: .82rem; line-height: 1.4;
+}
+.tutorial pre, .tutorial pre code { white-space: pre; }
+/* A wide table scrolls inside its box, never the page. */
+.table-scroll { overflow-x: auto; margin: .5rem 0 1rem; }
+.tutorial table { border-collapse: collapse; width: 100%; font-size: .92rem; }
+.tutorial th, .tutorial td { border: 1px solid var(--border); padding: .4rem .6rem; text-align: left; vertical-align: top; }
+.tutorial th { background: var(--surface-2); }
+.tutorial kbd {
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: 4px;
+    padding: 0 .35em; font-family: inherit; font-size: .9em;
+}
+
+
 /* ===== Settings: ComfyUI ===== */
 .workflow-check { margin: -.5rem 0 1rem; }
 .workflow-details summary,

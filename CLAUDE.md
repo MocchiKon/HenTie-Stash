@@ -27,6 +27,14 @@ Use Lombok for constructors and simple getters/setters.
   genuinely hard to follow.
 - Short, plain English (B2/C1 level). Say each thing once, where it belongs.
 
+## User instructions (the Tutorial page)
+- **Instructions for the user live on the Tutorial page** (`/tutorial`, `templates/tutorial.html`, linked in the
+  navbar), never in Markdown files. `README.md` keeps only what is needed before the app runs (getting and
+  starting it) and building it. A message or hint that needs explaining points there (`see Tutorial → ComfyUI`,
+  a link to `/tutorial#<section>`); a new feature that needs instructions gets a section there.
+- **Configurable values on it come from the configuration in effect** (`TutorialController`), so it never names
+  a default an install has overridden.
+
 ## The premise everything follows from
 - **Read and search dominate.** The user browses and searches far more than they write, so read latency
   wins every trade-off against write cost.
@@ -1021,9 +1029,9 @@ of an automatic RAM disk each), so one cannot prune the other away.
 - A run keeps the folder it started with. **A replaced explicit root stays in `everyRoot` for the rest of
   the process**, so discards still reach pages staged there.
 
-## ComfyUI processing (`service/comfy`, `COMFYUI.md`)
+## ComfyUI processing (`service/comfy`)
 The viewer can show pages through the user's own ComfyUI workflows. **Viewer-only: nothing in `data/` is
-ever written** — a result is a cached derivative. `COMFYUI.md` is the user guide. **`ComfyUiClient` is the
+ever written** — a result is a cached derivative. The Tutorial page's ComfyUI section is the user guide. **`ComfyUiClient` is the
 only class that speaks ComfyUI's protocol; `PageProcessingService` decides what runs when**;
 `WorkflowCatalog` lists and checks workflows, `ComfyResultCache` keeps results, `ComfyUiLauncher` owns the
 process.

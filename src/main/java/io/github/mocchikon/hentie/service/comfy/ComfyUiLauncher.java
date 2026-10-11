@@ -279,7 +279,7 @@ public class ComfyUiLauncher
             if (running == null && (state == State.DETACHED || state == State.STARTING))
             {
                 return "The start script returned while ComfyUI went on running, so the app has nothing to stop it "
-                        + "by - stop it yourself, and keep it in the foreground in the script (see COMFYUI.md).";
+                        + "by - stop it yourself, and keep it in the foreground in the script (see Tutorial → ComfyUI).";
             }
             if (running == null)
             {
@@ -494,7 +494,7 @@ public class ComfyUiLauncher
                 }
                 state = State.DETACHED;
                 message = "ComfyUI answers, but the start script returned while starting it, so the app cannot "
-                        + "stop it. Keep ComfyUI in the foreground in the script - see COMFYUI.md.";
+                        + "stop it. Keep ComfyUI in the foreground in the script - see Tutorial → ComfyUI.";
             }
             lock.notifyAll();
         }

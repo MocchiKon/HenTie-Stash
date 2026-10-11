@@ -241,7 +241,7 @@ class ComfyUiLauncherTest
             ComfyUiLauncher.Status status = launcher.status();
             assertThat(status.pid()).isNull();
             assertThat(status.exitCode()).isZero();
-            assertThat(status.message()).contains("start script returned").contains("COMFYUI.md");
+            assertThat(status.message()).contains("start script returned").contains("Tutorial");
             assertThat(launcher.stop()).contains("nothing to stop it by");
         }
     }
