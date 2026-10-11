@@ -1,7 +1,9 @@
 # HenTie
 
+
 HenTie is a local web app for browsing and managing your collection, with simple installation. 
 Other devices on your home network (phone, tablet, another PC) can access it too via browser.
+
 ---
 
 ## 1. Running it
