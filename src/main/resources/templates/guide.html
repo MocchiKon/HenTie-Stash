@@ -88,6 +88,13 @@ java -jar HenTie.jar --server.address=127.0.0.1 --server.port=7400</code></pre>
         terminal, first change to that folder. If the port is already used by another program, the app stops
         at start-up and its window says <em>Port … was already in use</em>: pick another number.</p>
 
+    <h3 id="access-log">The log file</h3>
+    <p>Everything the app's window shows is also written to <code class="path">logs/hentie.log</code> in the same
+        folder, so it can still be read after the window is closed. Older days are kept beside it
+        as <code>hentie.log.&lt;date&gt;.&lt;n&gt;.log</code> and removed after 10 days, or sooner once all of
+        them take 100 MB together. Set
+        <code>logging.file.name</code> in the settings file to write it elsewhere.</p>
+
     <!-- ===================================================================================== -->
     <h2 class="section-title" id="comfyui">Processing pages with ComfyUI</h2>
     <p>The image viewer can show every page through a <strong>ComfyUI workflow</strong> of your own — upscaling,

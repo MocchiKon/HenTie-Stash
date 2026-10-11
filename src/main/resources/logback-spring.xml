@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Console as Spring Boot writes it, plus a rolling file. The console window is gone once the app is closed,
+  and a problem is usually reported afterwards, so the file is what can be read or sent along.
+
+  The file is relative to the folder the app starts in, like db/ and data/. An install changes it with the
+  usual properties (logging.file.name, logging.logback.rollingpolicy.*, logging.level.*), which win over the
+  defaults below.
+-->
+<configuration>
+	<property name="LOG_FILE" value="${LOG_FILE:-logs/hentie.log}"/>
+	<!-- Capped in total: the app runs for months unattended, and a download loop failing every few seconds
+	     would otherwise fill the disk. -->
+	<property name="LOGBACK_ROLLINGPOLICY_MAX_HISTORY" value="${LOGBACK_ROLLINGPOLICY_MAX_HISTORY:-10}"/>
+	<property name="LOGBACK_ROLLINGPOLICY_TOTAL_SIZE_CAP" value="${LOGBACK_ROLLINGPOLICY_TOTAL_SIZE_CAP:-100MB}"/>
+	<!-- No .gz: old files stay readable in any text editor. -->
+	<property name="LOGBACK_ROLLINGPOLICY_FILE_NAME_PATTERN"
+	          value="${LOGBACK_ROLLINGPOLICY_FILE_NAME_PATTERN:-${LOG_FILE}.%d{yyyy-MM-dd}.%i.log}"/>
+
+	<include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+	<include resource="org/springframework/boot/logging/logback/console-appender.xml"/>
+	<include resource="org/springframework/boot/logging/logback/file-appender.xml"/>
+
+	<root level="INFO">
+		<appender-ref ref="CONSOLE"/>
+		<appender-ref ref="FILE"/>
+	</root>
+</configuration>

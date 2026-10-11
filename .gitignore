@@ -5,6 +5,7 @@ target/
 /db/
 /mock_server/
 /data/
+/logs/
 migration/out/
 password-delete-to-reset.txt
 .mvn/wrapper/maven-wrapper.jar

@@ -1619,6 +1619,10 @@ for good coverage.
   its `-U` replaces itself in place. **It is GPL-2.0, so `gallery-dl-LICENSE.txt` and `gallery-dl-SOURCE.txt`
   (the release's source) ship beside each copy.** The Windows exe needs the Microsoft Visual C++
   Redistributable; without it the start fails with a message saying so. There is no macOS build.
+- **Logging is Logback** (`logback-spring.xml`): Boot's console plus `logs/hentie.log` beside `db/` and `data/`,
+  rolled daily and at 10 MB, uncompressed, **capped at 10 days and 100 MB**, since the app runs unattended and a failing loop
+  would fill the disk. `logging.*` properties override it. Tests read `logback-test.xml` (console only), so a
+  test run writes no `logs/` into the repository.
 - `BrowserLauncher` opens the browser on `ApplicationReadyEvent` (not when headless or
   `app.open-browser=false`). `start.bat` is the no-tooling Windows launcher.
 - **MapStruct and Lombok are both in `maven-compiler-plugin`'s `annotationProcessorPaths`** (`lombok`,

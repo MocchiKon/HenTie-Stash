@@ -1,11 +1,7 @@
-# HenTie — your local comics library
+# HenTie
 
-HenTie is a small website that runs **on your own computer** for browsing and managing your
-comics collection. You open it in a normal web browser. Other devices on your home network
-(phone, tablet, another PC) can open it too.
-
-There is no internet account, no cloud, no installation wizard — just one program file.
-
+HenTie is a local web app for browsing and managing your collection, with simple installation. 
+Other devices on your home network (phone, tablet, another PC) can access it too via browser.
 ---
 
 ## 1. Running it
@@ -27,7 +23,7 @@ next to it, and both need `bin`). Then, in that folder:
 | **Windows** | Double-click **`HenTie.exe`** (or **`start.bat`**) |
 | Anything else | Run **`start.sh`**, double-click **`HenTie.jar`**, or run `java -jar HenTie.jar` in a terminal |
 
-A black window may appear — **leave it open** while you use the app (closing it stops the app).
+Console window will appear — **leave it open** while you use the app (closing it stops the app).
 Your browser should open automatically at <http://localhost:7395>. If it doesn't, open that
 address yourself.
 
@@ -45,4 +41,3 @@ linked at the top of every page of the app.
 This produces `target/HenTie.jar` (runs anywhere with Java) and, on Windows, `target/HenTie.exe` with
 a bundled Java runtime in `target/jre` (the exe needs it beside it, or an installed Java 21+).
 `./mvnw package -PpackageForRelease` also builds the release zips.
-See [CLAUDE.md](CLAUDE.md) for the architecture and developer notes.
