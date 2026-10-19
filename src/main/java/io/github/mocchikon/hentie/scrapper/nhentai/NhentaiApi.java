@@ -24,17 +24,21 @@ import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 
 /**
  * Everything that goes over the wire to nhentai: the endpoints, the API key and the rate limits. What the answers
  * mean is {@link NhentaiDownloader}'s business.
  * <p>
- * <b>Each endpoint has its own {@link RequestPacer}</b>, because nhentai limits each endpoint on its own. A 429
- * holds that pacer back as long as the answer asks, so every caller of the endpoint slows down, not only the one
- * that was refused; nhentai says to treat a 429 as the signal to back off. The limits count per IP, so the user
- * browsing nhentai meanwhile uses them up too, and a 429 is expected now and then.
+ * <b>Each endpoint has its own {@link RequestPacer}</b>, because nhentai limits each endpoint on its own, and
+ * <b>so does each image server</b>: the servers keep separate limits, and one serving a 429 says nothing about
+ * the others. A 429 holds that endpoint's or server's pacer back as long as the answer asks, so every caller of
+ * it slows down, not only the one that was refused; nhentai says to treat a 429 as the signal to back off. The
+ * limits count per IP, so the user browsing nhentai meanwhile uses them up too, and a 429 is expected now and
+ * then.
  */
 final class NhentaiApi
 {
@@ -58,7 +62,11 @@ final class NhentaiApi
     private final RequestPacer favouritesPacer = new RequestPacer();
     private final RequestPacer searchPacer = new RequestPacer();
     private final RequestPacer serverListPacer = new RequestPacer();
-    private final RequestPacer imagePacer = new RequestPacer();
+    /**
+     * One per image server: nhentai's image servers keep separate limits, so one server's 429 must not slow the
+     * others down. The list holds a handful of hosts, so nothing is evicted.
+     */
+    private final Map<String, RequestPacer> imagePacers = new ConcurrentHashMap<>();
 
     private volatile ServerList imageServers;
 
@@ -203,7 +211,8 @@ final class NhentaiApi
     }
 
     /**
-     * Never sends the API key: the image servers need none, and their addresses come from nhentai's answers.
+     * Never sends the API key: the image servers need none, and their addresses come from nhentai's answers. Each
+     * server is paced on its own, since their limits are separate.
      *
      * @throws IOException also for an answer that is empty or plainly not an image, which would otherwise be
      *                     stored as a page
@@ -214,12 +223,18 @@ final class NhentaiApi
         {
             throw new IOException("Not a web address: " + uri);
         }
+        String server = uri.getAuthority();
+        if (server == null || server.isBlank())
+        {
+            throw new IOException("Not a web address: " + uri);
+        }
         HttpRequest request = HttpRequest.newBuilder(uri)
                 .timeout(requestTimeout())
                 .header("User-Agent", properties.getUserAgent())
                 .GET()
                 .build();
-        HttpResponse<byte[]> response = send(images, request, imagePacer,
+        HttpResponse<byte[]> response = send(images, request,
+                imagePacers.computeIfAbsent(server, host -> new RequestPacer()),
                 Duration.ofMillis(Math.max(0, properties.getImageRequestIntervalMillis())));
         if (response.statusCode() != 200)
         {

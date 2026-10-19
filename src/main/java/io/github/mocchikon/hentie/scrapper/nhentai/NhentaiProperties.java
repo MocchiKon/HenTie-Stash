@@ -38,10 +38,13 @@ public class NhentaiProperties
     private int searchRequestsPerMinuteWithKey = 20;
 
     /**
-     * Between two image requests. The image servers publish no number, only that rates "well beyond normal
-     * browsing" get a client banned for a while; this keeps a long download near a reader's pace. 0 = no gap.
+     * Between two requests to the same image server. The image servers publish no number, only that rates "well
+     * beyond normal browsing" get a client banned for a while. Measured, one server takes about 50 requests in a
+     * burst, then roughly 9 a second; a shorter gap drains the burst, and every request after it gets a 429 that
+     * costs the minute the app waits when the answer names no {@code Retry-After}. 125 ms caps one server at 8 a
+     * second even when a request costs nothing, a small margin below the measured rate. 0 = no gap.
      */
-    private long imageRequestIntervalMillis = 30;
+    private long imageRequestIntervalMillis = 125;
 
     /** One request, an image included. */
     private int requestTimeoutSeconds = 60;

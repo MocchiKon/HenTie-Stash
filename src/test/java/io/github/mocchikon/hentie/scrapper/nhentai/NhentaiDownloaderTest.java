@@ -173,6 +173,29 @@ class NhentaiDownloaderTest
         assertThat(site.requests()).allSatisfy(request -> assertThat(request.userAgent()).startsWith("HenTie/"));
     }
 
+    /** The image servers keep separate limits, so a gallery's pages take turns over all of them. */
+    @Test
+    void shouldSpreadPagesOverEveryImageServer() throws IOException
+    {
+        // GIVEN
+        site.simpleGallery("13", 8).imageServers(4);
+
+        // WHEN
+        GalleryData data = downloader.downloadGalleryInfo("13");
+
+        // THEN the four servers in turn, from a random start, and every page still fetches.
+        List<URI> pages = List.copyOf(data.getPageUrls());
+        assertThat(pages).hasSize(8);
+        // The fake's extra servers share its address and differ in the first path segment (/s1, /s2, ...).
+        List<String> servers = pages.stream().map(uri -> uri.getPath().split("/")[1]).toList();
+        assertThat(servers.subList(0, 4)).doesNotHaveDuplicates();
+        assertThat(servers.subList(4, 8)).containsExactlyElementsOf(servers.subList(0, 4));
+        for (URI page : pages)
+        {
+            assertThat(new String(downloader.downloadPage(page), StandardCharsets.UTF_8)).startsWith("page ");
+        }
+    }
+
     @Test
     void shouldReportAGalleryTheSiteDoesNotHaveAsNotFound()
     {

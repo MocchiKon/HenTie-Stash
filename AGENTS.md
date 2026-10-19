@@ -691,18 +691,22 @@ only class that speaks HTTP to it; `NhentaiDownloader` turns the answers into `G
   `nhentai:<id>`, the form the Download page names. Leading zeros are dropped, so one gallery has one gallery
   id. `link()` is always `https://nhentai.net/g/<id>/`, whatever `base-url` says, so it parses back.
 - **Only page images, by the path nhentai gives.** A gallery also lists a cover, a thumbnail and a thumbnail
-  per page; none is fetched. A path is relative and goes on a server from `GET /api/v2/cdn` (one at random
-  per gallery; the list is cached an hour, keyed by `base-url`, and kept when a refresh fails). nhentai asks
-  for exactly this and bans clients that request paths it never gave, so **never build a path** (another
-  extension, a guessed number). A page without a path fails the gallery, since pages are numbered by
-  position. An empty or text/JSON answer from an image server is a failure, not a page.
+  per page; none is fetched. A path is relative and goes on a server from `GET /api/v2/cdn` (**the pages take
+  turns over all of them from a random start**; the list is cached an hour, keyed by `base-url`, and kept when
+  a refresh fails). The servers' limits are separate, so one gallery, large enough to exhaust one server, would
+  otherwise stall on 429s. nhentai asks for exactly this and bans clients that request paths it never gave, so
+  **never build a path** (another extension, a guessed number). A page without a path fails the gallery, since
+  pages are numbered by position. An empty or text/JSON answer from an image server is a failure, not a page.
 - **Rate limits are nhentai's published ones, per endpoint** (`NhentaiProperties`): gallery details 20 a
-  minute without a key and 45 with one, favourites 15, images 30 ms apart (no number is published, only bans
-  for rates "well beyond normal browsing"). `RequestPacer` spaces requests evenly, which keeps within a limit
-  however the site counts its minute; the interval is picked per call, by whether a key is sent.
+  minute without a key and 45 with one, favourites 15; images have no published number, only bans for rates
+  "well beyond normal browsing", and are paced **per server** at 125 ms (measured: one server takes about 50
+  requests in a burst, then roughly 9 a second; 125 ms caps a server at 8 a second even when a request costs
+  nothing). `RequestPacer` spaces requests evenly, which keeps within a
+  limit however the site counts its minute; the interval is picked per call, by whether a key is sent.
   - **A 429 is sat out, not failed**: as long as `Retry-After` (or a rate-limit reset) says, else a minute;
-    at most 15 minutes a wait and 5 waits a request. It holds the endpoint's pacer back for **every** caller.
-    The limits count per IP, so the user browsing nhentai meanwhile shares them, and a 429 is normal.
+    at most 15 minutes a wait and 5 waits a request. It holds that endpoint's or image server's pacer back for
+    **every** caller. The limits count per IP, so the user browsing nhentai meanwhile shares them, and a 429 is
+    normal.
 - **The API key** (Settings, `apikey.nhentai`) is read per call. It goes to the API only (`Authorization: Key
   …`), **never to the image servers**, whose addresses come from nhentai's answers; for the same reason the
   API client follows no redirect. A 401 is worded to send the user to Settings.

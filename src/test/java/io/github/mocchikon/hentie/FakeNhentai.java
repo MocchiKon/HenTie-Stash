@@ -26,8 +26,9 @@ import java.util.regex.Pattern;
  * Just enough of nhentai's API and image servers to test the source against. A fake rather than a mock, because
  * what goes over the wire (headers, paths, 429s) is what these suites test.
  * <p>
- * It is its own image server too ({@code /api/v2/cdn} lists it), so a test sees every request the source makes,
- * thumbnails included. Only page images are served; anything else answers 404.
+ * It is its own image server too ({@code /api/v2/cdn} lists it, or as many copies as the test asks for), so a
+ * test sees every request the source makes, thumbnails included. Only page images are served; anything else
+ * answers 404.
  */
 public final class FakeNhentai implements AutoCloseable
 {
@@ -41,6 +42,8 @@ public final class FakeNhentai implements AutoCloseable
     private final List<List<Integer>> favouritePages = new CopyOnWriteArrayList<>();
     private final List<Request> requests = new CopyOnWriteArrayList<>();
     private volatile String acceptedKey;
+    /** How many image servers {@code /api/v2/cdn} lists; see {@link #imageServers(int)}. */
+    private volatile int imageServerCount = 1;
 
     /**
      * What every search finds, whatever its words; only {@code uploaded:>Nh} narrows it, as nhentai does. Listed by
@@ -55,6 +58,9 @@ public final class FakeNhentai implements AutoCloseable
     private final List<String> searches = new CopyOnWriteArrayList<>();
 
     private static final Pattern UPLOADED_FILTER = Pattern.compile("uploaded:>(\\d+)([hd])");
+
+    /** A page request to one of the fake's extra image servers ({@code /s1/...}); the rest is the page's path. */
+    private static final Pattern IMAGE_SERVER_PATH = Pattern.compile("s\\d+/(.*)");
 
     /** nhentai reads a larger number of hours as no more than about this many (checked on the site). */
     private static final long MAX_HOURS = 5000;
@@ -158,6 +164,16 @@ public final class FakeNhentai implements AutoCloseable
     public FakeNhentai image(String path, byte[] bytes, String contentType)
     {
         images.put(path, new Image(bytes, contentType));
+        return this;
+    }
+
+    /**
+     * Lists this many image servers, {@code /s1} to {@code /sN} on this fake, so a test can see a gallery's pages
+     * spread over them. One server ({@code /}) by default.
+     */
+    public FakeNhentai imageServers(int count)
+    {
+        this.imageServerCount = Math.max(1, count);
         return this;
     }
 
@@ -301,7 +317,11 @@ public final class FakeNhentai implements AutoCloseable
             if (path.equals("/api/v2/cdn"))
             {
                 ObjectNode body = JSON.createObjectNode();
-                body.putArray("image_servers").add(baseUrl() + "/");
+                ArrayNode servers = body.putArray("image_servers");
+                for (int n = 1; n <= imageServerCount; n++)
+                {
+                    servers.add(imageServerCount == 1 ? baseUrl() + "/" : baseUrl() + "/s" + n);
+                }
                 body.putArray("thumb_servers").add(baseUrl() + "/thumbs");
                 send(exchange, 200, "application/json", body.toString().getBytes(StandardCharsets.UTF_8));
             }
@@ -334,7 +354,13 @@ public final class FakeNhentai implements AutoCloseable
             }
             else
             {
-                Image image = images.get(path.substring(1));
+                String imagePath = path.substring(1);
+                Matcher onServer = IMAGE_SERVER_PATH.matcher(imagePath);
+                if (onServer.matches())
+                {
+                    imagePath = onServer.group(1);
+                }
+                Image image = images.get(imagePath);
                 if (image == null)
                 {
                     send(exchange, 404, "text/plain", "Not Found".getBytes());

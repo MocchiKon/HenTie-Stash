@@ -158,9 +158,10 @@ public class NhentaiDownloader implements FavouritesSource, PageDownloader, Sear
     }
 
     /**
-     * In page order, all on one image server picked at random for each gallery: galleries spread over the
-     * servers as the site's reader spreads them, and a retried item may get another server than the one that
-     * failed it.
+     * In page order, spread over the image servers nhentai lists: each page goes to the next server from a random
+     * start. The servers keep separate rate limits, and one gallery is large enough to exhaust one of them, so
+     * turning the pages over to all of them keeps a long download moving. A retried item may start on another
+     * server than the one that failed it.
      * <p>
      * A page without a path fails the gallery rather than being left out: pages are numbered by position, so
      * every page after it would get the wrong number.
@@ -173,7 +174,7 @@ public class NhentaiDownloader implements FavouritesSource, PageDownloader, Sear
             return new LinkedHashSet<>();
         }
         List<String> servers = api.imageServers();
-        String server = servers.get(ThreadLocalRandom.current().nextInt(servers.size()));
+        int start = ThreadLocalRandom.current().nextInt(servers.size());
         var numbered = new ArrayList<NumberedPage>();
         int position = 0;
         for (JsonNode page : pages)
@@ -184,16 +185,21 @@ public class NhentaiDownloader implements FavouritesSource, PageDownloader, Sear
             {
                 throw new IOException("nhentai lists page " + position + " of gallery " + id + " without an image.");
             }
-            numbered.add(new NumberedPage(page.path("number").asInt(position), imageUri(server, path)));
+            numbered.add(new NumberedPage(page.path("number").asInt(position), path));
         }
         // Stable, and nothing dropped: the order is the source's own numbering.
         numbered.sort(Comparator.comparingInt(NumberedPage::number));
         var urls = new LinkedHashSet<URI>();
-        numbered.forEach(page -> urls.add(page.uri()));
+        int turn = 0;
+        for (NumberedPage page : numbered)
+        {
+            urls.add(imageUri(servers.get((start + turn) % servers.size()), page.path()));
+            turn++;
+        }
         return urls;
     }
 
-    private record NumberedPage(int number, URI uri)
+    private record NumberedPage(int number, String path)
     {
     }
 
