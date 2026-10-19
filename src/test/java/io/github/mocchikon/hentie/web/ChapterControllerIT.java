@@ -376,13 +376,13 @@ class ChapterControllerIT
     {
         // GIVEN a compressed chapter from the mock source, and an uncompressed one.
         int compressed = newChapter("chw-fq-compressed", "mock:chw-fq-compressed");
-        chapterService.setCompressionMode(compressed, BuiltInCompressionMode.LOSSLESS.getKey());
+        chapterService.setCompressionMode(compressed, BuiltInCompressionMode.HIGH_REDUCTION.getKey());
         int plain = newChapter("chw-fq-plain", "mock:chw-fq-plain");
 
         // WHEN each detail page is rendered.
         String compressedHtml = mvc.perform(get("/chapter/" + compressed).with(user("user")))
                 .andExpect(status().isOk())
-                .andExpect(model().attribute("compressedWith", "Lossless"))
+                .andExpect(model().attribute("compressedWith", "High reduction"))
                 .andExpect(model().attribute("canRedownloadFullQuality", true))
                 .andReturn().getResponse().getContentAsString();
         String plainHtml = mvc.perform(get("/chapter/" + plain).with(user("user")))
@@ -392,10 +392,29 @@ class ChapterControllerIT
                 .andReturn().getResponse().getContentAsString();
 
         // THEN only the compressed one carries both.
-        assertThat(compressedHtml).contains("Compressed: Lossless")
+        assertThat(compressedHtml).contains("Compressed: High reduction")
                 .contains("Re-download in full quality")
                 .contains("action=\"/chapter/" + compressed + "/redownload\"");
         assertThat(plainHtml).doesNotContain("Compressed:").doesNotContain("Re-download in full quality");
+    }
+
+    /** Lossless already holds the source's pixels, so there is nothing a full-quality re-download could restore. */
+    @Test
+    void shouldLabelButNotOfferARedownloadForALosslessChapter() throws Exception
+    {
+        // GIVEN
+        int id = newChapter("chw-fq-lossless", "mock:chw-fq-lossless");
+        chapterService.setCompressionMode(id, BuiltInCompressionMode.LOSSLESS.getKey());
+
+        // WHEN
+        String html = mvc.perform(get("/chapter/" + id).with(user("user")))
+                .andExpect(status().isOk())
+                .andExpect(model().attribute("compressedWith", "Lossless"))
+                .andExpect(model().attribute("canRedownloadFullQuality", false))
+                .andReturn().getResponse().getContentAsString();
+
+        // THEN
+        assertThat(html).contains("Compressed: Lossless").doesNotContain("Re-download in full quality");
     }
 
     @Test
@@ -453,7 +472,7 @@ class ChapterControllerIT
     {
         // GIVEN
         int id = newChapter("chw-fq-queue", "mock:chw-fq-queue");
-        chapterService.setCompressionMode(id, BuiltInCompressionMode.LOSSLESS.getKey());
+        chapterService.setCompressionMode(id, BuiltInCompressionMode.HIGH_REDUCTION.getKey());
         try
         {
             // WHEN
@@ -495,6 +514,24 @@ class ChapterControllerIT
 
         // THEN
         assertThat(downloadQueueRepository.findByLink("mock:chw-fq-refused")).isEmpty();
+    }
+
+    /** A page left open from before the compression finished could still send the hidden button. */
+    @Test
+    void shouldRefuseTheRedownloadOfALosslessChapter() throws Exception
+    {
+        // GIVEN
+        int id = newChapter("chw-fq-lossless-refused", "mock:chw-fq-lossless-refused");
+        chapterService.setCompressionMode(id, BuiltInCompressionMode.LOSSLESS.getKey());
+
+        // WHEN
+        mvc.perform(post("/chapter/" + id + "/redownload").with(user("user")).with(csrf()))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/chapter/" + id))
+                .andExpect(flash().attribute("redownloadError", containsString("losslessly")));
+
+        // THEN
+        assertThat(downloadQueueRepository.findByLink("mock:chw-fq-lossless-refused")).isEmpty();
     }
 
     /** The language is already a chip among the metadata, so it is not a badge as well. */

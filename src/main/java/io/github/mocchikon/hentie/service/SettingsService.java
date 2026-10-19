@@ -63,6 +63,8 @@ public class SettingsService
     public static final String DOWNLOAD_PAUSED = "download.paused";
     /** Applies to uploads; a download carries its own mode on the queue row and only starts at this one. */
     public static final String IMAGE_COMPRESSION_MODE = "image.compression.mode";
+    /** Percent of the processor cores Image Compression may use at once. */
+    public static final String IMAGE_COMPRESSION_CPU_PERCENT = "image.compression.cpu-percent";
     /** Use ImageMagick/cjxl/avifenc from the PATH instead of the copies bundled beside the jar. */
     public static final String IMAGE_TOOLS_SYSTEM = "image.compression.system-binaries";
     public static final String JXL_DELIVERY = "image.jxl.delivery";
@@ -85,6 +87,9 @@ public class SettingsService
     public static final int DEFAULT_SEARCH_PAGE_SIZE = 36;
 
     public static final int DEFAULT_PAGES_AHEAD = 6;
+
+    /** All of the processor: the pool has as many threads as the machine offers (or the install's cap). */
+    public static final int DEFAULT_IMAGE_COMPRESSION_CPU_PERCENT = 100;
 
     /** Bounded because the viewer sends its whole plan with every processed-page request. */
     public static final int MAX_PAGES_AHEAD = 100;
@@ -324,6 +329,21 @@ public class SettingsService
         return cache.getOrDefault(IMAGE_COMPRESSION_MODE, BuiltInCompressionMode.NONE.getKey());
     }
 
+    /** 1-100. 100 (the default when nothing is stored) uses every core the compression pool has. */
+    public int getImageCompressionCpuPercent()
+    {
+        try
+        {
+            int percent = Integer.parseInt(cache.getOrDefault(IMAGE_COMPRESSION_CPU_PERCENT,
+                    Integer.toString(DEFAULT_IMAGE_COMPRESSION_CPU_PERCENT)));
+            return Math.clamp(percent, 1, 100);
+        }
+        catch (NumberFormatException e)
+        {
+            return DEFAULT_IMAGE_COMPRESSION_CPU_PERCENT;
+        }
+    }
+
     /** Off by default: the bundled {@code bin} copies are known-good and need no installation. */
     public boolean isSystemImageToolsEnabled()
     {
@@ -517,6 +537,13 @@ public class SettingsService
     public void setImageCompressionMode(String modeKey)
     {
         put(IMAGE_COMPRESSION_MODE, StringUtils.defaultIfBlank(modeKey, BuiltInCompressionMode.NONE.getKey()));
+    }
+
+    /** Clamped here too, so a hand-edited row or a request without the form's bounds cannot stop compression. */
+    @Transactional
+    public void setImageCompressionCpuPercent(int percent)
+    {
+        put(IMAGE_COMPRESSION_CPU_PERCENT, Integer.toString(Math.clamp(percent, 1, 100)));
     }
 
     @Transactional

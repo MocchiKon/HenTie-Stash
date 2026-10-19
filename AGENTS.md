@@ -847,7 +847,9 @@ downloaded and uploaded images. Default mode is **None**: bytes are stored as th
     page leaves one.
 - **"Re-download in full quality" is a queue row with `replace_pages`**, offered only for a compressed
   chapter whose gallery id names a known source. `DataDownloaderRegistry.linkFor` rebuilds the link via
-  `DataDownloader.link` and returns it only if it parses back to the same gallery id.
+  `DataDownloader.link` and returns it only if it parses back to the same gallery id. **A Lossless chapter
+  is not offered**: its pages already hold the source's pixels, so the download would only swap equivalent
+  files.
   - **Only pages the chapter has, by canonical name** (`ImageDirectory.canonicalPageNumbers`: `3.jpg`, not
     `03.jpg`), so a deleted page stays deleted and no page ends up twice. A `PENDING` or empty chapter also
     gets its absent pages.
@@ -926,7 +928,10 @@ downloaded and uploaded images. Default mode is **None**: bytes are stored as th
 - **`cjxl` is `INPUT OUTPUT [OPTIONS]`, `avifenc` is `[OPTIONS] INPUT OUTPUT`** — so `ImageEncoder` builds
   the command line, not the caller.
 - **Its own thread pool** (`ImageCompressionConfig`), sized to the machine: long CPU-bound tasks must not
-  take threads from anything latency-sensitive.
+  take threads from anything latency-sensitive. **Settings caps how much of the processor it uses**
+  (`image.compression.cpu-percent`, default 100%): a resizable semaphore in `ImageCompressionExecutor`
+  limits the tasks running at once, so a lowered percentage also holds back pages already queued.
+  `app.image-compression.threads` is the pool's 100% size (0 = one per processor).
 
 ### Serving JPEG XL to a browser that cannot show it
 - **The URL never changes** (`/data/{chapter}/{page}.jxl`); `JxlTranscodeInterceptor` decides per client

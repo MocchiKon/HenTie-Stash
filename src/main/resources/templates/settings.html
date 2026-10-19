@@ -202,6 +202,16 @@
             Your own modes are managed from the Manage page.
         </p>
 
+        <div class="field">
+            <label for="compressionCpuPercent">Processor cores used for Image Compression (%)</label>
+            <input type="number" id="compressionCpuPercent" name="compressionCpuPercent" min="1" max="100"
+                   th:value="${compressionCpuPercent}">
+        </div>
+        <p class="hint">
+            How much of the processor Image Compression may use at once, for uploads, downloads and the
+            library sweep. 100 uses all available cores and 50 uses half; at least one core is always used.
+        </p>
+
         <label class="checkbox big">
             <input type="checkbox" name="systemImageTools" th:checked="${systemImageTools}">
             <span>Use the image tools installed on this system</span>

@@ -415,8 +415,8 @@ public class ChapterController
     }
 
     /**
-     * Refused for a chapter that is not compressed or has no known source. The button is hidden then, but a
-     * page left open while the chapter changed can still post it.
+     * Refused for a chapter that is not compressed, is compressed losslessly, or has no known source. The
+     * button is hidden then, but a page left open while the chapter changed can still post it.
      */
     @PostMapping("/{id:\\d+}/redownload")
     public String redownloadFullQuality(@PathVariable int id, RedirectAttributes redirectAttributes)
@@ -424,7 +424,8 @@ public class ChapterController
         if (!downloadService.queueFullQuality(chapterService.get(id)))
         {
             redirectAttributes.addFlashAttribute("redownloadError", "This chapter cannot be downloaded again in "
-                    + "full quality: its pages are not compressed, or it comes from no source this app can fetch from.");
+                    + "full quality: its pages are not compressed, were compressed losslessly, or it comes from "
+                    + "no source this app can fetch from.");
             return REDIRECT_CHAPTER + id;
         }
         redirectAttributes.addFlashAttribute("redownloadQueued", id);

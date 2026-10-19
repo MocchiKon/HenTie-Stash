@@ -236,7 +236,10 @@ public class AppProperties
          */
         private String binDir = "./bin";
 
-        /** 0 = one per processor. */
+        /**
+         * The pool's 100% size: Settings' percentage scales this. 0 = one per processor. The pool is never
+         * bigger than this, so an install can cap the machine even at 100%.
+         */
         private int threads = 0;
 
         /** Per tool call; past it the tool is killed and the original kept. */

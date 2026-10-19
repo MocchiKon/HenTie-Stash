@@ -57,6 +57,7 @@ class ImageCompressionWebIT
     void restoreDefaults()
     {
         settingsService.setImageCompressionMode(BuiltInCompressionMode.NONE.getKey());
+        settingsService.setImageCompressionCpuPercent(SettingsService.DEFAULT_IMAGE_COMPRESSION_CPU_PERCENT);
         settingsService.setSystemImageToolsEnabled(false);
         settingsService.setJxlDelivery(JxlDelivery.AUTO);
         modeRepository.deleteAll();
@@ -80,11 +81,14 @@ class ImageCompressionWebIT
                 // THEN None + three built-ins + one user mode + Custom.
                 .andExpect(model().attribute("compressionModes", hasSize(6)))
                 .andExpect(model().attribute("compressionMode", BuiltInCompressionMode.NONE.getKey()))
+                .andExpect(model().attribute("compressionCpuPercent",
+                        SettingsService.DEFAULT_IMAGE_COMPRESSION_CPU_PERCENT))
                 .andExpect(model().attribute("jxlDelivery", JxlDelivery.AUTO))
                 .andExpect(model().attribute("systemImageTools", false))
                 // ...and the markup app.js hooks onto is emitted, including the flag that tells "Custom"
                 // (which navigates) from a mode (which is selected).
                 .andExpect(content().string(containsString("compression-mode-select")))
+                .andExpect(content().string(containsString("compressionCpuPercent")))
                 .andExpect(content().string(containsString("data-custom=\"true\"")))
                 .andExpect(content().string(containsString("data-custom=\"false\"")));
     }
@@ -138,15 +142,39 @@ class ImageCompressionWebIT
                         .param("viewMode", ViewMode.FIT.name())
                         .param("titleDisplayMode", "FULL")
                         .param("compressionMode", key)
+                        .param("compressionCpuPercent", "25")
                         .param("systemImageTools", "true")
                         .param("jxlDelivery", JxlDelivery.ALWAYS.name()))
                 .andExpect(status().is3xxRedirection())
                 .andExpect(redirectedUrl("/settings?saved"));
 
-        // THEN all three land in the settings store.
+        // THEN all four land in the settings store.
         assertThat(settingsService.getImageCompressionMode()).isEqualTo(key);
+        assertThat(settingsService.getImageCompressionCpuPercent()).isEqualTo(25);
         assertThat(settingsService.isSystemImageToolsEnabled()).isTrue();
         assertThat(settingsService.getJxlDelivery()).isEqualTo(JxlDelivery.ALWAYS);
+    }
+
+    /** An empty number input means "use them all", like an install that has never set the value. */
+    @Test
+    void shouldUseAllCoresWhenTheCompressionPercentageIsLeftEmpty() throws Exception
+    {
+        // GIVEN a value that lowers the pool.
+        settingsService.setImageCompressionCpuPercent(10);
+
+        // WHEN the field is sent empty.
+        mvc.perform(post("/settings").with(user("user")).with(csrf())
+                        .param("viewMode", ViewMode.FIT.name())
+                        .param("titleDisplayMode", "FULL")
+                        .param("compressionMode", BuiltInCompressionMode.NONE.getKey())
+                        .param("compressionCpuPercent", "")
+                        .param("jxlDelivery", JxlDelivery.AUTO.name()))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/settings?saved"));
+
+        // THEN
+        assertThat(settingsService.getImageCompressionCpuPercent())
+                .isEqualTo(SettingsService.DEFAULT_IMAGE_COMPRESSION_CPU_PERCENT);
     }
 
     /** An unticked checkbox is absent from the body, which must mean "off", not "unchanged". */

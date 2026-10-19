@@ -1,6 +1,7 @@
 package io.github.mocchikon.hentie.web;
 
 import io.github.mocchikon.hentie.config.AppProperties;
+import io.github.mocchikon.hentie.config.ImageCompressionExecutor;
 import io.github.mocchikon.hentie.config.WriteGate;
 import io.github.mocchikon.hentie.dto.JxlDelivery;
 import io.github.mocchikon.hentie.dto.ScratchFolderView;
@@ -49,6 +50,7 @@ public class SettingsController
 
     private final SettingsService settingsService;
     private final ImageCompressionModeService compressionModeService;
+    private final ImageCompressionExecutor imageCompressionExecutor;
     private final ScratchSpace scratchSpace;
     private final JxlTranscoder jxlTranscoder;
     private final WorkflowCatalog workflowCatalog;
@@ -83,6 +85,7 @@ public class SettingsController
         model.addAttribute("matchThreshold", settingsService.getMatchThreshold());
         model.addAttribute("compressionMode", settingsService.getImageCompressionMode());
         model.addAttribute("compressionModes", compressionModeService.options());
+        model.addAttribute("compressionCpuPercent", settingsService.getImageCompressionCpuPercent());
         model.addAttribute("systemImageTools", settingsService.isSystemImageToolsEnabled());
         model.addAttribute("systemGalleryDl", settingsService.isSystemGalleryDlEnabled());
         model.addAttribute("galleryDlDefaults", settingsService.getGalleryDlDefaults());
@@ -167,6 +170,7 @@ public class SettingsController
                        @RequestParam(name = "matchThreshold",
                                defaultValue = "" + SettingsService.DEFAULT_MATCH_THRESHOLD) int matchThreshold,
                        @RequestParam(name = "compressionMode", required = false) String compressionMode,
+                       @RequestParam(name = "compressionCpuPercent", required = false) Integer compressionCpuPercent,
                        @RequestParam(name = "systemImageTools", defaultValue = "false") boolean systemImageTools,
                        @RequestParam(name = "systemGalleryDl", defaultValue = "false") boolean systemGalleryDl,
                        @RequestParam(name = "jxlDelivery", defaultValue = "AUTO") JxlDelivery jxlDelivery,
@@ -190,6 +194,10 @@ public class SettingsController
         settingsService.setMatchThreshold(matchThreshold);
         // Never raw: "Custom" and other non-modes must not be stored.
         settingsService.setImageCompressionMode(compressionModeService.storableKey(compressionMode));
+        settingsService.setImageCompressionCpuPercent(compressionCpuPercent == null
+                ? SettingsService.DEFAULT_IMAGE_COMPRESSION_CPU_PERCENT : compressionCpuPercent);
+        // A percentage change applies to pages already waiting, not only to the next submission.
+        imageCompressionExecutor.refresh();
         settingsService.setSystemImageToolsEnabled(systemImageTools);
         settingsService.setJxlDelivery(jxlDelivery);
         Optional<String> galleryDlRefusal = saveGalleryDl(params, systemGalleryDl);

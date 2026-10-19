@@ -38,6 +38,7 @@ class SettingsServiceIT
         settingsService.setDefaultViewMode(ViewMode.FIT);
         settingsService.setTitleDisplayMode(TitleDisplayMode.FULL);
         settingsService.setNhentaiApiKey("");
+        settingsService.setImageCompressionCpuPercent(SettingsService.DEFAULT_IMAGE_COMPRESSION_CPU_PERCENT);
         // The password file is not rolled back either.
         testLogin.restore();
     }
@@ -86,6 +87,42 @@ class SettingsServiceIT
 
         // THEN
         assertThat(settingsService.getSearchPageSize()).isEqualTo(SettingsService.DEFAULT_SEARCH_PAGE_SIZE);
+    }
+
+    @Test
+    void shouldRoundTripWhenSettingImageCompressionCpuPercent()
+    {
+        // WHEN
+        settingsService.setImageCompressionCpuPercent(25);
+
+        // THEN
+        assertThat(settingsService.getImageCompressionCpuPercent()).isEqualTo(25);
+    }
+
+    /** 0 would stop compression for ever and above 100 would oversubscribe the machine. */
+    @Test
+    void shouldClampImageCompressionCpuPercentToTheRange()
+    {
+        // WHEN + THEN
+        settingsService.setImageCompressionCpuPercent(0);
+        assertThat(settingsService.getImageCompressionCpuPercent()).isEqualTo(1);
+
+        settingsService.setImageCompressionCpuPercent(101);
+        assertThat(settingsService.getImageCompressionCpuPercent()).isEqualTo(100);
+    }
+
+    @Test
+    void shouldFallBackToAllCoresWhenImageCompressionCpuPercentIsNonNumeric()
+    {
+        // GIVEN
+        settingRepository.save(new Setting(SettingsService.IMAGE_COMPRESSION_CPU_PERCENT, "not-a-number"));
+
+        // WHEN
+        settingsService.init();   // reloads the cache from the DB
+
+        // THEN
+        assertThat(settingsService.getImageCompressionCpuPercent())
+                .isEqualTo(SettingsService.DEFAULT_IMAGE_COMPRESSION_CPU_PERCENT);
     }
 
     @Test

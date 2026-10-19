@@ -1,5 +1,6 @@
 package io.github.mocchikon.hentie.service;
 
+import io.github.mocchikon.hentie.dto.BuiltInCompressionMode;
 import io.github.mocchikon.hentie.entity.Chapter;
 import io.github.mocchikon.hentie.scrapper.DataDownloaderRegistry;
 import io.github.mocchikon.hentie.service.download.DownloadChoices;
@@ -55,10 +56,15 @@ public class DownloadService
         return result;
     }
 
-    /** Empty when the chapter was never compressed or no source here can fetch its gallery id. */
+    /**
+     * Empty when the chapter was never compressed, was compressed losslessly, or no source here can fetch its
+     * gallery id. Lossless already holds the source's pixels, so re-downloading its pages in full quality
+     * would only replace one equivalent copy with another.
+     */
     public Optional<String> fullQualityLink(Chapter chapter)
     {
-        if (chapter.getCompressionMode() == null)
+        String mode = chapter.getCompressionMode();
+        if (mode == null || BuiltInCompressionMode.LOSSLESS.getKey().equalsIgnoreCase(mode))
         {
             return Optional.empty();
         }

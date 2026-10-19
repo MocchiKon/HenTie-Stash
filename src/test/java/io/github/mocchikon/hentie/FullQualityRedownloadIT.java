@@ -52,6 +52,9 @@ class FullQualityRedownloadIT
 
     private static final String LOSSLESS = BuiltInCompressionMode.LOSSLESS.getKey();
 
+    /** A lossy mode: only those chapters are offered a full-quality re-download. */
+    private static final String COMPRESSED_MODE = BuiltInCompressionMode.HIGH_REDUCTION.getKey();
+
     @Autowired DownloadQueueService queueService;
     @Autowired DownloadService downloadService;
     @Autowired DownloadWorker worker;
@@ -170,7 +173,7 @@ class FullQualityRedownloadIT
         assertThat(Files.readAllBytes(dir.resolve("02.jxl"))).isEqualTo(COMPRESSED);
         em.flush();
         em.clear();
-        assertThat(chapterRepository.findById(chapterId).orElseThrow().getCompressionMode()).isEqualTo(LOSSLESS);
+        assertThat(chapterRepository.findById(chapterId).orElseThrow().getCompressionMode()).isEqualTo(COMPRESSED_MODE);
     }
 
     /** A non-canonical page that is no encoder output ({@code 02.jpg}) does not keep the mode. */
@@ -268,7 +271,7 @@ class FullQualityRedownloadIT
         assertThat(pageFiles(chapterId)).containsExactly("1.jxl", "2.jxl");
         em.flush();
         em.clear();
-        assertThat(chapterRepository.findById(chapterId).orElseThrow().getCompressionMode()).isEqualTo(LOSSLESS);
+        assertThat(chapterRepository.findById(chapterId).orElseThrow().getCompressionMode()).isEqualTo(COMPRESSED_MODE);
     }
 
     /** The label stays, since one page is still compressed. */
@@ -294,7 +297,7 @@ class FullQualityRedownloadIT
         em.flush();
         em.clear();
         // ...so the chapter still says it is compressed, and the item is done.
-        assertThat(chapterRepository.findById(chapterId).orElseThrow().getCompressionMode()).isEqualTo(LOSSLESS);
+        assertThat(chapterRepository.findById(chapterId).orElseThrow().getCompressionMode()).isEqualTo(COMPRESSED_MODE);
         assertThat(queueRepository.findByLink("mock:8404")).isEmpty();
     }
 
@@ -430,14 +433,28 @@ class FullQualityRedownloadIT
         assertThat(downloadService.fullQualityLink(chapterService.get(fromSource))).isEmpty();
 
         // WHEN + THEN - compressed: offered for the mock source only.
-        chapterService.setCompressionMode(fromSource, LOSSLESS);
-        chapterService.setCompressionMode(byHand, LOSSLESS);
-        chapterService.setCompressionMode(fromElsewhere, LOSSLESS);
+        chapterService.setCompressionMode(fromSource, COMPRESSED_MODE);
+        chapterService.setCompressionMode(byHand, COMPRESSED_MODE);
+        chapterService.setCompressionMode(fromElsewhere, COMPRESSED_MODE);
         assertThat(downloadService.fullQualityLink(chapterService.get(fromSource))).contains("mock:8408");
         assertThat(downloadService.fullQualityLink(chapterService.get(byHand))).isEmpty();
         assertThat(downloadService.fullQualityLink(chapterService.get(fromElsewhere))).isEmpty();
         // ...and queueing one it is not offered for queues nothing.
         assertThat(downloadService.queueFullQuality(chapterService.get(byHand))).isFalse();
+        assertThat(queueRepository.findAll()).noneMatch(DownloadQueueItem::isReplacePages);
+    }
+
+    /** Lossless already holds the source's pixels, so a re-download would only swap equivalent pages. */
+    @Test
+    void shouldNotOfferARedownloadForALosslessChapter()
+    {
+        // GIVEN a chapter from the mock source compressed with the built-in Lossless mode.
+        int id = newChapter("Compressed losslessly", "mock:8414");
+        chapterService.setCompressionMode(id, LOSSLESS);
+
+        // WHEN + THEN
+        assertThat(downloadService.fullQualityLink(chapterService.get(id))).isEmpty();
+        assertThat(downloadService.queueFullQuality(chapterService.get(id))).isFalse();
         assertThat(queueRepository.findAll()).noneMatch(DownloadQueueItem::isReplacePages);
     }
 
@@ -459,7 +476,7 @@ class FullQualityRedownloadIT
         }
         imageService.invalidateListing(chapterId);
         chapterService.syncImageStats(chapterId);
-        chapterService.setCompressionMode(chapterId, LOSSLESS);
+        chapterService.setCompressionMode(chapterId, COMPRESSED_MODE);
         return chapterId;
     }
 
