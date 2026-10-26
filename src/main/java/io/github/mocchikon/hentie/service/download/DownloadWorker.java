@@ -284,7 +284,7 @@ public class DownloadWorker
         Thread.interrupted();
         Integer chapterId = item.getGalleryId() == null
                 ? null : importService.findChapterId(item.getGalleryId()).orElse(null);
-        var outcome = queueService.recordFailure(item, "Aborted on request.", chapterId, true,
+        var outcome = queueService.recordFailure(item, "Aborted on request.", chapterId, true, false, null,
                 appProperties.getDownload().getMaxAttempts());
         if (outcome == DownloadQueueService.FailureOutcome.GAVE_UP)
         {
@@ -371,13 +371,17 @@ public class DownloadWorker
         }
         boolean permanent = failure instanceof PermanentDownloadException
                 || failure instanceof GalleryNotFoundException;
+        // A refusal is permanent but goes on its own list: nothing about the download went wrong.
+        var refusal = failure instanceof DuplicateTitleException duplicate ? duplicate : null;
+        boolean rejectedDuplicate = refusal != null;
+        Integer duplicateChapterId = refusal == null ? null : refusal.chapterId();
         String message = failure.getMessage() == null ? failure.toString() : failure.getMessage();
         // The chapter may already exist; the failed list shows it.
         Integer chapterId = item.getGalleryId() == null
                 ? null : importService.findChapterId(item.getGalleryId()).orElse(null);
 
-        var outcome = queueService.recordFailure(item, message, chapterId, permanent,
-                appProperties.getDownload().getMaxAttempts());
+        var outcome = queueService.recordFailure(item, message, chapterId, permanent, rejectedDuplicate,
+                duplicateChapterId, appProperties.getDownload().getMaxAttempts());
         if (outcome == DownloadQueueService.FailureOutcome.SUPERSEDED)
         {
             // No backoff: the changed request has not been tried yet.
@@ -442,7 +446,8 @@ public class DownloadWorker
         long runnable = queueService.anySourceRefusing() ? queueService.runnableCount() : pending;
         Current now = current;
         return new DownloadProgress(done, done + runnable, pending, runnable, queueService.failedCount(),
-                now == null ? null : now.link(), now == null ? null : now.phase(), isPaused());
+                queueService.rejectedCount(), now == null ? null : now.link(),
+                now == null ? null : now.phase(), isPaused());
     }
 
     private record Current(String link, String phase)

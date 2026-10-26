@@ -710,7 +710,7 @@
         }
         if (panel.getAttribute("data-active") === "true") { reloadSoon(); }
 
-        // --- Failed rows: retry or remove in place, so a long list does not jump back to the top each time ---
+        // --- Failed and rejected rows: retry or remove in place, so a long list does not jump back to the top ---
         //     Only a 204 counts as done: an expired login also answers with a redirect. A busy library keeps the
         //     row; anything else falls back to a plain post. A retried row is waiting now, so the page reloads
         //     shortly to show it there. Registered after confirm-delete, so a declined confirmation arrives
@@ -737,10 +737,14 @@
                     }
                     if (r.status !== 204) { throw new Error("HTTP " + r.status); }
                     var list = row.parentNode;
+                    var section = row.closest("section");
                     row.remove();
-                    document.querySelectorAll("[data-failed-count]").forEach(function (count) {
-                        count.textContent = Math.max(0, (parseInt(count.textContent, 10) || 0) - 1);
-                    });
+                    // Each list has its own count, so only the one this row left loses a row.
+                    if (section) {
+                        section.querySelectorAll("[data-queue-count]").forEach(function (count) {
+                            count.textContent = Math.max(0, (parseInt(count.textContent, 10) || 0) - 1);
+                        });
+                    }
                     // The list is capped: an empty one may have more rows behind it, or none left at all.
                     if (!list.querySelector(".queue-item")) { window.clearTimeout(timer); window.location.reload(); }
                     else if (/\/retry$/.test(form.action)) { reloadSoon(); }

@@ -5,6 +5,7 @@ import io.github.mocchikon.hentie.dto.ChapterForm;
 import io.github.mocchikon.hentie.entity.Chapter;
 import io.github.mocchikon.hentie.entity.DownloadQueueItem;
 import io.github.mocchikon.hentie.entity.DownloadStatus;
+import io.github.mocchikon.hentie.entity.DownloadedGallery;
 import io.github.mocchikon.hentie.repository.ChapterRepository;
 import io.github.mocchikon.hentie.repository.DownloadQueueRepository;
 import io.github.mocchikon.hentie.repository.DownloadedGalleryRepository;
@@ -28,6 +29,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.LocalDateTime;
 import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Stream;
@@ -85,11 +87,15 @@ class DownloadDuplicateTitleIT
         assertThat(worker.processNext()).isTrue();
         em.flush();
 
-        // THEN the item is failed after a single attempt, naming the chapter it clashed with.
+        // THEN the item is a rejected duplicate after a single attempt, naming the chapter it clashed with.
         DownloadQueueItem item = queueRepository.findByLink("mock:9500").orElseThrow();
         assertThat(item.getAttempts()).isEqualTo(1);
+        assertThat(item.isRejectedDuplicate()).isTrue();
+        assertThat(item.getDuplicateChapterId()).isEqualTo(holder);
         assertThat(item.getError()).contains("Chapter " + holder, "other:1", TITLE);
         assertThat(queueService.nextPending()).isEmpty();
+        assertThat(queueService.failedCount()).isZero();
+        assertThat(queueService.rejectedCount()).isEqualTo(1);
         // AND nothing was written for the refused gallery: no chapter, no downloaded record, no new tag.
         assertThat(chapterRepository.findByGalleryId("mock:9500")).isEmpty();
         assertThat(downloadedGalleryRepository.findById("mock:9500")).isEmpty();
@@ -109,8 +115,10 @@ class DownloadDuplicateTitleIT
         em.flush();
 
         // THEN
-        assertThat(queueRepository.findByLink("mock:9500").orElseThrow().getError())
-                .contains("Chapter " + holder, "without a gallery id");
+        DownloadQueueItem item = queueRepository.findByLink("mock:9500").orElseThrow();
+        assertThat(item.isRejectedDuplicate()).isTrue();
+        assertThat(item.getDuplicateChapterId()).isEqualTo(holder);
+        assertThat(item.getError()).contains("Chapter " + holder, "without a gallery id");
         assertThat(chapterRepository.findByGalleryId("mock:9500")).isEmpty();
     }
 
@@ -119,7 +127,7 @@ class DownloadDuplicateTitleIT
     void shouldTreatASourceWhoseNameMerelyStartsTheSameAsADifferentSource()
     {
         // GIVEN
-        chapter(TITLE, "mockx:1");
+        int holder = chapter(TITLE, "mockx:1");
         queueService.enqueue(List.of("mock:9500"), TestDownloads.choices(NO_COMPRESSION, true));
 
         // WHEN
@@ -127,7 +135,10 @@ class DownloadDuplicateTitleIT
         em.flush();
 
         // THEN
-        assertThat(queueRepository.findByLink("mock:9500").orElseThrow().getError()).contains("mockx:1");
+        DownloadQueueItem item = queueRepository.findByLink("mock:9500").orElseThrow();
+        assertThat(item.isRejectedDuplicate()).isTrue();
+        assertThat(item.getDuplicateChapterId()).isEqualTo(holder);
+        assertThat(item.getError()).contains("mockx:1");
         assertThat(chapterRepository.findByGalleryId("mock:9500")).isEmpty();
     }
 
@@ -238,21 +249,22 @@ class DownloadDuplicateTitleIT
         Integer chapterId = null;
         try
         {
-            // WHEN it is retried, singly and in bulk.
+            // WHEN it is retried.
             assertThat(queueService.retry(item.getId(), false, false)).isTrue();
             em.flush();
             em.clear();
             assertThat(queueRepository.findById(item.getId()).orElseThrow().isAvoidDuplicateTitles()).isTrue();
+            assertThat(queueRepository.findById(item.getId()).orElseThrow().isRejectedDuplicate()).isFalse();
             worker.processNext();
             em.flush();
-            assertThat(queueService.retryFailed(false)).isEqualTo(1);
-            em.clear();
 
-            // THEN the flag survived both retries...
-            assertThat(queueRepository.findById(item.getId()).orElseThrow().isAvoidDuplicateTitles()).isTrue();
+            // THEN the flag survived the retry, and the check refused it again...
+            DownloadQueueItem again = queueRepository.findById(item.getId()).orElseThrow();
+            assertThat(again.isAvoidDuplicateTitles()).isTrue();
+            assertThat(again.isRejectedDuplicate()).isTrue();
 
             // WHEN it is pasted again with the box cleared.
-            assertThat(queueService.enqueue(List.of("mock:9500"), TestDownloads.choices(NO_COMPRESSION, false)).alreadyQueued())
+            assertThat(queueService.enqueue(List.of("mock:9500"), TestDownloads.choices(NO_COMPRESSION, false)).requeued())
                     .isEqualTo(1);
             em.flush();
             em.clear();
@@ -294,6 +306,7 @@ class DownloadDuplicateTitleIT
             assertThat(retried.getAttempts()).isZero();
             assertThat(retried.isIgnoreImageErrors()).isFalse();
             assertThat(retried.isAvoidDuplicateTitles()).isFalse();
+            assertThat(retried.isRejectedDuplicate()).isFalse();
 
             // WHEN the worker takes it again.
             worker.processNext();
@@ -306,6 +319,125 @@ class DownloadDuplicateTitleIT
         {
             cleanUp(chapterId);
         }
+    }
+
+    /**
+     * The check also sees past downloads, so a gallery deleted after coming from another source cannot return
+     * through a different one.
+     */
+    @Test
+    void shouldRefuseANewGalleryWhoseTitleAPastDownloadFromAnotherSourceHolds()
+    {
+        // GIVEN a gallery from another source, downloaded and then deleted.
+        int holder = chapter(TITLE, "other:1");
+        pastDownload("other:1", holder, TITLE);
+        chapterService.delete(holder);
+        em.flush();
+        em.clear();
+        queueService.enqueue(List.of("mock:9500"), TestDownloads.choices(NO_COMPRESSION, true));
+
+        // WHEN
+        worker.processNext();
+        em.flush();
+
+        // THEN it is refused, naming the gallery that was downloaded before.
+        DownloadQueueItem item = queueRepository.findByLink("mock:9500").orElseThrow();
+        assertThat(item.isRejectedDuplicate()).isTrue();
+        assertThat(item.getDuplicateChapterId()).isNull();
+        assertThat(item.getError()).contains("other:1", TITLE);
+        assertThat(chapterRepository.findByGalleryId("mock:9500")).isEmpty();
+        assertThat(downloadedGalleryRepository.findById("mock:9500")).isEmpty();
+    }
+
+    /** Its own source's past downloads are never compared: their gallery ids tell them apart. */
+    @Test
+    void shouldDownloadTheGalleryWhenOnlyAPastDownloadFromTheSameSourceHasTheTitle()
+    {
+        // GIVEN a past download of the same source whose chapter was deleted since.
+        int holder = chapter(TITLE, "mock:9599");
+        pastDownload("mock:9599", holder, TITLE);
+        chapterService.delete(holder);
+        em.flush();
+        em.clear();
+        queueService.enqueue(List.of("mock:9500"), TestDownloads.choices(NO_COMPRESSION, true));
+        Integer chapterId = null;
+        try
+        {
+            // WHEN
+            worker.processNext();
+            em.flush();
+
+            // THEN it downloads.
+            chapterId = downloaded("mock:9500");
+        }
+        finally
+        {
+            cleanUp(chapterId);
+        }
+    }
+
+    /** A deleted chapter may come back by pasting its own link; its record is the same source. */
+    @Test
+    void shouldDownloadItsOwnGalleryAgainWhenItsChapterWasDeleted()
+    {
+        // GIVEN the gallery downloaded once and its chapter deleted since.
+        queueService.enqueue(List.of("mock:9500"), TestDownloads.choices(NO_COMPRESSION, true));
+        worker.processNext();
+        em.flush();
+        chapterService.delete(chapterRepository.findByGalleryId("mock:9500").orElseThrow().getId());
+        em.flush();
+        em.clear();
+
+        // WHEN its link is queued again with the same check.
+        queueService.enqueue(List.of("mock:9500"), TestDownloads.choices(NO_COMPRESSION, true));
+        Integer chapterId = null;
+        try
+        {
+            worker.processNext();
+            em.flush();
+
+            // THEN it downloads.
+            chapterId = downloaded("mock:9500");
+        }
+        finally
+        {
+            cleanUp(chapterId);
+        }
+    }
+
+    /** The useful bulk action: keeping the check would refuse every one of them again. */
+    @Test
+    void shouldRetryEveryRejectedDuplicateAllowingTheTitle() throws IOException
+    {
+        // GIVEN two galleries refused by the check.
+        writeGallery("9501", TITLE);
+        chapter(TITLE, "other:1");
+        queueService.enqueue(List.of("mock:9500", "mock:9501"), TestDownloads.choices(NO_COMPRESSION, true));
+        worker.processNext();
+        worker.processNext();
+        em.flush();
+        assertThat(queueService.rejectedCount()).isEqualTo(2);
+        // AND the Failed list's own bulk actions leave them alone.
+        assertThat(queueService.retryFailed(false)).isZero();
+        assertThat(queueService.deleteFailed()).isZero();
+        assertThat(queueService.rejectedCount()).isEqualTo(2);
+
+        // WHEN they are all retried allowing duplicate titles.
+        assertThat(queueService.retryRejected()).isEqualTo(2);
+        em.flush();
+        em.clear();
+
+        // THEN both are waiting again, without the check and the rejected mark.
+        assertThat(queueRepository.findAll())
+                .filteredOn(item -> item.getGalleryId() != null && item.getGalleryId().startsWith("mock:950"))
+                .hasSize(2)
+                .allSatisfy(item ->
+                {
+                    assertThat(item.getError()).isNull();
+                    assertThat(item.getAttempts()).isZero();
+                    assertThat(item.isAvoidDuplicateTitles()).isFalse();
+                    assertThat(item.isRejectedDuplicate()).isFalse();
+                });
     }
 
     @Test
@@ -341,6 +473,18 @@ class DownloadDuplicateTitleIT
         int id = chapterService.create(form);
         em.flush();
         return id;
+    }
+
+    /** The permanent record a download leaves, as {@code GalleryImportService.recordDownloaded} writes it. */
+    private void pastDownload(String galleryId, int chapterId, String titleFull)
+    {
+        var record = new DownloadedGallery();
+        record.setGalleryId(galleryId);
+        record.setChapterId(chapterId);
+        record.setTitleFull(titleFull);
+        record.setLanguage("English");
+        record.setDownloadedAt(LocalDateTime.now());
+        downloadedGalleryRepository.save(record);
     }
 
     private int downloaded(String galleryId)

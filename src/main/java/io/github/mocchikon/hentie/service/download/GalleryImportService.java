@@ -97,12 +97,13 @@ public class GalleryImportService
     }
 
     /**
-     * Catches the same work from two sites, which the gallery-id check cannot see. Galleries of one source
-     * are never compared: a source can hold two with one title. A chapter with no gallery id counts as
-     * another source. Must run before {@link #importChapter}, which creates new metadata rows a refused
-     * gallery must not leave behind.
+     * Catches the same work from two sites, which the gallery-id check cannot see. Both the library and the
+     * permanent record of past downloads are checked, so a gallery deleted after a download from another source
+     * does not come back through this one. Galleries of one source are never compared: a source can hold two
+     * with one title. A chapter with no gallery id counts as another source. Must run before
+     * {@link #importChapter}, which creates new metadata rows a refused gallery must not leave behind.
      *
-     * @throws PermanentDownloadException naming the chapter that holds the title
+     * @throws DuplicateTitleException naming the chapter or past download that holds the title
      */
     @Transactional(readOnly = true)
     public void rejectTitleFromOtherSources(GalleryData data, ResourceLink link)
@@ -113,8 +114,20 @@ public class GalleryImportService
         {
             var clash = clashes.getFirst();
             String source = clash.getGalleryId() == null ? "added without a gallery id" : "from " + clash.getGalleryId();
-            throw new PermanentDownloadException("Chapter " + clash.getId() + " (" + source + ") already has the title \""
-                    + titleFull + "\", and this link was queued to avoid duplicated titles from other sources.");
+            throw new DuplicateTitleException("Chapter " + clash.getId() + " (" + source + ") already has the title \""
+                    + titleFull + "\", and this link was queued to avoid duplicated titles from other sources.",
+                    clash.getId());
+        }
+        var pastDownloads = downloadedGalleryRepository.findTitleFromOtherSources(titleFull, link.galleryIdPrefix(),
+                Limit.of(1));
+        if (!pastDownloads.isEmpty())
+        {
+            var past = pastDownloads.getFirst();
+            // Its chapter may name one deleted since; only a link to a chapter that still opens is offered.
+            Integer chapterId = chapterRepository.existsById(past.getChapterId()) ? past.getChapterId() : null;
+            throw new DuplicateTitleException("Gallery " + past.getGalleryId() + " was downloaded before from another "
+                    + "source with the title \"" + titleFull + "\", and this link was queued to avoid duplicated "
+                    + "titles from other sources.", chapterId);
         }
     }
 
@@ -143,7 +156,11 @@ public class GalleryImportService
         return chapterId;
     }
 
-    /** Idempotent, so a resumed item does not fail; the first download's timestamp is kept. */
+    /**
+     * Idempotent, so a resumed item does not fail; the first download's timestamp is kept. Its title and language
+     * come from the chapter, which is what the duplicate-title check compares a new gallery against after the
+     * chapter is deleted.
+     */
     @Transactional
     public void recordDownloaded(String galleryId, int chapterId)
     {
@@ -151,9 +168,14 @@ public class GalleryImportService
         {
             return;
         }
+        Chapter chapter = chapterRepository.findById(chapterId)
+                .orElseThrow(() -> new IllegalStateException("Chapter " + chapterId + " of " + galleryId
+                        + " was deleted before its download could be recorded."));
         var downloaded = new DownloadedGallery();
         downloaded.setGalleryId(galleryId);
         downloaded.setChapterId(chapterId);
+        downloaded.setTitleFull(chapter.getTitleFull());
+        downloaded.setLanguage(chapter.getLanguage());
         downloaded.setDownloadedAt(LocalDateTime.now());
         downloadedGalleryRepository.save(downloaded);
     }

@@ -35,7 +35,7 @@ import java.util.List;
         // The ids alone, far smaller than the table: what an exclusion-only search subtracts from.
         @Index(name = "ix_series__id", columnList = "id"),
         // Candidate seeks for matching; without them lookup would load every series. The nearest-title walk uses
-        // ix_series__condensed_match_key (V4), an expression index @Index cannot declare.
+        // ix_series__condensed_match_key (V1), an expression index @Index cannot declare.
         @Index(name = "ix_series__match_key", columnList = "match_key, id")
 })
 @Getter

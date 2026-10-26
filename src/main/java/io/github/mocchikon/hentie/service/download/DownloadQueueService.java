@@ -86,6 +86,8 @@ public class DownloadQueueService
                     item.setIgnoreImageErrors(false);
                     item.setCompressionMode(mode);
                     item.setAvoidDuplicateTitles(avoidDuplicateTitles);
+                    item.setRejectedDuplicate(false);
+                    item.setDuplicateChapterId(null);
                     item.setReplacePages(false);
                     setGalleryDlOptions(item, galleryDl);
                     claim(item);
@@ -128,7 +130,7 @@ public class DownloadQueueService
     /**
      * Queues the galleries a subscription found and nobody queued yet, at {@link DownloadQueueItem#FROM_SUBSCRIPTION}.
      * <b>An existing row is never touched</b>, pending or failed: a paste chose its own way to download the gallery,
-     * and a failed row waits for the user's decision on the Failed list.
+     * and a failed row waits for the user's decision on the Failed or Rejected duplicates list.
      * <p>
      * Part of the subscription's page transaction (MANDATORY), so the rows commit together with the walk moving
      * past them, or neither does.
@@ -244,6 +246,8 @@ public class DownloadQueueService
         item.setIgnoreImageErrors(false);
         item.setCompressionMode(BuiltInCompressionMode.NONE.getKey());
         item.setAvoidDuplicateTitles(false);
+        item.setRejectedDuplicate(false);
+        item.setDuplicateChapterId(null);
         item.setReplacePages(true);
         setGalleryDlOptions(item, galleryDl);
         claim(item);
@@ -360,10 +364,16 @@ public class DownloadQueueService
     /**
      * Attempts are persisted, so a link that fails after every restart still runs out of them. A row whose
      * request changed meanwhile records nothing: the failure belonged to the old request.
+     *
+     * @param rejectedDuplicate  whether the duplicate-title check caused it, which puts the row on the Rejected
+     *                           duplicates list; any other failure clears the mark
+     * @param duplicateChapterId the chapter the check clashed with, so the list can link to it; null when there is
+     *                           none
      */
     @Transactional
     public FailureOutcome recordFailure(DownloadQueueItem attempted, String error, Integer chapterId,
-                                        boolean permanent, int maxAttempts)
+                                        boolean permanent, boolean rejectedDuplicate, Integer duplicateChapterId,
+                                        int maxAttempts)
     {
         DownloadQueueItem item = repository.findById(attempted.getId()).orElse(null);
         if (item == null)
@@ -379,6 +389,8 @@ public class DownloadQueueService
         {
             item.setChapterId(chapterId);
         }
+        item.setRejectedDuplicate(rejectedDuplicate);
+        item.setDuplicateChapterId(rejectedDuplicate ? duplicateChapterId : null);
         boolean giveUp = permanent || item.getAttempts() >= maxAttempts;
         if (giveUp)
         {
@@ -394,10 +406,17 @@ public class DownloadQueueService
         return repository.countByErrorIsNull();
     }
 
+    /** Downloads that went wrong; rejected duplicates are counted on their own list. */
     @Transactional(readOnly = true)
     public long failedCount()
     {
-        return repository.countByErrorIsNotNull();
+        return repository.countByErrorIsNotNullAndRejectedDuplicateFalse();
+    }
+
+    @Transactional(readOnly = true)
+    public long rejectedCount()
+    {
+        return repository.countByErrorIsNotNullAndRejectedDuplicateTrue();
     }
 
     /** In the order the worker takes them, so the list shows what runs next. */
@@ -410,7 +429,14 @@ public class DownloadQueueService
     @Transactional(readOnly = true)
     public List<DownloadQueueItem> failed()
     {
-        return repository.findByErrorIsNotNullOrderByPriorityAscIdAsc(Limit.of(LIST_LIMIT));
+        return repository.findByErrorIsNotNullAndRejectedDuplicateFalseOrderByPriorityAscIdAsc(Limit.of(LIST_LIMIT));
+    }
+
+    /** The duplicate-title check's refusals, apart from the downloads that failed. */
+    @Transactional(readOnly = true)
+    public List<DownloadQueueItem> rejectedDuplicates()
+    {
+        return repository.findByErrorIsNotNullAndRejectedDuplicateTrueOrderByPriorityAscIdAsc(Limit.of(LIST_LIMIT));
     }
 
     @Transactional(readOnly = true)
@@ -422,7 +448,7 @@ public class DownloadQueueService
     @Transactional(readOnly = true)
     public long failedFor(int subscriptionId)
     {
-        return repository.countBySubscriptionIdAndErrorIsNotNull(subscriptionId);
+        return repository.countBySubscriptionIdAndErrorIsNotNullAndRejectedDuplicateFalse(subscriptionId);
     }
 
     /** Waiting rows per subscription id, every subscription in one query. */
@@ -445,7 +471,10 @@ public class DownloadQueueService
         return counts;
     }
 
-    /** The flag is assigned, not OR-ed, so a plain retry undoes an earlier lenient one. */
+    /**
+     * The flag is assigned, not OR-ed, so a plain retry undoes an earlier lenient one. Rejected duplicates are
+     * left alone: their retry is {@link #retryRejected}, which also allows the title.
+     */
     @Transactional
     public int retryFailed(boolean ignoreImageErrors)
     {
@@ -454,7 +483,7 @@ public class DownloadQueueService
 
     /**
      * The duplicate-title check is kept unless {@code allowDuplicateTitle} clears it, and never turned on:
-     * that is a decision made on the paste form.
+     * that is a decision made on the paste form. Either way the row is no longer a rejected duplicate.
      */
     @Transactional
     public boolean retry(int id, boolean ignoreImageErrors, boolean allowDuplicateTitle)
@@ -466,6 +495,8 @@ public class DownloadQueueService
         }
         item.setError(null);
         item.setAttempts(0);
+        item.setRejectedDuplicate(false);
+        item.setDuplicateChapterId(null);
         item.setIgnoreImageErrors(ignoreImageErrors);
         if (allowDuplicateTitle)
         {
@@ -475,11 +506,25 @@ public class DownloadQueueService
         return true;
     }
 
+    /** Retries every rejected duplicate allowing its title: keeping the check would refuse them all again. */
+    @Transactional
+    public int retryRejected()
+    {
+        return repository.retryRejected();
+    }
+
     @Transactional
     public int deleteFailed()
     {
         repository.failedChapterIds().forEach(imageService::discardStagedPages);
         return repository.deleteFailed();
+    }
+
+    @Transactional
+    public int deleteRejected()
+    {
+        repository.rejectedChapterIds().forEach(imageService::discardStagedPages);
+        return repository.deleteRejected();
     }
 
     /**

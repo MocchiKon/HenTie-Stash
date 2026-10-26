@@ -6,8 +6,10 @@ import io.github.mocchikon.hentie.dto.MetadataType;
 import io.github.mocchikon.hentie.entity.Chapter;
 import io.github.mocchikon.hentie.entity.DownloadQueueItem;
 import io.github.mocchikon.hentie.entity.DownloadStatus;
+import io.github.mocchikon.hentie.entity.DownloadedGallery;
 import io.github.mocchikon.hentie.repository.ChapterRepository;
 import io.github.mocchikon.hentie.repository.DownloadQueueRepository;
+import io.github.mocchikon.hentie.repository.DownloadedGalleryRepository;
 import io.github.mocchikon.hentie.repository.MetadataRuleRepository;
 import io.github.mocchikon.hentie.scrapper.DataDownloaderRegistry;
 import io.github.mocchikon.hentie.scrapper.nhentai.NhentaiProperties;
@@ -44,6 +46,7 @@ class NhentaiDownloadIT
     @Autowired DataDownloaderRegistry registry;
     @Autowired ChapterRepository chapterRepository;
     @Autowired DownloadQueueRepository queueRepository;
+    @Autowired DownloadedGalleryRepository downloadedGalleryRepository;
     @Autowired MetadataRuleRepository ruleRepository;
     @Autowired ImageService imageService;
     @Autowired NhentaiProperties nhentaiProperties;
@@ -232,6 +235,38 @@ class NhentaiDownloadIT
             assertThat(chapter.getDownloadStatus()).isEqualTo(DownloadStatus.SUCCESSFUL);
             assertThat(chapter.getLanguage()).isEqualTo("Japanese");
             assertThat(queueRepository.findByLink("nhentai:181")).isEmpty();
+        }
+        finally
+        {
+            cleanUp(chapterId);
+        }
+    }
+
+    /**
+     * The permanent record outlives the chapter, so "avoid duplicated titles from other sources" can still see a
+     * gallery deleted since. It keeps the title and language the chapter got, not the source's whole language
+     * alias.
+     */
+    @Test
+    void shouldRecordTheFullTitleAndLanguageOfADownloadedGallery()
+    {
+        // GIVEN a gallery whose only language tag is one the app does not know as it is.
+        site.simpleGallery("182", 1, List.of("language:japanese | definition revised please read the wiki"));
+        queueService.enqueue(List.of("nhentai:182"), TestDownloads.choices(NO_COMPRESSION, false));
+        Integer chapterId = null;
+        try
+        {
+            // WHEN
+            assertThat(worker.processNext()).isTrue();
+            em.flush();
+
+            // THEN the permanent record carries the chapter's title and its language, canonically spelled.
+            Chapter chapter = chapterRepository.findByGalleryId("nhentai:182").orElseThrow();
+            chapterId = chapter.getId();
+            DownloadedGallery record = downloadedGalleryRepository.findById("nhentai:182").orElseThrow();
+            assertThat(record.getTitleFull()).isEqualTo(chapter.getTitleFull());
+            assertThat(record.getLanguage()).isEqualToIgnoringCase("japanese");
+            assertThat(record.getLanguage()).isEqualTo(chapter.getLanguage());
         }
         finally
         {

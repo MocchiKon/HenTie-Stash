@@ -299,12 +299,43 @@ public class ChapterController
         var pending = downloadQueueService.pending();
         model.addAttribute("pending", pending);
         model.addAttribute("failed", downloadQueueService.failed());
+        var rejected = downloadQueueService.rejectedDuplicates();
+        model.addAttribute("rejectedDuplicates", rejected);
+        model.addAttribute("sourceLinks", sourceLinks(rejected));
         model.addAttribute("subscriptionTitles", subscriptionService.titlesById());
         model.addAttribute("deferredUntil", deferredUntil(pending));
         model.addAttribute("listLimit", DownloadQueueService.LIST_LIMIT);
         // Once per render, not per row: each mode lookup is a repository read.
         model.addAttribute("compressionModeNames", compressionModeService.namesByKey());
         return "download-queue";
+    }
+
+    /**
+     * The gallery's page on its source's website, keyed by queue row. A source with no website (the mock) or a
+     * gallery id no source recognizes gets none, and the row shows its link as plain text.
+     */
+    private Map<Integer, String> sourceLinks(List<DownloadQueueItem> rejected)
+    {
+        var links = new HashMap<Integer, String>();
+        for (var item : rejected)
+        {
+            String link = item.getGalleryId() == null ? null
+                    : downloaderRegistry.linkFor(item.getGalleryId()).orElse(null);
+            if (!isWebUrl(link) && isWebUrl(item.getLink()))
+            {
+                link = item.getLink();
+            }
+            if (isWebUrl(link))
+            {
+                links.put(item.getId(), link);
+            }
+        }
+        return links;
+    }
+
+    private static boolean isWebUrl(String link)
+    {
+        return link != null && (link.startsWith("https://") || link.startsWith("http://"));
     }
 
     /** A subscription's rows of a source sitting out a ban wait for it, and the page says until when. */
@@ -327,7 +358,10 @@ public class ChapterController
         return REDIRECT_CHAPTER_QUEUE;
     }
 
-    /** {@code ignoreImageErrors} retries in lenient mode: keep the pages that download, skip the ones that fail. */
+    /**
+     * {@code ignoreImageErrors} retries in lenient mode: keep the pages that download, skip the ones that fail.
+     * Rejected duplicates have their own retry, because a retry of one has to allow its title.
+     */
     @PostMapping("/queue/retry-failed")
     public String retryFailed(@RequestParam(defaultValue = "false") boolean ignoreImageErrors,
                               RedirectAttributes redirectAttributes)
@@ -359,9 +393,9 @@ public class ChapterController
     }
 
     /**
-     * The queue page's failed rows retry without leaving the page, which keeps its scroll position in a long
-     * list. 204 even for a row that is gone (removed in another tab): either way it no longer belongs on the
-     * Failed list, and only a 204 proves the request reached the app, since an expired login also redirects.
+     * The queue page's failed and rejected rows retry without leaving the page, which keeps its scroll position in
+     * a long list. 204 even for a row that is gone (removed in another tab): either way it no longer belongs on its
+     * list, and only a 204 proves the request reached the app, since an expired login also redirects.
      */
     @PostMapping(value = "/queue/{id:\\d+}/retry", params = IN_PLACE)
     @ResponseBody
@@ -375,6 +409,22 @@ public class ChapterController
             downloadWorker.kick();
         }
         return ResponseEntity.noContent().build();
+    }
+
+    /** The whole list at once; a rejection is only ever decided by the title, never by an image. */
+    @PostMapping("/queue/retry-rejected")
+    public String retryRejected(RedirectAttributes redirectAttributes)
+    {
+        redirectAttributes.addFlashAttribute("retriedRejectedCount", downloadQueueService.retryRejected());
+        downloadWorker.kick();
+        return REDIRECT_CHAPTER_QUEUE;
+    }
+
+    @PostMapping("/queue/clear-rejected")
+    public String clearRejected(RedirectAttributes redirectAttributes)
+    {
+        redirectAttributes.addFlashAttribute("clearedRejectedCount", downloadQueueService.deleteRejected());
+        return REDIRECT_CHAPTER_QUEUE;
     }
 
     @PostMapping("/queue/clear-failed")

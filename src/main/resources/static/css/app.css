@@ -725,12 +725,20 @@ a.text-link:hover, .guide a:hover { color: var(--accent); }
     background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius);
 }
 .queue-item.failed { border-color: var(--danger); }
+/* A refusal, not a failure: the same weight as a warning, not the red of an error. */
+.queue-item.rejected { border-color: var(--warning-text); }
 .queue-item.is-busy { opacity: .5; }
 .queue-item .inline-form { margin: 0; }
 /* One wrapper: margin-left:auto on each form would spread the buttons instead of grouping them. */
 .queue-actions { display: flex; flex-wrap: wrap; gap: .4rem; margin-left: auto; }
 .queue-link { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .9rem; min-width: 0; overflow-wrap: anywhere; word-break: break-word; }
+/* A source link has to look clickable; every other queue link is plain text. */
+a.queue-link { text-decoration: underline; }
+a.queue-link:hover { color: var(--accent); }
 .queue-error { color: var(--muted); font-size: .85rem; flex: 1 1 100%; min-width: 0; overflow-wrap: anywhere; word-break: break-word; }
+/* The chapter named inside a rejected duplicate's message is the row's one link in running text. */
+.queue-error a { text-decoration: underline; }
+.queue-error a:hover { color: var(--accent); }
 
 /* ===== Metadata rules ===== */
 /* The label stays on one line with its box; the hint after it may wrap on a phone. */

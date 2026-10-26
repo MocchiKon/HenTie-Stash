@@ -309,7 +309,7 @@ class ChapterControllerIT
         // THEN
         result.andExpect(status().isOk())
                 .andExpect(view().name("download-queue"))
-                .andExpect(model().attributeExists("progress", "pending", "failed"));
+                .andExpect(model().attributeExists("progress", "pending", "failed", "rejectedDuplicates"));
     }
 
     @Test
@@ -697,7 +697,7 @@ class ChapterControllerIT
                     + "/retry\" class=\"inline-form queue-in-place\">");
             assertThat(html).containsPattern("<form method=\"post\" action=\"/chapter/queue/" + removedId
                     + "/remove\" class=\"inline-form queue-in-place\">");
-            assertThat(html).contains("data-failed-count");
+            assertThat(html).contains("data-queue-count");
 
             // WHEN one row's "Retry ignoring image errors" is posted in place.
             mvc.perform(post("/chapter/queue/" + retriedId + "/retry").with(user("user")).with(csrf())
@@ -731,15 +731,19 @@ class ChapterControllerIT
         }
     }
 
-    /** Every other retry of such a row would be refused again. The button clears only the flag. */
+    /**
+     * Every other retry of such a row would be refused again. The button clears only the flag, and lives in the
+     * Rejected duplicates list rather than beside a failed download.
+     */
     @Test
-    void shouldOfferRetryAllowingDuplicateTitleOnlyOnAFailedRowCarryingTheFlag() throws Exception
+    void shouldOfferRetryAllowingDuplicateTitleOnlyOnARejectedDuplicate() throws Exception
     {
-        // GIVEN two failed rows, one queued avoiding duplicated titles.
+        // GIVEN one rejected duplicate and one ordinary failure.
         var flagged = TestDownloads.queueItem("mock:8005", "mock:8005");
         flagged.setError("Chapter 1 (from other:1) already has the title");
         flagged.setAttempts(1);
         flagged.setAvoidDuplicateTitles(true);
+        flagged.setRejectedDuplicate(true);
         int flaggedId = downloadQueueRepository.save(flagged).getId();
         var plain = TestDownloads.queueItem("mock:8006", "mock:8006");
         plain.setError("page 2 could not be downloaded");
@@ -751,14 +755,20 @@ class ChapterControllerIT
             String html = mvc.perform(get("/chapter/queue").with(user("user")))
                     .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
 
-            // THEN only the flagged row carries the button that drops the check, and the flag is shown.
+            // THEN the rejected row is in its own list after the Failed one, with the button that drops the check.
             // (Spring Security inserts the CSRF field as the form's first child.)
             String csrfField = "(\\s*<input type=\"hidden\" name=\"_csrf\"[^>]*>)?\\s*";
+            int flaggedForm = html.indexOf("action=\"/chapter/queue/" + flaggedId + "/retry\"");
+            assertThat(html).contains("Rejected duplicates (");
+            assertThat(html.indexOf("Failed (", html.indexOf("Waiting ("))).isLessThan(flaggedForm);
+            assertThat(html.indexOf("Rejected duplicates (")).isLessThan(flaggedForm);
             assertThat(html).containsPattern("action=\"/chapter/queue/" + flaggedId + "/retry\"[^>]*>"
                     + csrfField + "<input type=\"hidden\" name=\"allowDuplicateTitle\" value=\"true\">");
             assertThat(html).doesNotContainPattern("action=\"/chapter/queue/" + plainId + "/retry\"[^>]*>"
                     + csrfField + "<input type=\"hidden\" name=\"allowDuplicateTitle\"");
-            assertThat(html).contains("avoiding duplicated titles");
+            // AND the whole list has its own buttons.
+            assertThat(html).contains("action=\"/chapter/queue/retry-rejected\"",
+                    "action=\"/chapter/queue/clear-rejected\"");
 
             // WHEN that button is used.
             mvc.perform(post("/chapter/queue/" + flaggedId + "/retry").with(user("user")).with(csrf())
@@ -766,17 +776,90 @@ class ChapterControllerIT
                     .andExpect(status().is3xxRedirection())
                     .andExpect(redirectedUrl("/chapter/queue"));
 
-            // THEN the row is pending again, strict about images, with the check off.
+            // THEN the row is pending again, strict about images, with the check and the rejected mark off.
             DownloadQueueItem retried = downloadQueueRepository.findById(flaggedId).orElseThrow();
             assertThat(retried.getError()).isNull();
             assertThat(retried.getAttempts()).isZero();
             assertThat(retried.isIgnoreImageErrors()).isFalse();
             assertThat(retried.isAvoidDuplicateTitles()).isFalse();
+            assertThat(retried.isRejectedDuplicate()).isFalse();
         }
         finally
         {
             downloadQueueRepository.deleteById(flaggedId);
             downloadQueueRepository.deleteById(plainId);
+        }
+    }
+
+    /** Its source's own address, and the chapter in the app that refused it: both open from the list. */
+    @Test
+    void shouldLinkARejectedDuplicateToItsSourceAndToTheChapterItClashedWith() throws Exception
+    {
+        // GIVEN a rejected nhentai link whose title chapter 42 holds.
+        var rejected = TestDownloads.queueItem("nhentai:8005", "nhentai:8005");
+        rejected.setError("Chapter 42 (from nhentai:1) already has the title");
+        rejected.setAttempts(1);
+        rejected.setAvoidDuplicateTitles(true);
+        rejected.setRejectedDuplicate(true);
+        rejected.setDuplicateChapterId(42);
+        int id = downloadQueueRepository.save(rejected).getId();
+        try
+        {
+            // WHEN the queue page is rendered.
+            String html = mvc.perform(get("/chapter/queue").with(user("user")))
+                    .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+
+            // THEN the row links to the gallery's own page...
+            assertThat(html).containsPattern("<a class=\"queue-link\" href=\"https://nhentai.net/g/8005/\"[^>]*>"
+                    + "nhentai:8005</a>");
+            // ...and the chapter at the start of the message is that link, not a second copy of the text.
+            assertThat(html).containsPattern("<a href=\"/chapter/42\">Chapter 42</a><span> \\(from nhentai:1\\)");
+        }
+        finally
+        {
+            downloadQueueRepository.deleteById(id);
+        }
+    }
+
+    /** The rejected list's own bulk actions, so its rows never need the Failed list's. */
+    @Test
+    void shouldRetryAndThenRemoveEveryRejectedDuplicateFromItsOwnButtons() throws Exception
+    {
+        // GIVEN one rejected duplicate.
+        var flagged = TestDownloads.queueItem("mock:8009", "mock:8009");
+        flagged.setError("Chapter 1 (from other:1) already has the title");
+        flagged.setAttempts(1);
+        flagged.setAvoidDuplicateTitles(true);
+        flagged.setRejectedDuplicate(true);
+        int id = downloadQueueRepository.save(flagged).getId();
+        try
+        {
+            // WHEN "Retry all allowing duplicate title" is used.
+            mvc.perform(post("/chapter/queue/retry-rejected").with(user("user")).with(csrf()))
+                    .andExpect(status().is3xxRedirection())
+                    .andExpect(redirectedUrl("/chapter/queue"))
+                    .andExpect(flash().attribute("retriedRejectedCount", 1));
+
+            // THEN it is waiting again, without the check.
+            DownloadQueueItem retried = downloadQueueRepository.findById(id).orElseThrow();
+            assertThat(retried.getError()).isNull();
+            assertThat(retried.isAvoidDuplicateTitles()).isFalse();
+
+            // WHEN it is rejected again and then removed with the list's own button.
+            retried.setError("Chapter 1 (from other:1) already has the title");
+            retried.setRejectedDuplicate(true);
+            downloadQueueRepository.save(retried);
+            mvc.perform(post("/chapter/queue/clear-rejected").with(user("user")).with(csrf()))
+                    .andExpect(status().is3xxRedirection())
+                    .andExpect(redirectedUrl("/chapter/queue"))
+                    .andExpect(flash().attribute("clearedRejectedCount", 1));
+
+            // THEN it is gone.
+            assertThat(downloadQueueRepository.existsById(id)).isFalse();
+        }
+        finally
+        {
+            downloadQueueRepository.findById(id).ifPresent(downloadQueueRepository::delete);
         }
     }
 

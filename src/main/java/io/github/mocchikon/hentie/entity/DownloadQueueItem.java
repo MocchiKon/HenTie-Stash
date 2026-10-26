@@ -16,7 +16,7 @@ import java.time.LocalDateTime;
  */
 @Entity
 @Table(name = "download_queue", indexes = {
-        // Serves both the worker's pending-in-order query and the failed list.
+        // Serves the worker's pending-in-order query. The failed and rejected lists have a partial index each (V4).
         @Index(name = "ix_download_queue__error_priority_id", columnList = "error, priority, id"),
         // Every enqueue looks its gallery up.
         @Index(name = "ix_download_queue__gallery_id", columnList = "gallery_id"),
@@ -77,6 +77,20 @@ public class DownloadQueueItem
      */
     @Column(name = "avoid_duplicate_titles", nullable = false, columnDefinition = "boolean not null default 0")
     private boolean avoidDuplicateTitles = false;
+
+    /**
+     * Its recorded failure is the duplicate-title check, so the queue lists it under "Rejected duplicates"
+     * rather than with downloads that went wrong. A retry clears it, as no other failure means this.
+     */
+    @Column(name = "rejected_duplicate", nullable = false, columnDefinition = "boolean not null default 0")
+    private boolean rejectedDuplicate = false;
+
+    /**
+     * The chapter that already holds the title, for the Rejected duplicates list to link to it. Null when the
+     * clash was a past download whose chapter is gone, or when the row's failure was not a refusal.
+     */
+    @Column(name = "duplicate_chapter_id")
+    private Integer duplicateChapterId;
 
     /**
      * Full-quality re-download: replace the pages the chapter has, uncompressed. An ordinary download never

@@ -30,7 +30,7 @@ class SchemaMigrationIT
     void shouldMatchTheEntityMappingsWhenSchemaComesFromMigrations()
     {
         // Starting the context is the real check; this assertion keeps the test from passing vacuously.
-        assertThat(appliedMigrations()).containsExactly("1", "2", "3");
+        assertThat(appliedMigrations()).containsExactly("1", "2", "3", "4", "5", "6");
     }
 
     @Test
@@ -119,15 +119,34 @@ class SchemaMigrationIT
     }
 
     /**
-     * A missing column would silently download every duplicate; a missing index would make each checked
-     * download scan the chapter table.
+     * A missing column would silently download every duplicate or lose what a past download was called; a missing
+     * index would make each checked download scan the chapter or downloaded-gallery table.
      */
     @Test
     void shouldCreateTheDuplicateTitleSchemaWhenMigrating()
     {
         // GIVEN + WHEN + THEN
-        assertThat(columnNames("download_queue")).contains("avoid_duplicate_titles");
-        assertThat(objectNames("type = 'index'")).contains("ix_chapter__title_full_gallery_id");
+        assertThat(columnNames("download_queue")).contains("avoid_duplicate_titles", "rejected_duplicate",
+                "duplicate_chapter_id");
+        assertThat(columnNames("downloaded_gallery")).contains("title_full", "language");
+        assertThat(objectNames("type = 'index'")).contains("ix_chapter__title_full_gallery_id",
+                "ix_downloaded_gallery__title_full_gallery_id",
+                "ix_download_queue__failed_priority_id", "ix_download_queue__rejected_priority_id");
+    }
+
+    /**
+     * The two lists are walked in (priority, id) order without reading each other's rows, so each partial index
+     * has to keep its own condition; without one the queue would sort every failed row on each page.
+     */
+    @Test
+    void shouldKeepTheFailedAndRejectedListsOnTheirOwnPartialIndexesWhenMigrating()
+    {
+        // GIVEN + WHEN + THEN
+        assertThat(jdbc.queryForList("SELECT sql FROM sqlite_master WHERE type = 'index' AND name IN "
+                + "('ix_download_queue__failed_priority_id', 'ix_download_queue__rejected_priority_id')", String.class))
+                .hasSize(2)
+                .anySatisfy(sql -> assertThat(sql).contains("where error is not null and rejected_duplicate = 0"))
+                .anySatisfy(sql -> assertThat(sql).contains("where error is not null and rejected_duplicate = 1"));
     }
 
     /**
