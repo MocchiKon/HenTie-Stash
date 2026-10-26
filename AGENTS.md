@@ -97,7 +97,8 @@ Flyway history.
 - **Flyway owns the schema; Hibernate never generates DDL** (`ddl-auto=none`). `V1__initial_schema.sql`
   builds everything from an empty file (tables, indexes, FTS5 tables, triggers). There is **no
   `baseline-on-migrate`**, so a non-empty foreign database makes `migrate()` fail loudly. During
-  development a change goes in a new `V<n>__*.sql`; the history is folded into V1 before release.
+  development a change goes in a new `V<n>__*.sql`. **A migration that has shipped is never edited**: its checksum is in every installed database's
+  `flyway_schema_history`, so changing it fails validation on the next start. Add the next `V<n>__*.sql` instead.
   `SchemaMigrationIT` boots with `ddl-auto=validate` and checks the FTS tables, triggers, foreign keys and
   indexes that Hibernate cannot validate.
 - **Every join table has `ON DELETE CASCADE` foreign keys to both its owner and its metadata row**
@@ -775,7 +776,9 @@ decides** — a `SearchSource` never touches the database. Manage → Chapters �
   Removing a row is not remembered, so a re-check or another subscription may queue it again; a paste always
   downloads.
 - **Its rows run after what the user asks for** (priority 1, see "Chapter downloading"). Deleting a subscription
-  keeps them (`ON DELETE SET NULL`, the priority stays); pausing stops only the listing.
+  keeps them (`ON DELETE SET NULL`, the priority stays); pausing stops only the listing. **A subscription's own
+  priority** (`subscription.priority`, 0 highest, 1 default) **orders its walk, not those rows**: the runner steps
+  the lowest number with something due first.
 - **Listing follows the downloads**: beyond its check a subscription lists only while fewer than
   `app.subscriptions.queue-ahead` (50) of its rows wait and fewer than `failed-limit` (50) failed. A broad search
   would otherwise fill the queue with rows chosen before an edit, and downloads that fail at once (no gallery-dl,
@@ -795,8 +798,9 @@ decides** — a `SearchSource` never touches the database. Manage → Chapters �
 - **Counters count a gallery the first time it is listed** (above the head or below the tail); one listed again
   counts only if it gets queued.
 - **The runner** (`SubscriptionRunner`): one platform daemon thread per `SearchSource`, so a site sitting out a 429
-  never holds up another; each takes its subscriptions in turn, one page each. It starts on `ApplicationReadyEvent`
-  when `app.subscriptions.enabled` — that start is the resume — and `runNext()` is the test seam.
+  never holds up another; each takes its subscriptions by priority, one page each, in turn among equal priorities.
+  It starts on `ApplicationReadyEvent` when `app.subscriptions.enabled` — that start is the resume — and `runNext()`
+  is the test seam.
   - A failed step backs the subscription off: doubling from `retry-after-failure-seconds`, up to its polling
     interval, worked out from stored columns so a restart waits too. A source refusing every download
     (`refusingUntil`, e-hentai's cooldown) is not asked at all, for any of its sites; a `RetryLaterException` parks

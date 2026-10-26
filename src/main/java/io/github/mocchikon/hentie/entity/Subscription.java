@@ -26,6 +26,9 @@ import java.time.LocalDateTime;
 @Setter
 public class Subscription
 {
+    /** What a new subscription starts at; 0 is the highest, so 1 leaves room to promote one. */
+    public static final int DEFAULT_PRIORITY = 1;
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Integer id;
@@ -33,6 +36,10 @@ public class Subscription
     /** Optional; the query stands in for it. */
     @Column(name = "name", length = 255)
     private String name;
+
+    /** 0 is the highest: the runner steps the lowest number with something due first. */
+    @Column(name = "priority", nullable = false, columnDefinition = "integer not null default 1")
+    private int priority = DEFAULT_PRIORITY;
 
     /** A search site's key ({@code SearchSource.SearchSite}): stored, so a site's key is never renamed. */
     @Column(name = "source", nullable = false, length = 32)

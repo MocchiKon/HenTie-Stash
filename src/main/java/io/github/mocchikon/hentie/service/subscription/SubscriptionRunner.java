@@ -23,6 +23,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -32,8 +33,9 @@ import java.util.concurrent.ConcurrentHashMap;
  * Walks the subscriptions' searches, one page per step, and queues what they find.
  * <p>
  * <b>One thread per search source</b>, so a site that asks to slow down (nhentai's 429s are sat out for up to minutes)
- * never holds up another. Each thread takes its source's subscriptions in turn, one step each, so one long walk never
- * starves the others. Platform threads: a virtual one would pin its carrier while SQLite's native code waits for the
+ * never holds up another. Each thread takes its source's subscriptions by priority (0 first), one step each, in turn
+ * among equal priorities, so a higher priority is always handled before a lower one that is due and a long walk never
+ * starves its equals. Platform threads: a virtual one would pin its carrier while SQLite's native code waits for the
  * lock.
  * <p>
  * <b>A step fetches outside any transaction and writes in one short one</b> ({@link SubscriptionService#applyPage}),
@@ -240,7 +242,10 @@ public class SubscriptionRunner
         return false;
     }
 
-    /** Starting after the one stepped last, so every subscription gets its turn. */
+    /**
+     * Priority first (0 highest), then the one after the last stepped one within its priority group, so every
+     * subscription of the same importance gets its turn while a higher priority always goes before a lower one.
+     */
     private List<Subscription> inTurn(SearchSource source, List<Subscription> subscriptions)
     {
         Integer last = lastStepped.get(source.sourcePrefix());
@@ -249,9 +254,36 @@ public class SubscriptionRunner
             return subscriptions;
         }
         var ordered = new ArrayList<Subscription>(subscriptions.size());
-        subscriptions.stream().filter(s -> s.getId() > last).forEach(ordered::add);
-        subscriptions.stream().filter(s -> s.getId() <= last).forEach(ordered::add);
+        for (int start = 0; start < subscriptions.size(); )
+        {
+            int priority = subscriptions.get(start).getPriority();
+            int end = start;
+            while (end < subscriptions.size() && subscriptions.get(end).getPriority() == priority)
+            {
+                end++;
+            }
+            var group = new ArrayList<>(subscriptions.subList(start, end));
+            int lastIndex = indexOf(group, last);
+            if (lastIndex >= 0)
+            {
+                Collections.rotate(group, -(lastIndex + 1));
+            }
+            ordered.addAll(group);
+            start = end;
+        }
         return ordered;
+    }
+
+    private static int indexOf(List<Subscription> subscriptions, Integer id)
+    {
+        for (int i = 0; i < subscriptions.size(); i++)
+        {
+            if (subscriptions.get(i).getId().equals(id))
+            {
+                return i;
+            }
+        }
+        return -1;
     }
 
     private boolean isParked(String site)

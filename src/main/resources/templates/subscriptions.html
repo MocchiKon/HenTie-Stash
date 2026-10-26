@@ -33,6 +33,9 @@
         Removing a gallery from the queue does not stop a re-check, or another subscription with a similar search,
         from queueing it again. Pause a subscription to stop it listing; what it queued still downloads.
     </p>
+    <p class="hint">
+        A lower priority number is handled first: 0 is the highest.
+    </p>
 
     <p class="empty" th:if="${#lists.isEmpty(subscriptions)}">No subscriptions yet.</p>
 
@@ -41,6 +44,7 @@
             <div class="subscription-head">
                 <span class="rule-name" th:text="${s.title()}">title</span>
                 <span class="badge" th:text="${s.siteLabel()}">nhentai</span>
+                <span class="badge" th:text="'Priority ' + ${s.priority()}">Priority 1</span>
                 <span class="badge incomplete" th:unless="${s.enabled()}">Paused</span>
             </div>
             <p class="subscription-status" th:classappend="${s.statusKind()}" th:text="${s.status()}">Up to date.</p>

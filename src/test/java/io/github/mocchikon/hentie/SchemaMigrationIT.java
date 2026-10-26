@@ -30,7 +30,7 @@ class SchemaMigrationIT
     void shouldMatchTheEntityMappingsWhenSchemaComesFromMigrations()
     {
         // Starting the context is the real check; this assertion keeps the test from passing vacuously.
-        assertThat(appliedMigrations()).containsExactly("1");
+        assertThat(appliedMigrations()).containsExactly("1", "2");
     }
 
     @Test
@@ -141,9 +141,9 @@ class SchemaMigrationIT
         // GIVEN + WHEN + THEN
         assertThat(objectNames("type = 'table'")).contains("subscription", "subscription_checkpoint");
         assertThat(columnNames("download_queue")).contains("priority", "subscription_id");
-        assertThat(columnNames("subscription")).contains("newest_gallery_id", "oldest_gallery_id", "oldest_cursor",
-                "catch_up_top", "catch_up_cursor", "catch_up_stop", "revision", "recheck_every_hours",
-                "recheck_depth_hours");
+        assertThat(columnNames("subscription")).contains("priority", "newest_gallery_id", "oldest_gallery_id",
+                "oldest_cursor", "catch_up_top", "catch_up_cursor", "catch_up_stop", "revision",
+                "recheck_every_hours", "recheck_depth_hours");
         assertThat(objectNames("type = 'index'")).contains("ix_download_queue__error_priority_id",
                 "ix_download_queue__gallery_id", "ix_download_queue__subscription_error",
                 "ix_subscription_checkpoint__subscription_recorded");
@@ -151,6 +151,30 @@ class SchemaMigrationIT
         assertThat(foreignKeys("download_queue")).containsExactly("subscription_id -> subscription(id) SET NULL");
         assertThat(foreignKeys("subscription_checkpoint"))
                 .containsExactly("subscription_id -> subscription(id) CASCADE");
+    }
+
+    /**
+     * A subscription's priority must be there and default to 1, so an existing subscription keeps running at the
+     * default after the schema is built. The runner reads it on every step, and a missing default would leave a
+     * hand-inserted row at 0 - the highest.
+     */
+    @Test
+    void shouldGiveEverySubscriptionPriorityOneWhenMigrating()
+    {
+        // GIVEN a row inserted without a priority, as V2 leaves every existing subscription
+        jdbc.update("INSERT INTO subscription (source, query, poll_minutes, recheck_every_hours, "
+                + "recheck_depth_hours, request_delay, created_at) "
+                + "VALUES ('nhentai', 'priority probe', 60, 24, 48, '0', CURRENT_TIMESTAMP)");
+        Long id = jdbc.queryForObject("SELECT id FROM subscription WHERE query = 'priority probe'", Long.class);
+
+        // WHEN + THEN
+        assertThat(jdbc.queryForObject("SELECT priority FROM subscription WHERE id = ?", Integer.class, id))
+                .isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT dflt_value FROM pragma_table_info('subscription') "
+                + "WHERE name = 'priority'", String.class)).isEqualTo("1");
+        assertThat(jdbc.queryForObject("SELECT \"notnull\" FROM pragma_table_info('subscription') "
+                + "WHERE name = 'priority'", Integer.class)).isOne();
+        jdbc.update("DELETE FROM subscription WHERE id = ?", id);
     }
 
     /**

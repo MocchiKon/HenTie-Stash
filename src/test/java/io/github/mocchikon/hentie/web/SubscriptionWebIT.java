@@ -107,14 +107,50 @@ class SubscriptionWebIT
         assertThat(saved.getRecheckEveryHours()).isEqualTo(24);
         assertThat(saved.getRecheckDepthHours()).isEqualTo(48);
         assertThat(saved.isEnabled()).isTrue();
+        assertThat(saved.getPriority()).isEqualTo(1);
         mvc.perform(get("/subscriptions").with(user("user")))
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString("Someone")))
+                .andExpect(content().string(containsString("Priority 1")))
                 .andExpect(content().string(containsString("Starting: the newest galleries are listed first.")))
                 .andExpect(content().string(containsString("https://nhentai.net/search/?q=artist%3Asomeone")));
         mvc.perform(get("/subscriptions/{id}/edit", saved.getId()).with(user("user")))
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString("artist:someone language:english")));
+    }
+
+    @Test
+    void shouldSaveAndShowThePriority() throws Exception
+    {
+        // WHEN
+        mvc.perform(subscriptionPost().param("source", "nhentai").param("query", "x").param("priority", "0"))
+                .andExpect(status().is3xxRedirection());
+
+        // THEN a lower number is the higher priority
+        Subscription saved = subscriptionRepository.findAll().getFirst();
+        assertThat(saved.getPriority()).isZero();
+        mvc.perform(get("/subscriptions").with(user("user")))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("Priority 0")));
+        mvc.perform(get("/subscriptions/{id}/edit", saved.getId()).with(user("user")))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("id=\"priority\"")))
+                .andExpect(content().string(containsString("value=\"0\"")));
+    }
+
+    @Test
+    void shouldListHigherPrioritySubscriptionsFirst() throws Exception
+    {
+        // GIVEN the lower priority subscription saved first
+        mvc.perform(subscriptionPost().param("source", "nhentai").param("query", "low")
+                .param("name", "Low priority").param("priority", "5"));
+        mvc.perform(subscriptionPost().param("source", "nhentai").param("query", "high")
+                .param("name", "High priority").param("priority", "0"));
+
+        // WHEN + THEN
+        String html = mvc.perform(get("/subscriptions").with(user("user")))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        assertThat(html.indexOf("High priority")).isLessThan(html.indexOf("Low priority"));
     }
 
     @Test
@@ -124,6 +160,8 @@ class SubscriptionWebIT
         mvc.perform(subscriptionPost().param("source", "nhentai").param("query", "x").param("pollMinutes", "9"))
                 .andExpect(status().isOk())
                 .andExpect(model().attributeHasFieldErrors("form", "pollMinutes"));
+        mvc.perform(subscriptionPost().param("source", "nhentai").param("query", "x").param("priority", "-1"))
+                .andExpect(model().attributeHasFieldErrors("form", "priority"));
         mvc.perform(subscriptionPost().param("source", "nhentai").param("query", "x uploaded:<7d"))
                 .andExpect(model().attributeHasFieldErrors("form", "query"));
         mvc.perform(subscriptionPost().param("source", "nowhere").param("query", "x"))

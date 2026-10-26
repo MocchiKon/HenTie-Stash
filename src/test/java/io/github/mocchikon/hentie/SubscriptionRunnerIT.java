@@ -159,6 +159,35 @@ class SubscriptionRunnerIT
         assertThat(reload(id).getNewestGalleryId()).isEqualTo("nhentai:1062");
     }
 
+    /** A lower priority number is handled first, however the rows were created. */
+    @Test
+    void shouldHandleTheHighestPrioritySubscriptionFirst()
+    {
+        // GIVEN two subscriptions due at once, the lower priority one created first
+        appProperties.getSubscriptions().setQueueAhead(1000);
+        searchable(1, 60, Duration.ofHours(5));
+        int low = subscribe("nhentai", "low", 5);
+        int high = subscribe("nhentai", "high", 0);
+
+        // WHEN the high priority one walks its search
+        for (int step = 0; step < 3; step++)
+        {
+            assertThat(runner.runNext()).isTrue();
+        }
+
+        // THEN every step so far was its own, and the lower priority one has none
+        assertThat(nhentai.searches()).hasSize(3).allMatch(search -> search.startsWith("high"));
+        assertThat(rowsOf(high)).hasSize(60);
+        assertThat(rowsOf(low)).isEmpty();
+
+        // WHEN the next step is taken
+        assertThat(runner.runNext()).isTrue();
+
+        // THEN the lower priority one is handled
+        assertThat(nhentai.searches()).hasSize(4);
+        assertThat(nhentai.searches().get(3)).startsWith("low");
+    }
+
     /**
      * What the library has, what was downloaded before and deleted since (downloaded_gallery), and a download never
      * finished are never queued; a link the user pasted keeps its row and its choices.
@@ -578,7 +607,17 @@ class SubscriptionRunnerIT
 
     private int subscribe(String site, String query)
     {
-        return subscribe(site, query, TestDownloads.PLAIN_GALLERY_DL);
+        return subscribe(site, query, Subscription.DEFAULT_PRIORITY);
+    }
+
+    private int subscribe(String site, String query, int priority)
+    {
+        SubscriptionForm form = subscriptionService.newForm();
+        form.setSource(site);
+        form.setQuery(query);
+        form.setPriority(priority);
+        form.setCompressionMode(PLAIN);
+        return subscriptionService.save(form, TestDownloads.PLAIN_GALLERY_DL);
     }
 
     private int subscribe(String site, String query, GalleryDlOptions galleryDl)

@@ -18,6 +18,11 @@ public class SubscriptionForm
     @Size(max = 255, message = "Name must be at most 255 characters")
     private String name;
 
+    /** 0 is the highest; the runner handles the lowest number with something due first. */
+    @NotNull(message = "Enter a priority, 0 for the highest")
+    @Min(value = 0, message = "Priority must be 0 (the highest) or more")
+    private Integer priority = 1;
+
     @NotBlank(message = "Choose a site to search")
     @Size(max = 32, message = "Choose a site to search")
     private String source;

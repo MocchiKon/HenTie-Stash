@@ -8,9 +8,9 @@ import java.util.List;
 
 public interface SubscriptionRepository extends JpaRepository<Subscription, Integer>
 {
-    /** By id, so the page keeps its order while subscriptions are edited. */
-    List<Subscription> findAllByOrderByIdAsc();
+    /** By priority (0 first), then id, so both the page and the runner take the most important one first. */
+    List<Subscription> findAllByOrderByPriorityAscIdAsc();
 
-    /** One source's subscriptions, for its runner thread; a handful of rows, so paused ones are filtered by the caller. */
-    List<Subscription> findBySourceInOrderByIdAsc(Collection<String> sources);
+    /** One source's subscriptions in the order the runner takes them; a handful of rows, so paused ones are filtered by the caller. */
+    List<Subscription> findBySourceInOrderByPriorityAscIdAsc(Collection<String> sources);
 }

@@ -87,6 +87,7 @@ public class SubscriptionService
     {
         var form = new SubscriptionForm();
         form.setSource(registry.searchSites().stream().findFirst().map(SearchSource.SearchSite::key).orElse(null));
+        form.setPriority(Subscription.DEFAULT_PRIORITY);
         form.setCompressionMode(modeService.storableKey(settingsService.getImageCompressionMode()));
         GalleryDlOptions galleryDl = settingsService.getGalleryDlDefaults();
         form.setCookiesBrowser(galleryDl.cookiesBrowser());
@@ -103,6 +104,7 @@ public class SubscriptionService
             var form = new SubscriptionForm();
             form.setId(subscription.getId());
             form.setName(subscription.getName());
+            form.setPriority(subscription.getPriority());
             form.setSource(subscription.getSource());
             form.setQuery(subscription.getQuery());
             form.setPollMinutes(subscription.getPollMinutes());
@@ -173,6 +175,7 @@ public class SubscriptionService
         boolean startsOver = subscription.getId() != null
                 && (!site.equals(subscription.getSource()) || !query.equals(subscription.getQuery()));
         subscription.setName(StringUtils.trimToNull(form.getName()));
+        subscription.setPriority(form.getPriority() == null ? Subscription.DEFAULT_PRIORITY : form.getPriority());
         subscription.setSource(site);
         subscription.setQuery(query);
         subscription.setPollMinutes(form.getPollMinutes());
@@ -290,7 +293,7 @@ public class SubscriptionService
         Map<Integer, Long> failed = queueService.failedBySubscription();
         Map<String, String> modeNames = modeService.namesByKey();
         LocalDateTime now = LocalDateTime.now();
-        return repository.findAllByOrderByIdAsc().stream()
+        return repository.findAllByOrderByPriorityAscIdAsc().stream()
                 .map(subscription -> view(subscription, waiting.getOrDefault(subscription.getId(), 0L),
                         failed.getOrDefault(subscription.getId(), 0L), modeNames, now))
                 .toList();
@@ -304,7 +307,8 @@ public class SubscriptionService
                         .filter(site -> site.key().equals(subscription.getSource())).findFirst())
                 .map(SearchSource.SearchSite::label).orElse(subscription.getSource());
         Status status = status(subscription, source.orElse(null), waiting, failed, now);
-        return new SubscriptionView(subscription.getId(), title(subscription), siteLabel, subscription.getQuery(),
+        return new SubscriptionView(subscription.getId(), title(subscription), siteLabel, subscription.getPriority(),
+                subscription.getQuery(),
                 source.map(s -> s.searchPageUrl(subscription.getSource(), subscription.getQuery())).orElse(null),
                 subscription.isEnabled(), status.text(), status.kind(),
                 subscription.getNewestGalleryId(), pageLink(subscription.getNewestGalleryId(), subscription.getSource()),
@@ -455,7 +459,7 @@ public class SubscriptionService
     @Transactional(readOnly = true)
     public List<Subscription> of(SearchSource source)
     {
-        return repository.findBySourceInOrderByIdAsc(
+        return repository.findBySourceInOrderByPriorityAscIdAsc(
                 source.searchSites().stream().map(SearchSource.SearchSite::key).toList());
     }
 
