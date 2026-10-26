@@ -3,14 +3,20 @@
 <head th:replace="~{fragments/layout :: head('Error')}"></head>
 <body>
 <nav th:replace="~{fragments/layout :: nav}"></nav>
-<main class="container narrow">
+<main class="container narrow" th:with="tooLarge=${status != null and status.toString() == '413'}">
     <h1 th:text="${status} ?: 'Error'">Error</h1>
     <p class="hint" th:text="${error}">Something went wrong.</p>
     <p th:if="${message}" th:text="${message}"></p>
+    <!-- A 413 is always an upload over one of the multipart limits, and retrying the same selection cannot help. -->
+    <p th:if="${tooLarge}">
+        Nothing was uploaded: the selection is larger than one upload may be. Upload the images in smaller
+        batches.
+    </p>
     <div class="btn-row">
         <!-- Back to the form, which the browser usually still has filled in, so trying again is one click. -->
-        <button type="button" class="btn btn-accent" th:if="${retryable}" data-history-back>Go back</button>
-        <a class="btn" th:classappend="${retryable} ? '' : 'btn-accent'" th:href="@{/}">Back to search</a>
+        <button type="button" class="btn btn-accent" th:if="${retryable == true or tooLarge}"
+                data-history-back>Go back</button>
+        <a class="btn" th:classappend="${retryable == true or tooLarge} ? '' : 'btn-accent'" th:href="@{/}">Back to search</a>
     </div>
 </main>
 <script th:src="@{/js/app.js}"></script>

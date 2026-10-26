@@ -1417,6 +1417,11 @@ is ticked (default on; clearing it makes a rename a one-off).
     delete.
 - **Allowed upload types come from one place** (`ImageDirectory.IMAGE_EXTENSIONS`); the upload input's
   `accept` is derived from it.
+- **One upload may carry a whole chapter, so the multipart part count gets no limit of its own**
+  (`server.tomcat.max-part-count`): each selected image is one part, and Tomcat's default of 50 rejects the
+  upload with 413 before any controller runs. A chapter's 256 MB request limit is the practical bound, and
+  `max-swallow-size` matches it so a rejected upload reaches the browser as the 413 page instead of an empty
+  response.
 
 ## Frontend & CSS (responsiveness is a hard requirement)
 Usable from ~360px phones to wide desktops, and **the page body never scrolls horizontally**. Check a
