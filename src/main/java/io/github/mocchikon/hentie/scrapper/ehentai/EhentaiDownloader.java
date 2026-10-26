@@ -122,6 +122,13 @@ public class EhentaiDownloader implements GalleryDlDownloader, SearchSource
         return Set.of(EHENTAI, EXHENTAI, PREFIX + ":");
     }
 
+    /** Its bans for excessive pageloads are what the Settings delay is tuned for. */
+    @Override
+    public boolean needsSlowDelay()
+    {
+        return true;
+    }
+
     @Override
     public String link(String resourceId)
     {

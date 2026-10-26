@@ -137,6 +137,9 @@ public class ChapterController
         model.addAttribute("galleryDlLinkMarkers", linkMarkers(downloader -> true));
         model.addAttribute("cookiesLinkMarkers", linkMarkers(GalleryDlDownloader::readsCookies));
         model.addAttribute("originalsLinkMarkers", linkMarkers(GalleryDlDownloader::offersOriginals));
+        model.addAttribute("galleryDlDefaultDelay", settingsService.getGalleryDlDefaults().delay());
+        model.addAttribute("galleryDlFastDelay", GalleryDlOptions.DEFAULT_DELAY_WITHOUT_EHENTAI);
+        model.addAttribute("galleryDlSlowDelayLinkMarkers", linkMarkers(GalleryDlDownloader::needsSlowDelay));
         model.addAttribute("compressionMode", compressionMode);
         model.addAttribute("compressionModes", compressionModeService.options());
         model.addAttribute("avoidDuplicateTitles", avoidDuplicateTitles);
@@ -173,10 +176,9 @@ public class ChapterController
                                  Model model, RedirectAttributes redirectAttributes)
     {
         List<String> parsed = downloadService.parseLinks(links);
-        boolean usesGalleryDl = parsed.stream().anyMatch(link -> downloaderRegistry.parse(link)
-                .filter(resource -> resource.downloader() instanceof GalleryDlDownloader).isPresent());
+        boolean usesGalleryDl = usesGalleryDl(parsed);
         Optional<DownloadChoices> choices = downloadChoices(compressionMode, avoidDuplicateTitles, cookiesBrowser,
-                downloadOriginals, requestDelay, usesGalleryDl);
+                downloadOriginals, requestDelay, usesGalleryDl, usesSlowDelaySource(parsed));
         if (choices.isEmpty())
         {
             return downloadFormWithDelayError(model, links, compressionMode, avoidDuplicateTitles, cookiesBrowser,
@@ -187,12 +189,34 @@ public class ChapterController
         return REDIRECT_CHAPTER_QUEUE;
     }
 
+    private boolean usesGalleryDl(List<String> links)
+    {
+        return links.stream().anyMatch(link -> downloaderRegistry.parse(link)
+                .filter(resource -> resource.downloader() instanceof GalleryDlDownloader).isPresent());
+    }
+
+    /** Whether the paste holds a gallery-dl source whose limits need the Settings delay (e-hentai). */
+    private boolean usesSlowDelaySource(List<String> links)
+    {
+        return links.stream().anyMatch(link -> downloaderRegistry.parse(link)
+                .map(resource -> resource.downloader())
+                .filter(GalleryDlDownloader.class::isInstance)
+                .map(GalleryDlDownloader.class::cast)
+                .map(GalleryDlDownloader::needsSlowDelay)
+                .orElse(false));
+    }
+
     /** Empty when the delay is refused (see {@link #delayOrDefault}). */
     private Optional<DownloadChoices> downloadChoices(String compressionMode, boolean avoidDuplicateTitles,
                                                       String cookiesBrowser, boolean downloadOriginals,
-                                                      String requestDelay, boolean usesGalleryDl)
+                                                      String requestDelay, boolean usesGalleryDl,
+                                                      boolean sourceNeedsSlowDelay)
     {
-        return delayOrDefault(requestDelay, usesGalleryDl, settingsService.getGalleryDlDefaults().delay())
+        // Without a source that needs it (e-hentai), a paste starts at the faster delay. A typed one is never replaced.
+        String defaultDelay = usesGalleryDl && !sourceNeedsSlowDelay
+                ? GalleryDlOptions.DEFAULT_DELAY_WITHOUT_EHENTAI
+                : settingsService.getGalleryDlDefaults().delay();
+        return delayOrDefault(requestDelay, usesGalleryDl, defaultDelay)
                 .map(d -> new DownloadChoices(compressionMode, avoidDuplicateTitles,
                         new GalleryDlOptions(cookiesBrowser, downloadOriginals, d)));
     }
@@ -243,10 +267,14 @@ public class ChapterController
                                      @RequestParam(name = "requestDelay", required = false) String requestDelay,
                                      Model model, RedirectAttributes redirectAttributes)
     {
-        boolean usesGalleryDl = downloaderRegistry.favouritesSource(source)
-                .filter(GalleryDlDownloader.class::isInstance).isPresent();
+        var favouriteSource = downloaderRegistry.favouritesSource(source);
+        boolean usesGalleryDl = favouriteSource.filter(GalleryDlDownloader.class::isInstance).isPresent();
+        boolean needsSlowDelay = favouriteSource.filter(GalleryDlDownloader.class::isInstance)
+                .map(GalleryDlDownloader.class::cast)
+                .map(GalleryDlDownloader::needsSlowDelay)
+                .orElse(false);
         Optional<DownloadChoices> choices = downloadChoices(compressionMode, avoidDuplicateTitles, cookiesBrowser,
-                downloadOriginals, requestDelay, usesGalleryDl);
+                downloadOriginals, requestDelay, usesGalleryDl, needsSlowDelay);
         if (choices.isEmpty())
         {
             return downloadFormWithDelayError(model, links, compressionMode, avoidDuplicateTitles, cookiesBrowser,

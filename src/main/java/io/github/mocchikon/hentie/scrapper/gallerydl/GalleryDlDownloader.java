@@ -37,6 +37,16 @@ public interface GalleryDlDownloader extends DataDownloader
     }
 
     /**
+     * Whether this site's limits are why the Settings delay exists (e-hentai bans excessive pageloads). A paste whose
+     * gallery-dl links all answer false starts at {@link GalleryDlOptions#DEFAULT_DELAY_WITHOUT_EHENTAI}, so the other
+     * sources are not slowed for e-hentai's bans. A delay the user types always wins.
+     */
+    default boolean needsSlowDelay()
+    {
+        return false;
+    }
+
+    /**
      * Fetches {@code pages} (numbered from 1 in the gallery's order) into {@code folder}, handing each page to
      * {@code sink} as soon as it is whole. A page that fails is simply not handed over; the pipeline decides what
      * a missing page means.

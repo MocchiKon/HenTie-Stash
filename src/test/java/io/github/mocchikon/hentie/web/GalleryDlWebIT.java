@@ -50,6 +50,7 @@ class GalleryDlWebIT
         settingsService.setSystemGalleryDlEnabled(false);
         queueRepository.findByLink("hitomi:7201").ifPresent(queueRepository::delete);
         queueRepository.findByLink("nhentai:7202").ifPresent(queueRepository::delete);
+        queueRepository.findByLink("ehentai:618395/0439fa3666").ifPresent(queueRepository::delete);
         testLogin.restore();
     }
 
@@ -71,7 +72,15 @@ class GalleryDlWebIT
                 // hitomi reads neither cookies nor originals, so only e-hentai's links show those two.
                 .andExpect(content().string(containsString(
                         "<div class=\"field\" data-shown-for-links=\"e-hentai.org ehentai: exhentai.org\">")))
-                .andExpect(content().string(containsString("https://hitomi.la/doujinshi/title-english-123456.html")));
+                .andExpect(content().string(containsString("https://hitomi.la/doujinshi/title-english-123456.html")))
+                // app.js starts a paste without an e-hentai link lower, and a typed delay is never replaced.
+                .andExpect(content().string(containsString("data-delay-default=\"1.5-2\"")))
+                .andExpect(content().string(containsString(
+                        "data-delay-fast=\"" + GalleryDlOptions.DEFAULT_DELAY_WITHOUT_EHENTAI + "\"")))
+                .andExpect(content().string(containsString(
+                        "data-delay-slow-markers=\"e-hentai.org ehentai: exhentai.org\"")))
+                .andExpect(content().string(containsString("data-delay-edited=\"false\"")))
+                .andExpect(content().string(containsString("starts at 0.1-0.12")));
     }
 
     @Test
@@ -107,8 +116,45 @@ class GalleryDlWebIT
                 .andExpect(view().name("chapter-download"))
                 .andExpect(model().attribute("links", "hitomi:7201"))
                 .andExpect(model().attribute("requestDelay", "fast please"))
-                .andExpect(content().string(containsString("is not a delay gallery-dl understands")));
+                .andExpect(content().string(containsString("is not a delay gallery-dl understands")))
+                // app.js must leave the typed value alone when the form comes back.
+                .andExpect(content().string(containsString("data-delay-edited=\"true\"")));
         assertThat(queueRepository.findByLink("hitomi:7201")).isEmpty();
+    }
+
+    @Test
+    void shouldStartAPasteWithoutAnEHentaiLinkAtTheFasterDelay() throws Exception
+    {
+        // GIVEN Settings' slower default, which e-hentai needs
+        settingsService.setGalleryDlDefaults(new GalleryDlOptions(null, false, "1.5-2"));
+
+        // WHEN only a hitomi link is pasted, with no delay typed
+        mvc.perform(post("/chapter/download").with(user("user")).with(csrf())
+                        .param("links", "hitomi:7201")
+                        .param("compressionMode", "NONE"))
+                .andExpect(status().is3xxRedirection());
+
+        // THEN it starts at the faster delay, not e-hentai's.
+        assertThat(queueRepository.findByLink("hitomi:7201")).get()
+                .extracting(DownloadQueueItem::getRequestDelay)
+                .isEqualTo(GalleryDlOptions.DEFAULT_DELAY_WITHOUT_EHENTAI);
+    }
+
+    @Test
+    void shouldStartAPasteWithAnEHentaiLinkAtTheSettingsDelay() throws Exception
+    {
+        // GIVEN
+        settingsService.setGalleryDlDefaults(new GalleryDlOptions(null, false, "1.5-2"));
+
+        // WHEN an e-hentai link is pasted, with no delay typed
+        mvc.perform(post("/chapter/download").with(user("user")).with(csrf())
+                        .param("links", "ehentai:618395/0439fa3666")
+                        .param("compressionMode", "NONE"))
+                .andExpect(status().is3xxRedirection());
+
+        // THEN its bans keep the Settings default.
+        assertThat(queueRepository.findByLink("ehentai:618395/0439fa3666")).get()
+                .extracting(DownloadQueueItem::getRequestDelay).isEqualTo("1.5-2");
     }
 
     @Test

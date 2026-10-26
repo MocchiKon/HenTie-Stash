@@ -802,6 +802,31 @@
         sync();
     });
 
+    // --- Download page: the delay starts lower when no pasted link needs the Settings one ---
+    //     Only while the field is untouched: once the user types a delay, pasting another link never replaces it.
+    //     A paste without a gallery-dl link keeps the Settings default, since nothing would read the faster one.
+    document.querySelectorAll("[data-delay-fast]").forEach(function (options) {
+        var form = options.closest("form");
+        var links = form && form.querySelector("textarea[name='links']");
+        var field = options.querySelector("input[name='requestDelay']");
+        if (!links || !field || field.getAttribute("data-delay-edited") === "true") { return; }
+        var galleryDlMarkers = (options.getAttribute("data-shown-for-links") || "").split(/\s+/).filter(Boolean);
+        var slowMarkers = (options.getAttribute("data-delay-slow-markers") || "").split(/\s+/).filter(Boolean);
+        var slowDelay = options.getAttribute("data-delay-default");
+        var fastDelay = options.getAttribute("data-delay-fast");
+        var edited = false;
+        var sync = function () {
+            if (edited) { return; }
+            var text = links.value.toLowerCase();
+            var hasGalleryDl = galleryDlMarkers.some(function (marker) { return text.indexOf(marker) >= 0; });
+            var needsSlow = slowMarkers.some(function (marker) { return text.indexOf(marker) >= 0; });
+            field.value = hasGalleryDl && !needsSlow ? fastDelay : slowDelay;
+        };
+        field.addEventListener("input", function () { edited = true; });
+        links.addEventListener("input", sync);
+        sync();
+    });
+
     // --- Settings: the password asked for when login is turned on while none exists ---
     //     Required only while "Require login" is ticked, so saving another setting never asks for one. The
     //     server enforces it anyway; this only saves a round trip.

@@ -39,6 +39,12 @@ public record GalleryDlOptions(String cookiesBrowser, boolean originals, String 
      */
     public static final int MAX_DELAY_SECONDS = 120;
 
+    /**
+     * The delay a Download-page paste starts at when it holds no e-hentai link. Only e-hentai's bans call for the
+     * slower Settings default, so the other sources are not held back for them. A delay the user types always wins.
+     */
+    public static final String DEFAULT_DELAY_WITHOUT_EHENTAI = "0.1-0.12";
+
     private static final Pattern DELAY =
             Pattern.compile("\\s*(\\d{1,3}(?:\\.\\d{1,3})?)\\s*(?:-\\s*(\\d{1,3}(?:\\.\\d{1,3})?))?\\s*");
 

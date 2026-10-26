@@ -180,7 +180,9 @@
      The Download page's model adds the *LinkMarkers, so app.js shows each choice only for pasted links that read it. -->
 <fieldset th:fragment="galleryDlOptions(legend, intro, cookiesBrowser, downloadOriginals, requestDelay, delayError, shownFor)"
           class="gallery-dl-options"
-          th:attr="data-shown-for=${shownFor},data-shown-for-links=${galleryDlLinkMarkers}">
+          th:attr="data-shown-for=${shownFor},data-shown-for-links=${galleryDlLinkMarkers},
+                   data-delay-default=${galleryDlDefaultDelay},data-delay-fast=${galleryDlFastDelay},
+                   data-delay-slow-markers=${galleryDlSlowDelayLinkMarkers}">
     <legend th:text="${legend}">gallery-dl</legend>
     <p class="hint" th:text="${intro}">These sources are downloaded by gallery-dl.</p>
     <div class="field" th:attr="data-shown-for-links=${cookiesLinkMarkers}">
@@ -218,13 +220,18 @@
         <label for="requestDelay">Delay between image downloads (seconds)</label>
         <input type="text" id="requestDelay" name="requestDelay" class="short-input" maxlength="20"
                th:value="${requestDelay}" th:classappend="${delayError != null} ? 'invalid'"
-               th:attr="aria-invalid=${delayError != null},aria-describedby=${delayError != null} ? 'requestDelayError'">
+               th:attr="aria-invalid=${delayError != null},aria-describedby=${delayError != null} ? 'requestDelayError',
+                        data-delay-edited=${delayError != null}">
         <p id="requestDelayError" class="field-error" th:if="${delayError}" th:text="${delayError}">error</p>
         <p class="hint">
             A number, or a range for a random wait, e.g. 0.4-0.65. e-hentai/exhentai: the wait before each
             request for an image page (<code>--sleep-request</code>; it replaces gallery-dl's own 3-6
             seconds). hitomi: the wait before each image download (<code>--sleep</code>). Too low a value
             can get your IP temporarily banned (e-hentai bans for "excessive pageloads").
+        </p>
+        <p class="hint" th:if="${galleryDlFastDelay != null}"
+           th:text="'A gallery-dl paste without an e-hentai/exhentai link starts at ' + ${galleryDlFastDelay}
+                    + '; one with such a link starts at the default from Settings. A delay you type is kept.'">
         </p>
     </div>
 </fieldset>
