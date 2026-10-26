@@ -1298,7 +1298,8 @@ Per cache:
     would be a union to build and a distinct count. **Detail pages hide a plain tag beside its version**
     (`plainTagsCoveredBy`), since it says nothing new there; the series page hides it only when every chapter
     carrying it carries a version too, as otherwise its count shows chapters no version does. Edit forms, search
-    and autocomplete show both; tags picked by hand on an edit form are taken as picked.
+    and autocomplete show both; a version picked by hand on a chapter or series form brings its plain tag too
+    (`MetadataService.withPlainTags`), created when an old version-only row lacks it.
   - **A tag is managed through its plain name**, so a version never drifts from the plain tag search finds it by.
     The Manage page lists and picks plain tags only (`recent`, `autocompleteManaged` behind `/manage/options`).
     Rename, merge and remove of `halo` do the same to `halo ♀`/`halo ♂`: `ring` renames them to `ring ♀`/`ring ♂`;

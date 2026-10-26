@@ -41,6 +41,7 @@ public class ChapterService
     private final ParodyRepository parodyRepository;
     private final GroupRepository groupRepository;
     private final CategoryRepository categoryRepository;
+    private final MetadataService metadataService;
     private final EntityMapper entityMapper;
     private final SeriesService seriesService;
     private final ChapterMatchingService chapterMatchingService;
@@ -182,7 +183,7 @@ public class ChapterService
         chapter.setLanguage(LanguageService.canonical(form.getLanguage()));
         chapter.setScore(toDbScore(form.getScore()));
 
-        chapter.setTags(tagRepository.findAllById(form.getTagIds()));
+        chapter.setTags(tagRepository.findAllById(metadataService.withPlainTags(form.getTagIds())));
         chapter.setArtists(artistRepository.findAllById(form.getArtistIds()));
         chapter.setCharacters(characterRepository.findAllById(form.getCharacterIds()));
         chapter.setParodies(parodyRepository.findAllById(form.getParodyIds()));
@@ -217,7 +218,7 @@ public class ChapterService
         chapter.setLanguage(LanguageService.canonical(form.getLanguage()));
         chapter.setScore(toDbScore(form.getScore()));
 
-        chapter.setTags(tagRepository.findAllById(form.getTagIds()));
+        chapter.setTags(tagRepository.findAllById(metadataService.withPlainTags(form.getTagIds())));
         chapter.setArtists(artistRepository.findAllById(form.getArtistIds()));
         chapter.setCharacters(characterRepository.findAllById(form.getCharacterIds()));
         chapter.setParodies(parodyRepository.findAllById(form.getParodyIds()));

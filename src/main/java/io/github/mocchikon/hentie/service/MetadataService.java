@@ -5,6 +5,7 @@ import io.github.mocchikon.hentie.dto.MetadataType;
 import io.github.mocchikon.hentie.dto.OptionDto;
 import io.github.mocchikon.hentie.entity.Metadata;
 import io.github.mocchikon.hentie.entity.MetadataRule;
+import io.github.mocchikon.hentie.entity.Tag;
 import io.github.mocchikon.hentie.service.MetadataRuleService.Verdicts;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
@@ -220,6 +221,68 @@ public class MetadataService
         }
         missing.forEach(n -> create(type, n));
         return Optional.empty();
+    }
+
+    /**
+     * The picked tags plus the plain tag every gendered one stands for ({@link #plainTagOf}), for a chapter or
+     * series create/edit form: search finds a gallery by the plain tag, so a version picked alone must not leave
+     * it out. A plain tag that an old version-only row lacks is created, unless a rule rules it out.
+     * <p>
+     * Only ids are returned, and the picked rows are kept as they are: unlike {@link #resolveOrCreate}, a form
+     * applies no rules.
+     */
+    @Transactional
+    public List<Integer> withPlainTags(Collection<Integer> tagIds)
+    {
+        if (tagIds == null || tagIds.isEmpty())
+        {
+            return List.of();
+        }
+        Set<Integer> wanted = tagIds.stream().filter(Objects::nonNull)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        if (wanted.isEmpty())
+        {
+            return List.of();
+        }
+        CriteriaBuilder cb = em.getCriteriaBuilder();
+        CriteriaQuery<Object[]> cq = cb.createQuery(Object[].class);
+        Root<Tag> root = cq.from(Tag.class);
+        cq.multiselect(root.<Integer>get("id"), root.<String>get("name")).where(root.get("id").in(wanted));
+
+        var ids = new LinkedHashSet<Integer>();
+        var plainNames = new LinkedHashSet<String>();
+        for (Object[] row : em.createQuery(cq).getResultList())
+        {
+            ids.add((Integer) row[0]);
+            plainTagOf((String) row[1])
+                    .map(name -> canonical(MetadataType.TAG, name))
+                    .ifPresent(plainNames::add);
+        }
+        if (!plainNames.isEmpty())
+        {
+            Map<String, Integer> existing = findByNames(MetadataType.TAG, plainNames);
+            boolean created = false;
+            for (String name : plainNames)
+            {
+                Integer id = existing.get(name);
+                if (id == null)
+                {
+                    // A ruled-out name has no row; add() refuses it for the same reason.
+                    if (conflictFor(MetadataType.TAG, name).isPresent())
+                    {
+                        continue;
+                    }
+                    id = create(MetadataType.TAG, name);
+                    created = true;
+                }
+                ids.add(id);
+            }
+            if (created)
+            {
+                evictAll(MetadataType.TAG);
+            }
+        }
+        return List.copyOf(ids);
     }
 
     /**

@@ -31,6 +31,7 @@ public class SeriesService
     private final ParodyRepository parodyRepository;
     private final GroupRepository groupRepository;
     private final CategoryRepository categoryRepository;
+    private final MetadataService metadataService;
     private final EntityMapper entityMapper;
     private final SearchCountCache searchCountCache;
     private final ChapterRemoval chapterRemoval;
@@ -39,7 +40,8 @@ public class SeriesService
                          ImageService imageService, TagRepository tagRepository,
                          ArtistRepository artistRepository, CharacterRepository characterRepository,
                          ParodyRepository parodyRepository, GroupRepository groupRepository,
-                         CategoryRepository categoryRepository, EntityMapper entityMapper, SearchCountCache searchCountCache, ChapterRemoval chapterRemoval)
+                         CategoryRepository categoryRepository, MetadataService metadataService,
+                         EntityMapper entityMapper, SearchCountCache searchCountCache, ChapterRemoval chapterRemoval)
     {
         this.seriesRepository = seriesRepository;
         this.chapterRepository = chapterRepository;
@@ -50,6 +52,7 @@ public class SeriesService
         this.parodyRepository = parodyRepository;
         this.groupRepository = groupRepository;
         this.categoryRepository = categoryRepository;
+        this.metadataService = metadataService;
         this.entityMapper = entityMapper;
         this.searchCountCache = searchCountCache;
         this.chapterRemoval = chapterRemoval;
@@ -369,7 +372,7 @@ public class SeriesService
         applyMatchKeys(series);
         applyScore(series, form.getScore());
         series.setStatus(form.getStatus());
-        series.setTags(tagRepository.findAllById(form.getTagIds()));
+        series.setTags(tagRepository.findAllById(metadataService.withPlainTags(form.getTagIds())));
         series.setArtists(artistRepository.findAllById(form.getArtistIds()));
         series.setCharacters(characterRepository.findAllById(form.getCharacterIds()));
         series.setParodies(parodyRepository.findAllById(form.getParodyIds()));

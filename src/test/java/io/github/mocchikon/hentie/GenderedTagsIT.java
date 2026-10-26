@@ -2,6 +2,7 @@ package io.github.mocchikon.hentie;
 
 import io.github.mocchikon.hentie.config.CacheConfig;
 import io.github.mocchikon.hentie.dto.*;
+import io.github.mocchikon.hentie.entity.Chapter;
 import io.github.mocchikon.hentie.entity.MetadataRule;
 import io.github.mocchikon.hentie.entity.Status;
 import io.github.mocchikon.hentie.entity.Tag;
@@ -21,6 +22,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.cache.CacheManager;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -145,6 +147,99 @@ class GenderedTagsIT
                 .extracting(OptionDto::getLabel).containsExactlyInAnyOrder("gtag-offer", "gtag-offer-plain");
         assertThat(metadataService.autocomplete(MetadataType.TAG, "gtag-offer", 10)).extracting(OptionDto::getLabel)
                 .containsExactlyInAnyOrder("gtag-offer", "gtag-offer ♀", "gtag-offer ♂", "gtag-offer-plain");
+    }
+
+    // --- picking a tag on a chapter or series form -----------------------------------------------
+
+    @Test
+    void shouldAddThePlainTagWhenAGenderedOneIsPickedForANewChapter()
+    {
+        // GIVEN a gendered tag, only that version picked on the Add chapter form
+        Integer female = imported("female:gtag-picked-chapter").getFirst();
+
+        // WHEN the chapter is added
+        int chapterId = chapter("gtag-picked-chapter", List.of(female));
+        em.flush();
+        em.clear();
+
+        // THEN its plain tag is linked too, so a search for it finds the chapter.
+        assertThat(tagsOf(chapterId))
+                .containsExactlyInAnyOrder("gtag-picked-chapter ♀", "gtag-picked-chapter");
+    }
+
+    @Test
+    void shouldAddThePlainTagWhenAGenderedOneIsPickedOnAChapterEdit()
+    {
+        // GIVEN a chapter without tags, and a gendered tag picked only as its version on the edit form
+        Integer female = imported("female:gtag-picked-edit").getFirst();
+        int chapterId = chapter("gtag-picked-edit", List.of());
+        var form = chapterService.toForm(chapterId);
+        form.setTagIds(new ArrayList<>(List.of(female)));
+
+        // WHEN the edit is saved
+        chapterService.update(form);
+        em.flush();
+        em.clear();
+
+        // THEN its plain tag is linked too.
+        assertThat(tagsOf(chapterId))
+                .containsExactlyInAnyOrder("gtag-picked-edit ♀", "gtag-picked-edit");
+    }
+
+    @Test
+    void shouldAddThePlainTagWhenAGenderedOneIsPickedForANewSeries()
+    {
+        // GIVEN a gendered tag, only that version picked on the Add series form
+        Integer female = imported("female:gtag-picked-series").getFirst();
+        var form = new SeriesForm();
+        form.setTitleFull("gtag-picked-series");
+        form.setStatus(Status.REVIEWED);
+        form.setTagIds(new ArrayList<>(List.of(female)));
+
+        // WHEN the series is added
+        int seriesId = seriesService.create(form);
+        em.flush();
+        em.clear();
+
+        // THEN its plain tag is linked too.
+        assertThat(tagsOfSeries(seriesId))
+                .containsExactlyInAnyOrder("gtag-picked-series ♀", "gtag-picked-series");
+    }
+
+    @Test
+    void shouldAddThePlainTagWhenAGenderedOneIsPickedOnASeriesEdit()
+    {
+        // GIVEN a series without tags, and a gendered tag picked only as its version on the edit form
+        Integer female = imported("female:gtag-picked-series-edit").getFirst();
+        int seriesId = series("gtag-picked-series-edit");
+        var form = seriesService.toForm(seriesId);
+        form.setTagIds(new ArrayList<>(List.of(female)));
+
+        // WHEN the edit is saved
+        seriesService.update(form);
+        em.flush();
+        em.clear();
+
+        // THEN its plain tag is linked too.
+        assertThat(tagsOfSeries(seriesId))
+                .containsExactlyInAnyOrder("gtag-picked-series-edit ♀", "gtag-picked-series-edit");
+    }
+
+    @Test
+    void shouldCreateThePlainTagWhenOnlyTheGenderedRowExists()
+    {
+        // GIVEN a tag row that has no plain tag, as old data may
+        tag("gtag-created ♀");
+        Integer female = idOf("gtag-created ♀");
+
+        // WHEN it is picked on the Add chapter form
+        int chapterId = chapter("gtag-created", List.of(female));
+        em.flush();
+        em.clear();
+
+        // THEN the plain tag is created and linked beside it.
+        assertThat(idOf("gtag-created")).isNotNull();
+        assertThat(tagsOf(chapterId)).containsExactlyInAnyOrder("gtag-created ♀", "gtag-created");
     }
 
     // --- the plain tag takes its versions along -------------------------------------------------
@@ -294,10 +389,10 @@ class GenderedTagsIT
     @Test
     void shouldMergeBothVersionsIntoThePlainTagAndRewriteThemFromThenOn()
     {
-        // GIVEN a tag with both versions: one imported beside the plain tag, one picked alone on an edit form
+        // GIVEN a tag with both versions: one imported beside the plain tag, one carried by a chapter without it
         int importedChapter = chapter("gtag-strip imported", imported("female:gtag-strip"));
         imported("male:gtag-strip");
-        int pickedChapter = chapter("gtag-strip picked", List.of(idOf("gtag-strip ♂")));
+        int pickedChapter = chapterWithOnlyTag("gtag-strip picked", idOf("gtag-strip ♂"));
         Integer plain = idOf("gtag-strip");
         em.flush();
         em.clear();
@@ -379,6 +474,19 @@ class GenderedTagsIT
         return chapterService.create(form);
     }
 
+    /** Bypasses the form so a version can be carried without its plain tag, as old data may. */
+    private int chapterWithOnlyTag(String title, Integer tagId)
+    {
+        var chapter = new Chapter();
+        chapter.setTitle(title);
+        chapter.setTitleFull(title);
+        chapter.setUploadDate(LocalDate.now());
+        chapter.setLanguage("English");
+        chapter.setStatus(Status.NEW);
+        chapter.setTags(new ArrayList<>(List.of(tagRepository.findById(tagId).orElseThrow())));
+        return chapterRepository.save(chapter).getId();
+    }
+
     private int series(String title, Integer... chapterIds)
     {
         var series = new SeriesForm();
@@ -408,6 +516,11 @@ class GenderedTagsIT
     private List<String> tagsOf(int chapterId)
     {
         return chapterRepository.findById(chapterId).orElseThrow().getTags().stream().map(Tag::getName).toList();
+    }
+
+    private List<String> tagsOfSeries(int seriesId)
+    {
+        return seriesService.get(seriesId).getTags().stream().map(Tag::getName).toList();
     }
 
     private List<String> names(List<Integer> ids)
