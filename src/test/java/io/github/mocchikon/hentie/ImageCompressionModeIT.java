@@ -60,6 +60,7 @@ class ImageCompressionModeIT
         assertThat(lossless.encoderArgs()).containsExactly("-q", "100", "-e", "10");
         assertThat(lossless.magickArgs()).isEmpty();
         assertThat(lossless.usesImageMagick()).isFalse();
+        assertThat(lossless.imageHeightLimit()).isNull();
         assertThat(lossless.minRelativeReduction()).isZero();
         assertThat(lossless.minAbsoluteReduction()).isZero();
         assertThat(lossless.formats()).containsExactlyInAnyOrder("jpg", "png");
@@ -70,6 +71,7 @@ class ImageCompressionModeIT
         assertThat(high.encoder()).isEqualTo(ImageEncoder.JXL);
         assertThat(high.encoderArgs()).containsExactly("-q", "60", "-e", "10");
         assertThat(high.magickArgs()).containsExactly("-filter", "lanczos", "-resize", "50%");
+        assertThat(high.imageHeightLimit()).isNull();
         assertThat(high.minRelativeReduction()).isEqualTo(20);
         assertThat(high.minAbsoluteReduction()).isEqualTo(20);
         assertThat(high.formats()).containsExactlyInAnyOrder("jpg", "png", "webp");
@@ -79,6 +81,7 @@ class ImageCompressionModeIT
         assertThat(veryHigh.encoder()).isEqualTo(ImageEncoder.AVIF);
         assertThat(veryHigh.encoderArgs()).containsExactly("-q", "35", "-s", "0");
         assertThat(veryHigh.magickArgs()).containsExactly("-filter", "lanczos", "-resize", "50%");
+        assertThat(veryHigh.imageHeightLimit()).isNull();
         assertThat(veryHigh.minRelativeReduction()).isEqualTo(20);
         assertThat(veryHigh.minAbsoluteReduction()).isEqualTo(20);
         assertThat(veryHigh.formats()).containsExactlyInAnyOrder("jpg", "png", "webp");
@@ -143,6 +146,7 @@ class ImageCompressionModeIT
         ImageCompressionMode mode = mode("Archive", ImageEncoder.AVIF);
         mode.setEncoderArgs("-q 60 -s 4");
         mode.setMagickArgs("-resize 75%");
+        mode.setImageHeightLimit(1000);
         mode.setMinRelativeReduction(30);
         mode.setMinAbsoluteReduction(150);
         mode.setFormats("JPG,GIF,PNG");
@@ -158,6 +162,7 @@ class ImageCompressionModeIT
         assertThat(profile.encoder()).isEqualTo(ImageEncoder.AVIF);
         assertThat(profile.encoderArgs()).containsExactly("-q", "60", "-s", "4");
         assertThat(profile.magickArgs()).containsExactly("-resize", "75%");
+        assertThat(profile.imageHeightLimit()).isEqualTo(1000);
         assertThat(profile.minRelativeReduction()).isEqualTo(30);
         assertThat(profile.minAbsoluteReduction()).isEqualTo(150);
         assertThat(profile.formats()).containsExactlyInAnyOrder("jpg", "gif", "png");

@@ -29,6 +29,10 @@ public class CompressionModeForm
     @Size(max = 1000, message = "ImageMagick arguments must be at most 1000 characters")
     private String magickArgs = "";
 
+    /** Pixels; blank means every image. */
+    @Min(value = 1, message = "Image height limit must be at least 1 pixel")
+    private Integer imageHeightLimit;
+
     /** Percent; 0 turns the check off. */
     @Min(value = 0, message = "Minimum relative reduction cannot be negative")
     @Max(value = 100, message = "Minimum relative reduction is a percentage, so at most 100")

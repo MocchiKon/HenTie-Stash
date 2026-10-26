@@ -56,6 +56,17 @@
         </div>
 
         <div class="field">
+            <label>Image height limit (px)</label>
+            <input type="number" th:field="*{imageHeightLimit}" min="1" step="1" placeholder="e.g. 1000">
+            <p class="field-error" th:if="${#fields.hasErrors('imageHeightLimit')}"
+               th:errors="*{imageHeightLimit}">error</p>
+            <p class="hint">
+                ImageMagick arguments are applied only to images taller than this many pixels; an image at or
+                below it goes straight to the encoder. Leave empty to apply them to every image.
+            </p>
+        </div>
+
+        <div class="field">
             <label>Minimum relative reduction (%)</label>
             <input type="number" th:field="*{minRelativeReduction}" min="0" max="100">
             <p class="field-error" th:if="${#fields.hasErrors('minRelativeReduction')}"

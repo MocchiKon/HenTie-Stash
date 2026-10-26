@@ -260,6 +260,10 @@ public class AppProperties
         private ImageEncoder encoder = ImageEncoder.JXL;
         private String encoderArgs = "";
         private String magickArgs = "";
+
+        /** ImageMagick's arguments apply only above this height; null = every image. */
+        private Integer imageHeightLimit;
+
         private int minRelativeReduction;
         private int minAbsoluteReduction;
         private String formats = "";

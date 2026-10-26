@@ -28,7 +28,7 @@ import static org.mockito.Mockito.*;
 class ImageCompressionSweepTest
 {
     private static final CompressionProfile PROFILE = new CompressionProfile("custom:7", "Sweep JXL",
-            ImageEncoder.JXL, List.of("-q", "40"), List.of(), 0, 0, Set.of());
+            ImageEncoder.JXL, List.of("-q", "40"), List.of(), null, 0, 0, Set.of());
 
     private final ChapterRepository chapterRepository = mock(ChapterRepository.class);
     private final ChapterService chapterService = mock(ChapterService.class);

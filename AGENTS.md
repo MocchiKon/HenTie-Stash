@@ -893,6 +893,11 @@ downloaded and uploaded images. Default mode is **None**: bytes are stored as th
   encoder → reduction thresholds. **ImageMagick always writes PNG**, and inputs the encoder cannot read
   (WebP for both; GIF for AVIF) take a **lossless PNG detour**. Nothing lossy in the middle. The ImageMagick
   input gets `[0]` so an animated GIF yields one PNG.
+- **A mode may limit ImageMagick's arguments to images taller than a height** (`image_height_limit`, null =
+  every image; the built-in modes leave it null). The image's header is read only when the limit is set; an
+  unreadable size counts as "no limit", and the condition **never skips the lossless PNG detour**: a small
+  WebP still has to be converted or it could not be encoded at all. At the limit itself the image is not
+  "above" it.
 - **A result that is not smaller is always rejected**, whatever the thresholds. Both at 0 means "no
   particular saving required"; above that each applies only when set.
 - **The result is checked against the format's signature** (`ImageEncoder.producedValidFile`) *before* the

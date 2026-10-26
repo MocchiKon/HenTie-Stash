@@ -40,6 +40,8 @@
                 <span th:text="${mode.encoder}">JXL</span><span
                     th:if="${!#strings.isEmpty(mode.encoderArgs)}"> <code th:text="${mode.encoderArgs}">args</code></span><span
                     th:if="${!#strings.isEmpty(mode.magickArgs)}"> · ImageMagick <code th:text="${mode.magickArgs}">args</code></span><span
+                    th:if="${mode.imageHeightLimit != null}"
+                    th:text="| · ImageMagick only above ${mode.imageHeightLimit} px|"> · ImageMagick only above 1000 px</span><span
                     th:if="${mode.minRelativeReduction > 0}"> · ≥<span th:text="${mode.minRelativeReduction}">0</span>% smaller</span><span
                     th:if="${mode.minAbsoluteReduction > 0}"> · ≥<span th:text="${mode.minAbsoluteReduction}">0</span> KB smaller</span><span
                     th:text="${#strings.isEmpty(mode.formats)} ? ' · all image formats' : ' · only ' + ${mode.formats}"> · all image formats</span>

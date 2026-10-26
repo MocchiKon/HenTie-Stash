@@ -130,7 +130,7 @@ public class ImageCompressionModeService
         }
         return Optional.of(new CompressionProfile(mode.getKey(), mode.getDisplayName(), settings.getEncoder(),
                 CompressionProfile.splitArgs(settings.getEncoderArgs()),
-                CompressionProfile.splitArgs(settings.getMagickArgs()),
+                CompressionProfile.splitArgs(settings.getMagickArgs()), settings.getImageHeightLimit(),
                 settings.getMinRelativeReduction(), settings.getMinAbsoluteReduction(),
                 CompressionProfile.parseFormats(settings.getFormats())));
     }

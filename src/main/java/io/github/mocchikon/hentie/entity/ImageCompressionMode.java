@@ -35,6 +35,13 @@ public class ImageCompressionMode
     @Column(name = "magick_args", nullable = false, length = 1000)
     private String magickArgs = "";
 
+    /**
+     * ImageMagick's arguments are applied only to images taller than this. Null = every image, which is also
+     * what an unreadable image size means: the condition never suppresses a conversion the encoder needs.
+     */
+    @Column(name = "image_height_limit")
+    private Integer imageHeightLimit;
+
     /** Percent that must be saved, or the original is kept. 0 = no relative check. */
     @Column(name = "min_relative_reduction", nullable = false)
     private int minRelativeReduction;

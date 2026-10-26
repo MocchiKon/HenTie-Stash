@@ -240,6 +240,7 @@ class ImageCompressionWebIT
                         .param("encoder", ImageEncoder.AVIF.name())
                         .param("encoderArgs", "-q 55 -s 2")
                         .param("magickArgs", "-resize 80%")
+                        .param("imageHeightLimit", "1200")
                         .param("minRelativeReduction", "25")
                         .param("minAbsoluteReduction", "64")
                         .param("formats", "JPG,PNG"))
@@ -251,10 +252,32 @@ class ImageCompressionWebIT
         assertThat(saved.getEncoder()).isEqualTo(ImageEncoder.AVIF);
         assertThat(saved.getEncoderArgs()).isEqualTo("-q 55 -s 2");
         assertThat(saved.getMagickArgs()).isEqualTo("-resize 80%");
+        assertThat(saved.getImageHeightLimit()).isEqualTo(1200);
         assertThat(saved.getMinRelativeReduction()).isEqualTo(25);
         assertThat(saved.getMinAbsoluteReduction()).isEqualTo(64);
         assertThat(saved.getFormats()).isEqualTo("JPG,PNG");
         assertThat(modeService.options()).extracting(CompressionModeOption::label).contains("From the form");
+    }
+
+    /** A blank number field is the browser's way of saying "no limit", which is not the same as zero. */
+    @Test
+    void shouldStoreNoHeightLimitWhenTheFieldIsLeftEmpty() throws Exception
+    {
+        // WHEN
+        mvc.perform(post("/compression-modes").with(user("user")).with(csrf())
+                        .param("name", "No height limit")
+                        .param("encoder", ImageEncoder.JXL.name())
+                        .param("encoderArgs", "")
+                        .param("magickArgs", "-resize 50%")
+                        .param("imageHeightLimit", "")
+                        .param("minRelativeReduction", "0")
+                        .param("minAbsoluteReduction", "0")
+                        .param("formats", ""))
+                .andExpect(status().is3xxRedirection());
+
+        // THEN it is stored as "every image", not as a limit of 0.
+        assertThat(modeRepository.findFirstByNameIgnoreCase("No height limit").orElseThrow().getImageHeightLimit())
+                .isNull();
     }
 
     @Test
@@ -424,6 +447,7 @@ class ImageCompressionWebIT
         var full = mode("Fully specified");
         full.setEncoder(ImageEncoder.AVIF);
         full.setMagickArgs("-resize 50%");
+        full.setImageHeightLimit(1000);
         full.setMinRelativeReduction(20);
         full.setMinAbsoluteReduction(64);
         full.setFormats("JPG,PNG");
@@ -435,6 +459,7 @@ class ImageCompressionWebIT
                 .andExpect(content().string(containsString("Fully specified")))
                 .andExpect(content().string(containsString("AVIF")))
                 .andExpect(content().string(containsString("-resize 50%")))
+                .andExpect(content().string(containsString("ImageMagick only above 1000 px")))
                 .andExpect(content().string(containsString("only JPG,PNG")));
     }
 

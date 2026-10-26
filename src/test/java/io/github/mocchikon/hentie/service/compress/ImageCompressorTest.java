@@ -1,5 +1,6 @@
 package io.github.mocchikon.hentie.service.compress;
 
+import io.github.mocchikon.hentie.TestImages;
 import io.github.mocchikon.hentie.dto.CompressionProfile;
 import io.github.mocchikon.hentie.entity.ImageEncoder;
 import org.junit.jupiter.api.BeforeEach;
@@ -31,6 +32,7 @@ class ImageCompressorTest
     @TempDir
     private Path tmp;
 
+    private ImageToolLocator locator;
     private ImageToolRunner runner;
     private ImageCompressor compressor;
     private Path source;
@@ -39,7 +41,7 @@ class ImageCompressorTest
     @BeforeEach
     void setUp() throws IOException
     {
-        var locator = mock(ImageToolLocator.class);
+        locator = mock(ImageToolLocator.class);
         when(locator.find(anyString())).thenReturn(Optional.of("cjxl"));
         runner = mock(ImageToolRunner.class);
         compressor = new ImageCompressor(locator, runner);
@@ -182,11 +184,102 @@ class ImageCompressorTest
         verify(runner).run(argThat(command -> !Path.of(command.get(2)).equals(othersOutput)));
     }
 
+    /** An image exactly at the limit is not "above" it, so the resize arguments must not run. */
+    @Test
+    void shouldSkipTheMagickArgumentsWhenTheImageIsAtTheHeightLimit() throws IOException
+    {
+        // GIVEN a 1000px-tall image and a mode whose resize applies above 1000px.
+        source = TestImages.writePng(tmp.resolve("data/3.png"), 400, 1000);
+        when(locator.find(ImageToolLocator.MAGICK)).thenReturn(Optional.of("magick"));
+        encoderWrites(REAL_JXL);
+
+        // WHEN
+        ImageCompressor.Result result = compressor.compress(source, profile(List.of("-resize", "50%"), 1000),
+                workDir);
+
+        // THEN ImageMagick was never started: the page went straight to the encoder.
+        assertThat(result.replaced()).isTrue();
+        verify(runner, times(1)).run(anyList());
+        verify(runner).run(argThat(command -> command.get(0).equals("cjxl")));
+    }
+
+    @Test
+    void shouldRunTheMagickArgumentsWhenTheImageIsTallerThanTheHeightLimit() throws IOException
+    {
+        // GIVEN a 1200px-tall image, and a runner that can play both tools.
+        source = TestImages.writePng(tmp.resolve("data/3.png"), 400, 1200);
+        when(locator.find(ImageToolLocator.MAGICK)).thenReturn(Optional.of("magick"));
+        when(runner.run(anyList())).thenAnswer(invocation ->
+        {
+            List<String> command = invocation.getArgument(0);
+            if (command.get(0).equals("magick"))
+            {
+                Files.write(Path.of(command.get(command.size() - 1)), TestImages.png(200, 600));
+            }
+            else
+            {
+                Files.write(Path.of(command.get(2)), REAL_JXL);
+            }
+            return true;
+        });
+
+        // WHEN
+        ImageCompressor.Result result = compressor.compress(source, profile(List.of("-resize", "50%"), 1000),
+                workDir);
+
+        // THEN ImageMagick ran with the mode's arguments before the encoder.
+        assertThat(result.replaced()).isTrue();
+        verify(runner).run(argThat(command -> command.get(0).equals("magick")
+                && command.containsAll(List.of("-resize", "50%"))));
+    }
+
+    /**
+     * The height condition saves a resize, not an input conversion: a format the encoder cannot read still
+     * needs ImageMagick, or the page would never be compressed at all.
+     */
+    @Test
+    void shouldStillConvertAnInputTheEncoderCannotReadWhenTheImageIsBelowTheHeightLimit() throws IOException
+    {
+        // GIVEN a short page in WebP, which cjxl cannot read.
+        Files.delete(source);
+        source = tmp.resolve("data/3.webp");
+        Files.write(source, TestImages.png(400, 400));
+        when(locator.find(ImageToolLocator.MAGICK)).thenReturn(Optional.of("magick"));
+        when(runner.run(anyList())).thenAnswer(invocation ->
+        {
+            List<String> command = invocation.getArgument(0);
+            if (command.get(0).equals("magick"))
+            {
+                Files.write(Path.of(command.get(command.size() - 1)), TestImages.png(400, 400));
+            }
+            else
+            {
+                Files.write(Path.of(command.get(2)), REAL_JXL);
+            }
+            return true;
+        });
+
+        // WHEN
+        ImageCompressor.Result result = compressor.compress(source, profile(List.of("-resize", "50%"), 1000),
+                workDir);
+
+        // THEN it was converted without the resize arguments, then encoded.
+        assertThat(result.replaced()).isTrue();
+        verify(runner).run(argThat(command -> command.get(0).equals("magick") && command.size() == 3));
+        verify(runner).run(argThat(command -> command.get(0).equals("cjxl")));
+    }
+
     /** Lossless mode's shape: straight to the encoder, no ImageMagick, every format in scope. */
     private static CompressionProfile profile()
     {
         return new CompressionProfile("TEST", "Test", ImageEncoder.JXL,
-                List.of(), List.of(), 0, 0, Set.of());
+                List.of(), List.of(), null, 0, 0, Set.of());
+    }
+
+    private static CompressionProfile profile(List<String> magickArgs, Integer heightLimit)
+    {
+        return new CompressionProfile("TEST", "Test", ImageEncoder.JXL,
+                List.of(), magickArgs, heightLimit, 0, 0, Set.of());
     }
 
     /** For cjxl the command is {@code [exe, input, output, args...]}, so the output is the third element. */

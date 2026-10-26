@@ -12,6 +12,7 @@ import java.util.*;
  *
  * @param key                  e.g. {@code LOSSLESS} or {@code custom:7}
  * @param magickArgs           empty = ImageMagick is not run
+ * @param imageHeightLimit     ImageMagick's arguments apply only above this height; null = every image
  * @param minRelativeReduction percent that must be saved, else the original is kept; 0 = off
  * @param minAbsoluteReduction KB that must be saved, else the original is kept; 0 = off
  * @param formats              lower-case input extensions; empty = every image
@@ -21,6 +22,7 @@ public record CompressionProfile(String key,
                                   ImageEncoder encoder,
                                   List<String> encoderArgs,
                                   List<String> magickArgs,
+                                  Integer imageHeightLimit,
                                   int minRelativeReduction,
                                   int minAbsoluteReduction,
                                   Set<String> formats)
@@ -28,7 +30,7 @@ public record CompressionProfile(String key,
     public static CompressionProfile of(String key, ImageCompressionMode mode)
     {
         return new CompressionProfile(key, mode.getName(), mode.getEncoder(),
-                splitArgs(mode.getEncoderArgs()), splitArgs(mode.getMagickArgs()),
+                splitArgs(mode.getEncoderArgs()), splitArgs(mode.getMagickArgs()), mode.getImageHeightLimit(),
                 mode.getMinRelativeReduction(), mode.getMinAbsoluteReduction(),
                 parseFormats(mode.getFormats()));
     }
@@ -48,6 +50,19 @@ public record CompressionProfile(String key,
     public boolean usesImageMagick()
     {
         return !magickArgs.isEmpty();
+    }
+
+    /**
+     * Whether the mode's ImageMagick arguments run for an image of this height. False when there are no
+     * arguments to run, or the image is at or below the mode's limit.
+     *
+     * @param imageHeight pixels, or negative when the size could not be read: an unknown size is not a reason
+     *                    to skip a step the user asked for
+     */
+    public boolean imageMagickAppliesTo(int imageHeight)
+    {
+        return usesImageMagick()
+                && (imageHeightLimit == null || imageHeight < 0 || imageHeight > imageHeightLimit);
     }
 
     /** Whitespace separates, double quotes group - for an argument with a space, like {@code -resize "50% 50%"}. */

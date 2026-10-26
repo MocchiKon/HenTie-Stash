@@ -30,7 +30,7 @@ class SchemaMigrationIT
     void shouldMatchTheEntityMappingsWhenSchemaComesFromMigrations()
     {
         // Starting the context is the real check; this assertion keeps the test from passing vacuously.
-        assertThat(appliedMigrations()).containsExactly("1", "2");
+        assertThat(appliedMigrations()).containsExactly("1", "2", "3");
     }
 
     @Test
@@ -114,7 +114,7 @@ class SchemaMigrationIT
         assertThat(objectNames("type = 'table'")).contains("image_compression_mode");
         assertThat(columnNames("download_queue")).contains("compression_mode");
         assertThat(columnNames("image_compression_mode")).contains(
-                "name", "encoder", "encoder_args", "magick_args",
+                "name", "encoder", "encoder_args", "magick_args", "image_height_limit",
                 "min_relative_reduction", "min_absolute_reduction", "formats");
     }
 

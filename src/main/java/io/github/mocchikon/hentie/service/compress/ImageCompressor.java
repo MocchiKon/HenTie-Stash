@@ -4,6 +4,7 @@ import io.github.mocchikon.hentie.dto.CompressionProfile;
 import io.github.mocchikon.hentie.entity.ImageEncoder;
 import io.github.mocchikon.hentie.service.ImageDirectory;
 import io.github.mocchikon.hentie.service.ImageService;
+import io.github.mocchikon.hentie.service.ImageSize;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,7 +21,8 @@ import java.util.stream.Stream;
 
 /**
  * Downscales and re-encodes one page image, in place. The order is fixed: format filter, ImageMagick (only
- * when the mode gives it arguments), encoder, validity check, reduction thresholds.
+ * when the mode gives it arguments and the image is above its optional height limit), encoder, validity
+ * check, reduction thresholds.
  *
  * <p>ImageMagick always writes PNG, because a lossy intermediate would lose quality twice. An input the
  * encoder cannot read (WebP for both, GIF for AVIF) goes through a lossless PNG first, or it would never be
@@ -36,6 +38,12 @@ public class ImageCompressor
     private static final Logger log = LoggerFactory.getLogger(ImageCompressor.class);
 
     private static final String INTERMEDIATE_EXTENSION = "png";
+
+    /**
+     * Enough for a JPEG's frame header after its metadata and for an AVIF's property boxes. A size beyond
+     * this reads as unknown, which runs ImageMagick, so a wrong guess can only skip the saving.
+     */
+    private static final int SIZE_HEADER_BYTES = 1 << 20;
 
     private final ImageToolLocator toolLocator;
     private final ImageToolRunner runner;
@@ -115,7 +123,10 @@ public class ImageCompressor
     private Path prepareEncoderInput(Path source, CompressionProfile profile, Path workDir, String scratch,
                                      String extension, List<Path> intermediates)
     {
-        boolean needsMagick = profile.usesImageMagick() || !profile.encoder().accepts(extension);
+        boolean applyMagickArgs = imageMagickApplies(profile, source);
+        // The height condition never skips a conversion: without it the encoder could not read the input at
+        // all, and the page would stay as it is instead of being compressed.
+        boolean needsMagick = applyMagickArgs || !profile.encoder().accepts(extension);
         if (!needsMagick)
         {
             return source;
@@ -135,13 +146,39 @@ public class ImageCompressor
         // [0] = first frame: for an animated GIF ImageMagick would otherwise write one numbered PNG per
         // frame and none under the name we asked for.
         command.add(source + "[0]");
-        command.addAll(profile.magickArgs());
+        if (applyMagickArgs)
+        {
+            command.addAll(profile.magickArgs());
+        }
         command.add(converted.toString());
         if (!runner.run(command) || !Files.isRegularFile(converted))
         {
             return null;
         }
         return converted;
+    }
+
+    private static boolean imageMagickApplies(CompressionProfile profile, Path source)
+    {
+        if (!profile.usesImageMagick())
+        {
+            return false;
+        }
+        // The header is an extra file read per page, so it is read only when a limit makes it matter.
+        return profile.imageHeightLimit() == null || profile.imageMagickAppliesTo(imageHeightOf(source));
+    }
+
+    /** Negative when the header does not say, which lets the mode's arguments run as if no limit were set. */
+    private static int imageHeightOf(Path source)
+    {
+        try (var in = Files.newInputStream(source))
+        {
+            return ImageSize.of(in.readNBytes(SIZE_HEADER_BYTES)).map(ImageSize::height).orElse(-1);
+        }
+        catch (IOException e)
+        {
+            return -1;
+        }
     }
 
     /**

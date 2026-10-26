@@ -638,7 +638,7 @@ class JxlTranscodeIT
         Path png = chapterDir.resolve("1.png");
         Files.write(png, TestImages.png(size, size));
         var profile = new CompressionProfile("test", "Test", ImageEncoder.JXL,
-                CompressionProfile.splitArgs("-q 40 -e 1"), List.of(), 0, 0, Set.of());
+                CompressionProfile.splitArgs("-q 40 -e 1"), List.of(), null, 0, 0, Set.of());
         assertThat(compressor.compress(png, profile, chapterDir.resolve(".work")).replaced()).isTrue();
         return Files.readAllBytes(chapterDir.resolve("1.jxl"));
     }

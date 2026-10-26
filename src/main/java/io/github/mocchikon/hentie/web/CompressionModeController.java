@@ -99,6 +99,7 @@ public class CompressionModeController
         form.setEncoder(mode.getEncoder());
         form.setEncoderArgs(mode.getEncoderArgs());
         form.setMagickArgs(mode.getMagickArgs());
+        form.setImageHeightLimit(mode.getImageHeightLimit());
         form.setMinRelativeReduction(mode.getMinRelativeReduction());
         form.setMinAbsoluteReduction(mode.getMinAbsoluteReduction());
         form.setFormats(mode.getFormats());
@@ -114,6 +115,7 @@ public class CompressionModeController
         mode.setEncoder(form.getEncoder());
         mode.setEncoderArgs(trim(form.getEncoderArgs()));
         mode.setMagickArgs(trim(form.getMagickArgs()));
+        mode.setImageHeightLimit(form.getImageHeightLimit());
         mode.setMinRelativeReduction(form.getMinRelativeReduction());
         mode.setMinAbsoluteReduction(form.getMinAbsoluteReduction());
         mode.setFormats(trim(form.getFormats()));

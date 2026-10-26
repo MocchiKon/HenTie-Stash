@@ -105,10 +105,27 @@ class CompressionProfileTest
     void shouldSayImageMagickIsUsedOnlyWhenItHasArguments()
     {
         // WHEN + THEN
-        assertThat(new CompressionProfile("K", "n", ImageEncoder.JXL, List.of(), List.of(), 0, 0, Set.of())
+        assertThat(new CompressionProfile("K", "n", ImageEncoder.JXL, List.of(), List.of(), null, 0, 0, Set.of())
                 .usesImageMagick()).isFalse();
         assertThat(new CompressionProfile("K", "n", ImageEncoder.JXL, List.of(),
-                List.of("-resize", "50%"), 0, 0, Set.of()).usesImageMagick()).isTrue();
+                List.of("-resize", "50%"), null, 0, 0, Set.of()).usesImageMagick()).isTrue();
+    }
+
+    /** "Above the limit" is strict: an image exactly at the limit is not made smaller. */
+    @Test
+    void shouldApplyImageMagickArgumentsOnlyAboveTheHeightLimit()
+    {
+        // WHEN + THEN no limit means every image.
+        assertThat(profile(ImageEncoder.JXL, List.of("-resize", "50%"), null).imageMagickAppliesTo(1)).isTrue();
+        // A limit only lets taller images through.
+        var limited = profile(ImageEncoder.JXL, List.of("-resize", "50%"), 1000);
+        assertThat(limited.imageMagickAppliesTo(1000)).isFalse();
+        assertThat(limited.imageMagickAppliesTo(999)).isFalse();
+        assertThat(limited.imageMagickAppliesTo(1001)).isTrue();
+        // An unreadable size must not silently skip work the user asked for.
+        assertThat(limited.imageMagickAppliesTo(-1)).isTrue();
+        // No arguments: ImageMagick does not run for resizing, whatever the limit says.
+        assertThat(profile(ImageEncoder.JXL, List.of(), 1000).imageMagickAppliesTo(5000)).isFalse();
     }
 
     /**
@@ -143,7 +160,12 @@ class CompressionProfileTest
 
     private static CompressionProfile profile(String formats)
     {
-        return new CompressionProfile("K", "n", ImageEncoder.JXL, List.of(), List.of(), 0, 0,
+        return new CompressionProfile("K", "n", ImageEncoder.JXL, List.of(), List.of(), null, 0, 0,
                 CompressionProfile.parseFormats(formats));
+    }
+
+    private static CompressionProfile profile(ImageEncoder encoder, List<String> magickArgs, Integer heightLimit)
+    {
+        return new CompressionProfile("K", "n", encoder, List.of(), magickArgs, heightLimit, 0, 0, Set.of());
     }
 }

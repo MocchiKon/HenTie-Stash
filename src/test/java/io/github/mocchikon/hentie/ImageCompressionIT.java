@@ -445,7 +445,7 @@ class ImageCompressionIT
                                                int relative, int absolute, String formats)
     {
         return new CompressionProfile("test", "Test mode", encoder,
-                CompressionProfile.splitArgs(encoderArgs), CompressionProfile.splitArgs(magickArgs),
+                CompressionProfile.splitArgs(encoderArgs), CompressionProfile.splitArgs(magickArgs), null,
                 relative, absolute, CompressionProfile.parseFormats(formats));
     }
 

@@ -303,7 +303,7 @@ class ComfyUiProcessingIT
         Path png = chapterDir.resolve("5.png");
         Files.write(png, TestImages.png(64, 64));
         var profile = new CompressionProfile("test", "Test", ImageEncoder.JXL,
-                CompressionProfile.splitArgs("-q 40 -e 1"), List.of(), 0, 0, Set.of());
+                CompressionProfile.splitArgs("-q 40 -e 1"), List.of(), null, 0, 0, Set.of());
         assertThat(compressor.compress(png, profile, chapterDir.resolve(".work")).replaced()).isTrue();
 
         // WHEN
