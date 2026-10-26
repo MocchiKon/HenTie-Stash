@@ -85,11 +85,18 @@ public enum ImageEncoder
         return true;
     }
 
+    /**
+     * Stops cjxl from storing JPEG reconstruction metadata. That metadata only rebuilds the source JPEG byte
+     * for byte, which nothing in the app does. It goes last, after the mode's own arguments, so no mode can
+     * turn it back on.
+     */
+    private static final List<String> JXL_FIXED_ARGS = List.of("--allow_jpeg_reconstruction=0");
+
     public List<String> commandLine(String executable, String input, String output, List<String> args)
     {
         return switch (this)
         {
-            case JXL -> concat(List.of(executable, input, output), args);
+            case JXL -> concat(concat(List.of(executable, input, output), args), JXL_FIXED_ARGS);
             case AVIF -> concat(concat(List.of(executable), args), List.of(input, output));
         };
     }

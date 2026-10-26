@@ -926,7 +926,9 @@ downloaded and uploaded images. Default mode is **None**: bytes are stored as th
   added binary works without restart. A missing `PATH` tool surfaces as a failed process start, which
   keeps the original.
 - **`cjxl` is `INPUT OUTPUT [OPTIONS]`, `avifenc` is `[OPTIONS] INPUT OUTPUT`** — so `ImageEncoder` builds
-  the command line, not the caller.
+  the command line, not the caller. **Every `cjxl` run ends with `--allow_jpeg_reconstruction=0`**, after the
+  mode's own arguments, so no mode turns JPEG reconstruction metadata back on: it only rebuilds the source
+  JPEG byte for byte, which nothing in the app does.
 - **Its own thread pool** (`ImageCompressionConfig`), sized to the machine: long CPU-bound tasks must not
   take threads from anything latency-sensitive. **Settings caps how much of the processor it uses**
   (`image.compression.cpu-percent`, default 100%): a resizable semaphore in `ImageCompressionExecutor`

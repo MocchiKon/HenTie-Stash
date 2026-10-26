@@ -123,7 +123,7 @@ class CompressionProfileTest
 
         // WHEN + THEN
         assertThat(ImageEncoder.JXL.commandLine("cjxl", "in.png", "out.jxl", args))
-                .containsExactly("cjxl", "in.png", "out.jxl", "-q", "50");
+                .containsExactly("cjxl", "in.png", "out.jxl", "-q", "50", "--allow_jpeg_reconstruction=0");
         assertThat(ImageEncoder.AVIF.commandLine("avifenc", "in.png", "out.avif", args))
                 .containsExactly("avifenc", "-q", "50", "in.png", "out.avif");
     }

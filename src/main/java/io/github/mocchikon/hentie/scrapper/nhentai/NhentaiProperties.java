@@ -20,7 +20,7 @@ public class NhentaiProperties
     private String baseUrl = "https://nhentai.net";
 
     /** nhentai asks every client for a descriptive one: {@code AppName/version (contact or project URL)}. */
-    private String userAgent = "HenTie/1.0";
+    private String userAgent = "HenTie";
 
     /** A gallery's details without an API key, per IP. 0 = no limit. */
     private int galleryRequestsPerMinute = 20;
