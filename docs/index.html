@@ -1,0 +1,1171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>HenTie — local gallery manager</title>
+    <meta name="description" content="HenTie is a local web app for browsing, downloading and organizing your gallery collection. Supports nhentai, exhentai and hitomi, saves about 20% disk with lossless JPEG XL, matches chapters into series and runs ComfyUI workflows.">
+    <meta name="theme-color" content="#0e0d0f">
+    <link rel="canonical" href="https://mocchikon.github.io/HenTie-Stash/">
+    <link rel="icon" href="images/logo.svg" type="image/svg+xml">
+
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="HenTie — local gallery manager">
+    <meta property="og:description" content="A local web app for browsing, downloading and organizing your gallery collection.">
+    <meta property="og:url" content="https://mocchikon.github.io/HenTie-Stash/">
+    <meta property="og:image" content="https://mocchikon.github.io/HenTie-Stash/images/og.jpg">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:image:alt" content="HenTie search results page">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:image" content="https://mocchikon.github.io/HenTie-Stash/images/og.jpg">
+
+    <style>
+/* HenTie landing page. Dark, flat and responsive, using the system UI font. */
+
+:root {
+    --bg: #0e0d0f;
+    --surface: #151316;
+    --surface-2: #1b171b;
+    --border: #2b262b;
+    --border-strong: #3a3138;
+    --text: #f4f1ec;
+    --muted: #a39a92;
+    --accent: #e10600;
+    --accent-bright: #ff4a3d;
+    --cream: #d2c9bd;
+    --cream-line: #b3a99c;
+    --ink: #171315;
+    --ink-muted: #4e4642;
+    --green: #58b368;
+    --max: 1180px;
+    --radius: 16px;
+    --font: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+html {
+    color-scheme: dark;
+    background: var(--bg);
+    scrollbar-color: #3a3138 #0e0d0f;
+    scrollbar-width: thin;
+}
+
+body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 16px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+}
+
+img {
+    display: block;
+    max-width: 100%;
+    height: auto;
+}
+
+a {
+    color: inherit;
+    text-decoration: none;
+}
+
+p,
+h1,
+h2,
+h3,
+ul,
+ol,
+figure {
+    margin-top: 0;
+}
+
+.container {
+    width: min(var(--max), calc(100% - 48px));
+    margin-inline: auto;
+}
+
+.skip-link {
+    position: absolute;
+    top: 0;
+    left: -9999px;
+    z-index: 20;
+    padding: 10px 14px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+}
+
+.skip-link:focus {
+    top: 12px;
+    left: 12px;
+}
+
+:focus-visible {
+    outline: 2px solid var(--accent-bright);
+    outline-offset: 2px;
+}
+
+::selection {
+    background: var(--accent);
+    color: #fff;
+}
+
+/* Header */
+
+.site-header {
+    background: #000;
+    border-bottom: 2px solid var(--accent);
+}
+
+.header-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+    min-height: 68px;
+}
+
+.brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    font-size: 1.28rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+}
+
+.brand-logo {
+    width: auto;
+    height: 28px;
+}
+
+.brand-name span {
+    color: var(--accent-bright);
+}
+
+.site-nav {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    color: var(--muted);
+    font-size: 0.86rem;
+}
+
+.site-nav a:hover {
+    color: var(--text);
+}
+
+/* Hero */
+
+.hero {
+    overflow: hidden;
+    padding: 56px 0 52px;
+    background:
+        radial-gradient(900px 560px at 78% 18%, rgba(225, 6, 0, 0.15), transparent 62%),
+        var(--bg);
+}
+
+.hero-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.02fr);
+    align-items: center;
+    gap: clamp(40px, 5vw, 64px);
+}
+
+.eyebrow {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin-bottom: 0;
+    color: #bdb3a9;
+    font-size: 0.67rem;
+    font-weight: 600;
+    letter-spacing: 0.17em;
+    text-transform: uppercase;
+}
+
+.eyebrow-dot {
+    width: 6px;
+    height: 6px;
+    flex-shrink: 0;
+    margin-top: 0.42em;
+    border-radius: 50%;
+    background: var(--accent-bright);
+}
+
+.hero h1 {
+    margin: 18px 0 20px;
+    color: var(--text);
+    font-size: clamp(2.55rem, 5.1vw, 4.55rem);
+    font-weight: 700;
+    letter-spacing: -0.045em;
+    line-height: 0.98;
+    text-wrap: balance;
+}
+
+.hero h1 span {
+    color: var(--accent-bright);
+}
+
+.lede {
+    max-width: 34rem;
+    margin-bottom: 0;
+    color: #c7beb5;
+    font-size: clamp(1rem, 1.2vw, 1.1rem);
+    line-height: 1.65;
+}
+
+.actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 24px;
+}
+
+.button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 11px 18px;
+    border: 1px solid var(--accent);
+    border-radius: 8px;
+    background: var(--accent);
+    color: #fff;
+    font-size: 0.9rem;
+    font-weight: 600;
+    line-height: 1.2;
+}
+
+.button:hover {
+    border-color: #b00500;
+    background: #b00500;
+}
+
+.button.secondary {
+    border-color: var(--border-strong);
+    background: var(--surface-2);
+    color: var(--text);
+}
+
+.button.secondary:hover {
+    background: #262027;
+}
+
+.hero-notes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 20px;
+    margin: 20px 0 0;
+    padding: 0;
+    list-style: none;
+    color: #928981;
+    font-size: 0.75rem;
+}
+
+.hero-notes li {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+}
+
+.hero-notes li::before {
+    content: "";
+    width: 4px;
+    height: 4px;
+    flex-shrink: 0;
+    border-radius: 50%;
+    background: var(--accent);
+}
+
+.hero-shot {
+    min-width: 0;
+    margin: 0;
+}
+
+.hero-shot a {
+    display: block;
+    padding: 7px;
+    border: 1px solid #352d33;
+    border-radius: 16px;
+    background: #141114;
+}
+
+.hero-shot picture {
+    display: block;
+}
+
+.hero-shot img {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 1200 / 1067;
+    object-fit: contain;
+    border-radius: 10px;
+}
+
+.hero-shot figcaption {
+    margin-top: 9px;
+    color: #8f857d;
+    font-size: 0.73rem;
+    line-height: 1.4;
+}
+
+/* Source strip */
+
+.source-strip {
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    background: #0b0a0b;
+}
+
+.source-inner {
+    display: flex;
+    align-items: center;
+    gap: clamp(20px, 4vw, 54px);
+    padding: 16px 0;
+}
+
+.source-label {
+    margin-bottom: 0;
+    color: #8d837b;
+    font-size: 0.65rem;
+    font-weight: 600;
+    letter-spacing: 0.17em;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.source-names {
+    display: flex;
+    flex-wrap: wrap;
+    gap: clamp(18px, 3vw, 36px);
+    margin-bottom: 0;
+    color: #d3c9bf;
+    font-size: 1.05rem;
+    font-weight: 600;
+}
+
+.source-note {
+    margin: 0 0 0 auto;
+    color: #8d837b;
+    font-size: 0.72rem;
+    white-space: nowrap;
+}
+
+/* Features */
+
+.features {
+    padding: 64px 0 72px;
+}
+
+.section-head {
+    max-width: 720px;
+    margin-bottom: 32px;
+}
+
+.section-head h2 {
+    margin: 14px 0 16px;
+    color: var(--text);
+    font-size: clamp(2rem, 3.8vw, 3.15rem);
+    font-weight: 700;
+    letter-spacing: -0.04em;
+    line-height: 1.05;
+    text-wrap: balance;
+}
+
+.section-lede {
+    max-width: 600px;
+    margin-bottom: 0;
+    color: var(--muted);
+    font-size: 1rem;
+    line-height: 1.65;
+}
+
+.bento {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px;
+}
+
+.tile {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 22px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+}
+
+.tile:hover {
+    border-color: #443a41;
+}
+
+.tile-browse {
+    grid-column: span 2;
+    display: grid;
+    grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+    align-items: center;
+    gap: 28px;
+}
+
+.tile-copy {
+    min-width: 0;
+}
+
+.tile .tile-kicker {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+    color: #9a9087;
+    font-size: 0.65rem;
+    font-weight: 600;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+}
+
+.tile .tile-kicker svg {
+    width: 15px;
+    height: 15px;
+    flex-shrink: 0;
+    color: var(--accent-bright);
+}
+
+.tile h3 {
+    margin-bottom: 8px;
+    color: var(--text);
+    font-size: 1.32rem;
+    font-weight: 600;
+    letter-spacing: -0.025em;
+    line-height: 1.15;
+}
+
+.tile-browse h3 {
+    font-size: 1.55rem;
+}
+
+.tile p {
+    margin-bottom: 0;
+    color: var(--muted);
+    font-size: 0.92rem;
+    line-height: 1.65;
+}
+
+.tag-list {
+    display: flex;
+    flex-wrap: wrap;
+    align-content: center;
+    gap: 6px;
+    margin-bottom: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.tag-list li {
+    padding: 6px 10px;
+    border: 1px solid #332c32;
+    border-radius: 999px;
+    background: var(--surface-2);
+    color: #c7bdb3;
+    font-size: 0.7rem;
+    line-height: 1.2;
+    white-space: nowrap;
+}
+
+.tile .stat {
+    margin: 8px 0 0;
+    color: var(--text);
+    font-size: clamp(4rem, 5.5vw, 5.2rem);
+    font-weight: 700;
+    letter-spacing: -0.07em;
+    line-height: 0.85;
+}
+
+.tile .stat span {
+    margin-left: 0.03em;
+    color: var(--accent-bright);
+    font-size: 0.45em;
+    letter-spacing: 0;
+}
+
+.storage-bar {
+    height: 7px;
+    margin-top: 12px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: #2b262b;
+}
+
+.storage-bar span {
+    display: block;
+    width: 80%;
+    height: 100%;
+    border-radius: inherit;
+    background: #d8cbbd;
+}
+
+.tile .storage-labels {
+    display: flex;
+    justify-content: space-between;
+    margin: 7px 0 0;
+    color: #8f857d;
+    font-size: 0.6rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.source-list {
+    margin: auto 0 0;
+    padding: 0;
+    list-style: none;
+    border-top: 1px solid var(--border);
+}
+
+.source-list li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+    color: #d3c9bf;
+    font-size: 0.84rem;
+    line-height: 1.4;
+}
+
+.source-list li:last-child {
+    border-bottom: 0;
+}
+
+.source-list li span:last-child {
+    color: #7f756f;
+    font-size: 0.8rem;
+}
+
+.tile .flow-line {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 5px;
+    margin: auto 0 0;
+    padding-top: 14px;
+    border-top: 1px solid var(--border);
+    color: #c9bfb5;
+    font-size: 0.65rem;
+}
+
+.tile .flow-line span {
+    padding: 4px 7px;
+    border: 1px solid #332c32;
+    border-radius: 5px;
+    background: var(--surface-2);
+    white-space: nowrap;
+}
+
+.tile .flow-line b {
+    color: var(--accent-bright);
+    font-weight: 600;
+}
+
+.tile .flow-line strong {
+    padding: 4px 8px;
+    border: 1px solid rgba(225, 6, 0, 0.35);
+    border-radius: 5px;
+    background: rgba(225, 6, 0, 0.08);
+    color: var(--text);
+    font-weight: 600;
+}
+
+.tile .schedule-line {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin: auto 0 0;
+    padding-top: 14px;
+    border-top: 1px solid var(--border);
+    color: #a99f96;
+    font-size: 0.7rem;
+    line-height: 1.4;
+}
+
+.status-dot {
+    width: 5px;
+    height: 5px;
+    flex-shrink: 0;
+    border-radius: 50%;
+    background: var(--green);
+}
+
+/* ComfyUI */
+
+.comfy {
+    padding: 60px 0 64px;
+    background: var(--cream);
+    color: var(--ink);
+}
+
+.comfy-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
+    align-items: start;
+    gap: clamp(40px, 6vw, 84px);
+}
+
+.comfy .eyebrow {
+    color: #564c47;
+}
+
+.comfy h2 {
+    margin: 12px 0 16px;
+    color: var(--ink);
+    font-size: clamp(2.2rem, 4vw, 3.5rem);
+    font-weight: 700;
+    letter-spacing: -0.04em;
+    line-height: 1.02;
+    text-wrap: balance;
+}
+
+.comfy-lede {
+    max-width: 34rem;
+    margin-bottom: 14px;
+    color: var(--ink-muted);
+    font-size: 1.02rem;
+    line-height: 1.65;
+}
+
+.comfy-note {
+    max-width: 34rem;
+    margin-bottom: 14px;
+    padding: 2px 0 2px 16px;
+    border-left: 2px solid var(--accent);
+    color: var(--ink-muted);
+    font-size: 0.9rem;
+    line-height: 1.65;
+}
+
+.comfy-note strong {
+    color: var(--ink);
+    font-weight: 600;
+}
+
+.comfy-small {
+    margin-bottom: 0;
+    color: #554b46;
+    font-size: 0.8rem;
+    line-height: 1.6;
+}
+
+.comfy-small a {
+    color: #960300;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    white-space: nowrap;
+}
+
+.comfy-small a:hover {
+    color: #700200;
+}
+
+.comfy-list {
+    margin-bottom: 0;
+    padding: 0;
+    list-style: none;
+    border-top: 1px solid var(--cream-line);
+}
+
+.comfy-list li {
+    display: grid;
+    grid-template-columns: 40px minmax(0, 1fr);
+    gap: 14px;
+    padding: 15px 0;
+    border-bottom: 1px solid var(--cream-line);
+}
+
+.comfy-list > li > span {
+    padding-top: 3px;
+    color: #a80400;
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    font-weight: 600;
+}
+
+.comfy-list h3 {
+    margin-bottom: 4px;
+    color: var(--ink);
+    font-size: 1.02rem;
+    font-weight: 600;
+    letter-spacing: -0.015em;
+}
+
+.comfy-list p {
+    margin-bottom: 0;
+    color: var(--ink-muted);
+    font-size: 0.9rem;
+    line-height: 1.55;
+}
+
+/* Download */
+
+.download-section {
+    padding: 60px 0 72px;
+}
+
+.download-panel {
+    display: grid;
+    grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr);
+    gap: 36px;
+    padding: clamp(24px, 3.2vw, 38px);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    background: var(--surface);
+}
+
+.download-copy h2 {
+    margin: 12px 0 14px;
+    color: var(--text);
+    font-size: clamp(2rem, 3.5vw, 2.8rem);
+    font-weight: 700;
+    letter-spacing: -0.035em;
+    line-height: 1.05;
+}
+
+.download-copy > p {
+    max-width: 38rem;
+    margin-bottom: 0;
+    color: #bdb3a9;
+    font-size: 0.95rem;
+    line-height: 1.65;
+}
+
+.download-copy .actions {
+    margin-top: 20px;
+}
+
+.download-copy > .download-small {
+    margin-top: 12px;
+    color: #8f857d;
+    font-size: 0.78rem;
+    line-height: 1.6;
+}
+
+.build-list {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding-left: 40px;
+    border-left: 1px solid var(--border);
+}
+
+.build {
+    padding-bottom: 14px;
+    margin-bottom: 14px;
+    border-bottom: 1px solid var(--border);
+}
+
+.build:last-child {
+    padding-bottom: 0;
+    margin-bottom: 0;
+    border-bottom: 0;
+}
+
+.build h3 {
+    margin-bottom: 6px;
+    color: var(--text);
+    font-size: 0.95rem;
+    font-weight: 600;
+}
+
+.build p {
+    margin-bottom: 0;
+    color: var(--muted);
+    font-size: 0.85rem;
+    line-height: 1.6;
+}
+
+code {
+    padding: 1px 5px;
+    border: 1px solid #332c32;
+    border-radius: 4px;
+    background: #221d21;
+    color: #d8cdc4;
+    font-family: var(--mono);
+    font-size: 0.85em;
+}
+
+/* Responsive */
+
+@media (max-width: 1100px) {
+    .hero-grid {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 44px;
+    }
+
+    .hero-copy {
+        max-width: 760px;
+    }
+
+    .hero-shot {
+        width: 100%;
+        max-width: 760px;
+        margin-inline: auto;
+    }
+}
+
+@media (max-width: 1000px) {
+    .bento {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .tile-browse {
+        grid-column: span 2;
+    }
+
+    .comfy-grid {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 30px;
+    }
+
+    .download-panel {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 28px;
+    }
+
+    .build-list {
+        padding-top: 20px;
+        padding-left: 0;
+        border-top: 1px solid var(--border);
+        border-left: 0;
+    }
+}
+
+@media (max-width: 760px) {
+    .header-inner {
+        min-height: 60px;
+    }
+
+    .site-nav a[href="#features"],
+    .site-nav a[href="#comfyui"] {
+        display: none;
+    }
+
+    .hero {
+        padding: 44px 0 48px;
+    }
+
+    .hero h1 {
+        font-size: clamp(2.35rem, 7.5vw, 3.4rem);
+    }
+
+    .source-inner {
+        flex-wrap: wrap;
+        row-gap: 10px;
+    }
+
+    .source-note {
+        display: none;
+    }
+
+    .bento {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .tile-browse {
+        grid-column: auto;
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .tile-browse .tag-list {
+        margin-top: 4px;
+    }
+
+    .features {
+        padding: 52px 0 60px;
+    }
+
+    .section-head h2 {
+        font-size: clamp(1.9rem, 6vw, 2.5rem);
+    }
+
+    .comfy {
+        padding: 48px 0 48px;
+    }
+
+    .comfy h2 {
+        font-size: clamp(2rem, 7vw, 2.8rem);
+    }
+
+    .download-section {
+        padding: 52px 0 60px;
+    }
+
+    .download-panel {
+        padding: 22px;
+    }
+}
+
+@media (max-width: 560px) {
+    .container {
+        width: calc(100% - 40px);
+    }
+
+    .brand {
+        font-size: 1.12rem;
+    }
+
+    .brand-logo {
+        height: 26px;
+    }
+
+    .site-nav {
+        gap: 16px;
+        font-size: 0.84rem;
+    }
+
+    .hero {
+        padding: 38px 0 44px;
+    }
+
+    .hero h1 {
+        font-size: 2.35rem;
+    }
+
+    .hero-notes {
+        gap: 8px 16px;
+    }
+
+    .actions {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .button {
+        text-align: center;
+    }
+
+    .hero-shot a {
+        padding: 5px;
+        border-radius: 12px;
+    }
+
+    .hero-shot img {
+        border-radius: 8px;
+    }
+
+    .hero-shot figcaption {
+        font-size: 0.7rem;
+    }
+
+    .features {
+        padding: 44px 0 52px;
+    }
+
+    .tile {
+        padding: 18px;
+    }
+
+    .tile-browse h3 {
+        font-size: 1.4rem;
+    }
+
+    .comfy {
+        padding: 44px 0 44px;
+    }
+
+    .download-section {
+        padding: 48px 0 52px;
+    }
+
+    .download-panel {
+        padding: 18px;
+    }
+}
+</style>
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+
+<header class="site-header">
+    <div class="container header-inner">
+        <a class="brand" href="#top" aria-label="HenTie home">
+            <img class="brand-logo" src="images/logo.svg" alt="" width="24" height="32">
+            <span class="brand-name">Hen<span>Tie</span></span>
+        </a>
+        <nav class="site-nav" aria-label="Primary">
+            <a href="#features">Features</a>
+            <a href="#comfyui">ComfyUI</a>
+            <a href="#download">Download</a>
+            <a href="https://github.com/MocchiKon/HenTie-Stash" target="_blank" rel="noopener noreferrer">GitHub</a>
+        </nav>
+    </div>
+</header>
+
+<main id="main">
+    <section class="hero" id="top">
+        <div class="container hero-grid">
+            <div class="hero-copy">
+                <p class="eyebrow"><span class="eyebrow-dot"></span>Local · Open source · GPLv3</p>
+                <h1>Your galleries,<br><span>on your disk.</span></h1>
+                <p class="lede">HenTie downloads, organizes and reads your collection. It supports nhentai, exhentai and hitomi, matches chapters into series, and runs ComfyUI workflows.</p>
+                <div class="actions">
+                    <a class="button" href="https://github.com/MocchiKon/HenTie-Stash/releases/latest" target="_blank" rel="noopener noreferrer">Download latest release</a>
+                    <a class="button secondary" href="https://github.com/MocchiKon/HenTie-Stash" target="_blank" rel="noopener noreferrer">View source</a>
+                </div>
+                <ul class="hero-notes">
+                    <li>Windows, Linux &amp; macOS</li>
+                    <li>Local</li>
+                    <li>GPLv3</li>
+                </ul>
+            </div>
+
+            <figure class="hero-shot">
+                <a href="images/app-search-1600.webp" target="_blank" rel="noopener noreferrer" title="Open the screenshot full size">
+                    <picture>
+                        <source srcset="images/app-search-1200.webp" type="image/webp">
+                        <img src="images/app-search-1200.jpg" width="1200" height="1067"
+                             alt="HenTie search results page showing a grid of gallery covers and chapter titles"
+                             loading="eager" decoding="async">
+                    </picture>
+                </a>
+            </figure>
+        </div>
+    </section>
+
+    <section class="source-strip" aria-label="Supported download sites">
+        <div class="container source-inner">
+            <p class="source-label">Downloads from</p>
+            <p class="source-names"><span>nhentai</span><span>exhentai</span><span>hitomi</span></p>
+            <p class="source-note">straight to your disk</p>
+        </div>
+    </section>
+
+    <section class="features" id="features">
+        <div class="container">
+            <header class="section-head">
+                <p class="eyebrow">Features</p>
+                <h2>Built for a local collection.</h2>
+                <p class="section-lede">Browsing, storage, downloads and automation, without leaving the app.</p>
+            </header>
+
+            <div class="bento">
+                <article class="tile tile-browse">
+                    <div class="tile-copy">
+                        <p class="tile-kicker">
+                            <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="9" cy="9" r="5.2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="m13 13 4 4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+                            Browse
+                        </p>
+                        <h3>Search and read your collection.</h3>
+                        <p>Search titles, tags, artists and characters. Filter and sort a large library, and review a backlog one result at a time. The reader works on a phone as well as a desktop.</p>
+                    </div>
+                    <ul class="tag-list">
+                        <li>title</li>
+                        <li>tag</li>
+                        <li>artist</li>
+                        <li>character</li>
+                        <li>parody</li>
+                        <li>group</li>
+                        <li>language</li>
+                        <li>score</li>
+                        <li>pages</li>
+                        <li>status</li>
+                    </ul>
+                </article>
+
+                <article class="tile tile-storage">
+                    <p class="tile-kicker">
+                        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 5.5h14M3 10h14M3 14.5h9" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+                        Storage
+                    </p>
+                    <p class="stat">~20<span>%</span></p>
+                    <h3>Smaller files, same image.</h3>
+                    <p>Lossless JPEG XL transcoding saves about a fifth of the library's disk space without any quality loss.</p>
+                    <div class="storage-bar" aria-hidden="true"><span></span></div>
+                    <p class="storage-labels"><span>JPEG / PNG</span><span>JPEG XL</span></p>
+                </article>
+
+                <article class="tile">
+                    <p class="tile-kicker">
+                        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v9m0 0 3.5-3.5M10 12 6.5 8.5M4 15.5h12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        Downloads
+                    </p>
+                    <h3>Paste a link.<br>Keep the gallery.</h3>
+                    <p>Download from the sites you already use into a folder on your disk.</p>
+                    <ul class="source-list">
+                        <li><span>nhentai</span><span aria-hidden="true">↘</span></li>
+                        <li><span>exhentai</span><span aria-hidden="true">↘</span></li>
+                        <li><span>hitomi</span><span aria-hidden="true">↘</span></li>
+                    </ul>
+                </article>
+
+                <article class="tile">
+                    <p class="tile-kicker">
+                        <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="5" cy="5" r="1.8" fill="none" stroke="currentColor" stroke-width="1.3"/><circle cx="5" cy="15" r="1.8" fill="none" stroke="currentColor" stroke-width="1.3"/><circle cx="15" cy="10" r="1.8" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M6.8 5.7 13.2 9M6.8 14.3 13.2 11" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>
+                        Matching
+                    </p>
+                    <h3>Chapters find their series.</h3>
+                    <p>New chapters match an existing series by title, artist and native title. New families are created on their own.</p>
+                    <p class="flow-line"><span>Ch. 01</span><span>Ch. 02</span><span>Ch. 03</span><b aria-hidden="true">→</b><strong>Series</strong></p>
+                </article>
+
+                <article class="tile">
+                    <p class="tile-kicker">
+                        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 8a5 5 0 0 1 10 0c0 4 1.5 5 1.5 5h-13S5 12 5 8Z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M8.2 16a2 2 0 0 0 3.6 0" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+                        Subscriptions
+                    </p>
+                    <h3>Follow an artist.</h3>
+                    <p>Save a search and check it on a schedule. New work is queued automatically; anything you already own is skipped.</p>
+                </article>
+            </div>
+        </div>
+    </section>
+
+    <section class="comfy" id="comfyui">
+        <div class="container comfy-grid">
+            <div class="comfy-copy">
+                <p class="eyebrow">ComfyUI</p>
+                <h2>Use your own workflows.</h2>
+                <p class="comfy-lede">The image viewer can send pages through any ComfyUI workflow with an image input and an image output.</p>
+                <p class="comfy-note"><strong>Any image-in, image-out workflow works.</strong> Results are cached; the files in your data folder are not modified.</p>
+                <p class="comfy-small">ComfyUI is a separate program and must be running while you use a workflow. <a href="https://github.com/comfyanonymous/ComfyUI" target="_blank" rel="noopener noreferrer">About ComfyUI</a></p>
+            </div>
+            <ol class="comfy-list">
+                <li><span>01</span><div><h3>Upscale</h3><p>Run any upscale model installed in ComfyUI.</p></div></li>
+                <li><span>02</span><div><h3>Descreen</h3><p>Remove screentones from scanned pages.</p></div></li>
+                <li><span>03</span><div><h3>Decensor</h3><p>Use an AI workflow to redraw censored areas.</p></div></li>
+                <li><span>04</span><div><h3>Translate</h3><p>Render translated text onto the page.</p></div></li>
+            </ol>
+        </div>
+    </section>
+
+    <section class="download-section" id="download">
+        <div class="container">
+            <div class="download-panel">
+                <div class="download-copy">
+                    <p class="eyebrow">Download</p>
+                    <h2>Download HenTie.</h2>
+                    <div class="actions">
+                        <a class="button" href="https://github.com/MocchiKon/HenTie-Stash/releases/latest" target="_blank" rel="noopener noreferrer">Download latest release</a>
+                        <a class="button secondary" href="https://github.com/MocchiKon/HenTie-Stash" target="_blank" rel="noopener noreferrer">View source</a>
+                    </div>
+                </div>
+                <div class="build-list">
+                    <div class="build">
+                        <h3>Windows</h3>
+                        <p>Unzip the Windows build and run <code>HenTie.exe</code>. Java is included.</p>
+                    </div>
+                    <div class="build">
+                        <h3>All platforms</h3>
+                        <p>Windows, Linux and macOS. Run <code>start.sh</code> or <code>java -jar HenTie.jar</code> with Java 21 or newer.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+</main>
+</body>
+</html>
