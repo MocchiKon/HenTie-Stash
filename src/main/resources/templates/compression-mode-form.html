@@ -40,7 +40,9 @@
             <input type="text" th:field="*{encoderArgs}" maxlength="1000" placeholder="-q 100 -e 10">
             <p class="field-error" th:if="${#fields.hasErrors('encoderArgs')}" th:errors="*{encoderArgs}">error</p>
             <p class="hint">
-                Passed to the encoder as typed.
+                Passed to the encoder as typed. For JXL the app adds <code>--lossless_jpeg=1</code> when the
+                quality is 100 and <code>--lossless_jpeg=0</code> below it, and
+                <code>--allow_jpeg_reconstruction=0</code>, unless you have already given them yourself.
             </p>
         </div>
 

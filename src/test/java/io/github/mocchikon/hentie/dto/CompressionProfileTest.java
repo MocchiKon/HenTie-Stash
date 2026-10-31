@@ -138,9 +138,9 @@ class CompressionProfileTest
         // GIVEN
         var args = List.of("-q", "50");
 
-        // WHEN + THEN
+        // WHEN + THEN the mode's arguments are passed through untouched; the mode form adds the switches.
         assertThat(ImageEncoder.JXL.commandLine("cjxl", "in.png", "out.jxl", args))
-                .containsExactly("cjxl", "in.png", "out.jxl", "-q", "50", "--allow_jpeg_reconstruction=0");
+                .containsExactly("cjxl", "in.png", "out.jxl", "-q", "50");
         assertThat(ImageEncoder.AVIF.commandLine("avifenc", "in.png", "out.avif", args))
                 .containsExactly("avifenc", "-q", "50", "in.png", "out.avif");
     }

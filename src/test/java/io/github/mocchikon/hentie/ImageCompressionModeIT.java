@@ -57,7 +57,8 @@ class ImageCompressionModeIT
         // WHEN + THEN Lossless: JXL, no ImageMagick, no thresholds, JPG and PNG only.
         CompressionProfile lossless = modeService.resolve("LOSSLESS").orElseThrow();
         assertThat(lossless.encoder()).isEqualTo(ImageEncoder.JXL);
-        assertThat(lossless.encoderArgs()).containsExactly("-q", "100", "-e", "10");
+        assertThat(lossless.encoderArgs()).containsExactly(
+                "-q", "100", "-e", "10", "--lossless_jpeg=1", "--allow_jpeg_reconstruction=0");
         assertThat(lossless.magickArgs()).isEmpty();
         assertThat(lossless.usesImageMagick()).isFalse();
         assertThat(lossless.imageHeightLimit()).isNull();
@@ -69,7 +70,8 @@ class ImageCompressionModeIT
         // rather than a second halving.
         CompressionProfile high = modeService.resolve("HIGH_REDUCTION").orElseThrow();
         assertThat(high.encoder()).isEqualTo(ImageEncoder.JXL);
-        assertThat(high.encoderArgs()).containsExactly("-q", "60", "-e", "10");
+        assertThat(high.encoderArgs()).containsExactly(
+                "-q", "60", "-e", "10", "--lossless_jpeg=0", "--allow_jpeg_reconstruction=0");
         assertThat(high.magickArgs()).containsExactly("-filter", "lanczos", "-resize", "50%");
         assertThat(high.imageHeightLimit()).isNull();
         assertThat(high.minRelativeReduction()).isEqualTo(20);
@@ -166,6 +168,55 @@ class ImageCompressionModeIT
         assertThat(profile.minRelativeReduction()).isEqualTo(30);
         assertThat(profile.minAbsoluteReduction()).isEqualTo(150);
         assertThat(profile.formats()).containsExactlyInAnyOrder("jpg", "gif", "png");
+    }
+
+    /**
+     * cjxl compresses a JPEG losslessly by default, whatever quality the mode asks for, so the stored mode has
+     * to say when it is not lossless. The switches are part of the mode so an edit shows what is really run.
+     */
+    @Test
+    void shouldAddTheJpegSwitchesThatTheJxlEncoderNeeds()
+    {
+        // WHEN the mode asks for lossless quality...
+        String lossless = modeService.save(mode("Lossless JPEG", "-q 100 -e 10"));
+        // THEN it opts into lossless JPEG, and turns reconstruction metadata off.
+        assertThat(modeService.resolve(lossless).orElseThrow().encoderArgs()).containsExactly(
+                "-q", "100", "-e", "10", "--lossless_jpeg=1", "--allow_jpeg_reconstruction=0");
+
+        // WHEN the quality is below 100...
+        String reduced = modeService.save(mode("Reduced JPEG", "-q 80"));
+        // THEN JPEG is compressed lossily after all, and the reconstruction switch is still there.
+        assertThat(modeService.resolve(reduced).orElseThrow().encoderArgs()).containsExactly(
+                "-q", "80", "--lossless_jpeg=0", "--allow_jpeg_reconstruction=0");
+
+        // WHEN the user gives either switch...
+        String chosen = modeService.save(mode("Chosen JPEG",
+                "-q 100 --lossless_jpeg=0 --allow_jpeg_reconstruction=1"));
+        // THEN their value wins, and nothing is appended twice.
+        assertThat(modeService.resolve(chosen).orElseThrow().encoderArgs()).containsExactly(
+                "-q", "100", "--lossless_jpeg=0", "--allow_jpeg_reconstruction=1");
+
+        // WHEN an existing mode is edited to another quality...
+        ImageCompressionMode edited = modeService.find(ImageCompressionModeService.customId(reduced)).orElseThrow();
+        edited.setEncoderArgs("-q 100");
+        modeService.save(edited);
+        // THEN the stored switch follows the new quality rather than staying at the old one.
+        assertThat(modeService.resolve(reduced).orElseThrow().encoderArgs()).containsExactly(
+                "-q", "100", "--lossless_jpeg=1", "--allow_jpeg_reconstruction=0");
+    }
+
+    /** The switches are cjxl's; avifenc would reject them. */
+    @Test
+    void shouldLeaveTheArgumentsOfAnAvifModeAlone()
+    {
+        // WHEN
+        ImageCompressionMode avif = mode("Plain AVIF", ImageEncoder.AVIF);
+        avif.setEncoderArgs("-q 55 -s 2");
+        String key = modeService.save(avif);
+
+        // THEN
+        assertThat(modeService.resolve(key).orElseThrow().encoderArgs())
+                .containsExactly("-q", "55", "-s", "2");
     }
 
     /** Why a choice is stored as {@code custom:<id>}: a rename must not orphan the rows that picked it. */
@@ -270,6 +321,13 @@ class ImageCompressionModeIT
         var mode = new ImageCompressionMode();
         mode.setName(name);
         mode.setEncoder(encoder);
+        return mode;
+    }
+
+    private static ImageCompressionMode mode(String name, String encoderArgs)
+    {
+        ImageCompressionMode mode = mode(name, ImageEncoder.JXL);
+        mode.setEncoderArgs(encoderArgs);
         return mode;
     }
 }

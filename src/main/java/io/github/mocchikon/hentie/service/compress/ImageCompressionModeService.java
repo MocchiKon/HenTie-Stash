@@ -5,6 +5,7 @@ import io.github.mocchikon.hentie.dto.BuiltInCompressionMode;
 import io.github.mocchikon.hentie.dto.CompressionModeOption;
 import io.github.mocchikon.hentie.dto.CompressionProfile;
 import io.github.mocchikon.hentie.entity.ImageCompressionMode;
+import io.github.mocchikon.hentie.entity.ImageEncoder;
 import io.github.mocchikon.hentie.repository.ImageCompressionModeRepository;
 import lombok.RequiredArgsConstructor;
 import org.apache.commons.lang3.StringUtils;
@@ -27,6 +28,16 @@ import java.util.*;
 public class ImageCompressionModeService
 {
     private static final Logger log = LoggerFactory.getLogger(ImageCompressionModeService.class);
+
+    /** cjxl re-encodes a JPEG losslessly unless told otherwise, whatever quality the mode asks for. */
+    private static final String LOSSLESS_JPEG = "--lossless_jpeg";
+
+    /** Passed to cjxl as {@code --lossless_jpeg=1} or {@code =0}, depending on the mode's quality. */
+    private static final String LOSSLESS_JPEG_QUALITY_100 = LOSSLESS_JPEG + "=1";
+    private static final String LOSSLESS_JPEG_BELOW_100 = LOSSLESS_JPEG + "=0";
+
+    /** Keeps cjxl from storing metadata that only rebuilds the source JPEG byte for byte. */
+    private static final String ALLOW_JPEG_RECONSTRUCTION = "--allow_jpeg_reconstruction";
 
     private final AppProperties appProperties;
     private final ImageCompressionModeRepository repository;
@@ -243,7 +254,92 @@ public class ImageCompressionModeService
                     throw new NameTaken("Another mode is already called \"" + other.getName() + "\".");
                 });
         mode.setName(name);
+        mode.setEncoderArgs(withJxlDefaults(mode.getEncoder(), mode.getEncoderArgs()));
         return keyOf(repository.save(mode).getId());
+    }
+
+    /**
+     * Adds the cjxl switches a JPEG source needs, so the stored mode says what is really run and a later edit
+     * shows it. The switches are added only when the user has not named them: an explicit
+     * {@code --lossless_jpeg} or {@code --allow_jpeg_reconstruction} always wins.
+     */
+    private static String withJxlDefaults(ImageEncoder encoder, String rawArgs)
+    {
+        String args = StringUtils.trimToEmpty(rawArgs);
+        if (encoder != ImageEncoder.JXL)
+        {
+            return args;
+        }
+        List<String> tokens = CompressionProfile.splitArgs(args);
+        var normalized = new StringBuilder(args);
+        if (!namesOption(tokens, LOSSLESS_JPEG))
+        {
+            appendOption(normalized, Integer.valueOf(100).equals(qualityOf(tokens))
+                    ? LOSSLESS_JPEG_QUALITY_100
+                    : LOSSLESS_JPEG_BELOW_100);
+        }
+        if (!namesOption(tokens, ALLOW_JPEG_RECONSTRUCTION))
+        {
+            appendOption(normalized, ALLOW_JPEG_RECONSTRUCTION + "=0");
+        }
+        return normalized.toString();
+    }
+
+    /** True when the mode already names the option, so an explicit value wins and nothing is appended twice. */
+    private static boolean namesOption(List<String> args, String option)
+    {
+        return args.stream().anyMatch(arg -> arg.equals(option) || arg.startsWith(option + "="));
+    }
+
+    private static void appendOption(StringBuilder args, String option)
+    {
+        if (args.length() > 0)
+        {
+            args.append(' ');
+        }
+        args.append(option);
+    }
+
+    /**
+     * The last quality in the arguments, since cjxl lets a later option override an earlier one. Null when
+     * none is given or the value is not a number; both are below 100, which is what the caller needs.
+     */
+    private static Integer qualityOf(List<String> args)
+    {
+        Integer quality = null;
+        for (int i = 0; i < args.size(); i++)
+        {
+            String arg = args.get(i);
+            String value = null;
+            if (arg.equals("-q") || arg.equals("--quality"))
+            {
+                value = i + 1 < args.size() ? args.get(i + 1) : null;
+            }
+            else if (arg.startsWith("-q="))
+            {
+                value = arg.substring("-q=".length());
+            }
+            else if (arg.startsWith("--quality="))
+            {
+                value = arg.substring("--quality=".length());
+            }
+            else if (arg.startsWith("-q") && arg.length() > 2)
+            {
+                value = arg.substring(2);
+            }
+            if (value != null)
+            {
+                try
+                {
+                    quality = Integer.valueOf(value.trim());
+                }
+                catch (NumberFormatException notAQuality)
+                {
+                    quality = null;
+                }
+            }
+        }
+        return quality;
     }
 
     /** No references to fix: a Settings choice or queued download pointing here then resolves to "None". */

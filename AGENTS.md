@@ -950,9 +950,13 @@ downloaded and uploaded images. Default mode is **None**: bytes are stored as th
   added binary works without restart. A missing `PATH` tool surfaces as a failed process start, which
   keeps the original.
 - **`cjxl` is `INPUT OUTPUT [OPTIONS]`, `avifenc` is `[OPTIONS] INPUT OUTPUT`** — so `ImageEncoder` builds
-  the command line, not the caller. **Every `cjxl` run ends with `--allow_jpeg_reconstruction=0`**, after the
-  mode's own arguments, so no mode turns JPEG reconstruction metadata back on: it only rebuilds the source
-  JPEG byte for byte, which nothing in the app does.
+  the command line, not the caller. **A mode's arguments are passed through unchanged**: the JPEG switches
+  are part of the mode, not added to the command line. `ImageCompressionModeService.save` appends the missing
+  ones to a user mode, and the built-in modes name them in `image-compression-modes.properties`.
+  `--lossless_jpeg=1` at quality 100 keeps a JPEG lossless; below 100 `=0` makes cjxl decode and re-encode it,
+  since cjxl otherwise transcodes every JPEG losslessly whatever quality is asked for.
+  `--allow_jpeg_reconstruction=0` stops storing the metadata that only rebuilds the source JPEG byte for byte,
+  which nothing in the app does.
 - **Its own thread pool** (`ImageCompressionConfig`), sized to the machine: long CPU-bound tasks must not
   take threads from anything latency-sensitive. **Settings caps how much of the processor it uses**
   (`image.compression.cpu-percent`, default 100%): a resizable semaphore in `ImageCompressionExecutor`
