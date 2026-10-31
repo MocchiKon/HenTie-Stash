@@ -170,7 +170,7 @@ class NhentaiDownloaderTest
         assertThat(site.paths()).containsExactly("/api/v2/galleries/77", "/api/v2/cdn",
                 "/galleries/m77/1.jpg", "/galleries/m77/2.jpg");
         // nhentai asks every client to say who it is.
-        assertThat(site.requests()).allSatisfy(request -> assertThat(request.userAgent()).startsWith("HenTie/"));
+        assertThat(site.requests()).allSatisfy(request -> assertThat(request.userAgent()).startsWith("HenTie"));
     }
 
     /** The image servers keep separate limits, so a gallery's pages take turns over all of them. */

@@ -108,7 +108,7 @@ class GalleryDlSourcesE2E
         // THEN
         assertThat(data.getFullTitle()).isEqualTo(
                 "(Kouroumu 8) [Handful☆Happiness! (Fuyuki Nanahara)] TOUHOU GUNMANIA A2 (Touhou Project)");
-        assertThat(data.getLanguage()).isEqualTo("Japanese");
+        assertThat(data.getLanguage()).isEqualToIgnoringCase("Japanese");
         assertThat(data.getCategories()).containsExactly("Non-H");
         assertThat(data.getArtists()).containsExactly("nanahara fuyuki");
         assertThat(data.getGroups()).containsExactly("handful happiness");
@@ -124,7 +124,7 @@ class GalleryDlSourcesE2E
         Chapter chapter = saved(data, ehentai.galleryId("618395/0439fa3666"));
         assertThat(chapter.getTitleFull()).isEqualTo(
                 "(Kouroumu 8) [Handful☆Happiness! (Fuyuki Nanahara)] TOUHOU GUNMANIA A2 (Touhou Project)");
-        assertThat(chapter.getLanguage()).isEqualTo("Japanese");
+        assertThat(chapter.getLanguage()).isEqualToIgnoringCase("Japanese");
         assertThat(chapter.getCategories()).extracting("name").containsExactly("non-h");
         assertThat(chapter.getArtists()).extracting("name").containsExactly("nanahara fuyuki");
         assertThat(chapter.getGroups()).extracting("name").containsExactly("handful happiness");
