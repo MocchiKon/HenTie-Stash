@@ -922,9 +922,14 @@ downloaded and uploaded images. Default mode is **None**: bytes are stored as th
   **upload still saves the images** uncompressed and says so. **Downloads don't take the lock**: they
   compress staged files only, and every intermediate has its own name. (Exception: the lossless
   re-download's publish.)
-- **Uploads use the Settings mode; downloads carry theirs on the queue row** (it runs later and must
-  survive a restart), or "By rules" for the rules to decide. The download form **starts at the Settings mode**, never at the last paste's choice,
-  via `storableKey` (a deleted mode starts at None). Re-pasting **replaces** the row's mode. Pages an earlier
+- **Uploads and the per-chapter button take the mode picked on the chapter's page; downloads carry theirs on
+  the queue row** (it runs later and must survive a restart), or "By rules" for the rules to decide. Both forms
+  **start at the Settings mode**, never at the last choice, via `storableKey` (a deleted mode starts at None).
+  The chapter pages offer no "Custom" (it navigates away, losing a new chapter's form) and no "By rules"; the mode
+  is a request parameter, **not on `ChapterForm`**: it is a choice for one upload, not a chapter value, and
+  `toForm` would fill it with the chapter's recorded mode.
+  On the edit page one dropdown serves both: "Compress images" submits the upload form (`form` + `formaction`)
+  url-encoded, so a selected file is not sent with it. A request without the field gets the Settings mode. Re-pasting **replaces** the row's mode. Pages an earlier
   attempt saved stay as they were saved: a mode chosen afterwards applies to the pages still missing.
 - **Any failure keeps the original image and logs it** (missing binary, codec error, timeout, unknown
   mode). A download never fails because of a codec, and a page is never lost to one.

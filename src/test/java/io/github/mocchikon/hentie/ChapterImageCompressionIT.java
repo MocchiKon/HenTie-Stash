@@ -33,8 +33,8 @@ import io.github.mocchikon.hentie.service.compress.ImageToolLocator;
 import static org.assertj.core.api.Assertions.*;
 
 /**
- * Upload, per-chapter button and library sweep: all take the Settings mode and must resync page count and
- * disk size, which search filters on and which would otherwise silently go stale.
+ * Upload, per-chapter button and library sweep: the first two take the mode chosen on the chapter's page, the sweep
+ * Settings' mode, and all must resync page count and disk size, which search filters on and which would otherwise silently go stale.
  *
  * <p>Not transactional, because encoding runs outside any transaction on purpose; rows are cleaned up by hand.
  */
@@ -42,6 +42,7 @@ import static org.assertj.core.api.Assertions.*;
 class ChapterImageCompressionIT
 {
     private static final int SIZE = 300;
+    private static final String NONE = BuiltInCompressionMode.NONE.getKey();
 
     @Autowired ChapterImageService chapterImageService;
     @Autowired ChapterService chapterService;
@@ -63,7 +64,7 @@ class ChapterImageCompressionIT
         created.forEach(chapterService::delete);
         created.clear();
         // The settings cache is shared, so a mode left set would apply to every later suite's uploads.
-        settingsService.setImageCompressionMode(BuiltInCompressionMode.NONE.getKey());
+        settingsService.setImageCompressionMode(NONE);
         modeRepository.deleteAll();
     }
 
@@ -80,13 +81,13 @@ class ChapterImageCompressionIT
         assumeTool("cjxl");
         // GIVEN a chapter with a page, and an empty staging folder, as stagePage leaves it before page 1.
         int chapterId = newChapter("Compressed while a download stages");
-        settingsService.setImageCompressionMode(modeService.save(mode("Sweep JXL")));
-        chapterImageService.upload(chapterId, List.of(png("a.png")));
+        String mode = modeService.save(mode("Sweep JXL"));
+        chapterImageService.upload(chapterId, List.of(png("a.png")), mode);
         var staging = imageService.stagingDir(chapterId, false);
         Files.createDirectories(staging);
 
         // WHEN the per-chapter button runs over that chapter.
-        chapterImageService.compressExisting(chapterId);
+        chapterImageService.compressExisting(chapterId, mode);
 
         // THEN the pipeline's folder is untouched...
         assertThat(staging).isDirectory();
@@ -147,17 +148,16 @@ class ChapterImageCompressionIT
     // ---- uploads -------------------------------------------------------------
 
     @Test
-    void shouldCompressUploadedImagesWithTheSettingsModeAndResyncTheStats() throws IOException
+    void shouldCompressUploadedImagesWithTheChosenModeAndResyncTheStats() throws IOException
     {
         assumeTool("cjxl");
-        // GIVEN a chapter and a lossy JPEG XL mode selected in Settings.
+        // GIVEN a chapter and a lossy JPEG XL mode chosen.
         int chapterId = newChapter("Uploaded and compressed");
         String key = modeService.save(mode("Upload JXL"));
-        settingsService.setImageCompressionMode(key);
 
         // WHEN two pages are uploaded.
         ChapterImageService.UploadResult result =
-                chapterImageService.upload(chapterId, List.of(png("a.png"), png("b.png")));
+                chapterImageService.upload(chapterId, List.of(png("a.png"), png("b.png")), key);
 
         // THEN both were re-encoded...
         assertThat(result.compressionSkipped()).isFalse();
@@ -188,10 +188,10 @@ class ChapterImageCompressionIT
         int chapterId = newChapter("Out of the mode's scope");
         var jpegOnly = mode("JPEG only");
         jpegOnly.setFormats("JPG");
-        settingsService.setImageCompressionMode(modeService.save(jpegOnly));
+        String mode = modeService.save(jpegOnly);
 
         // WHEN a PNG is uploaded.
-        ChapterImageService.UploadResult result = chapterImageService.upload(chapterId, List.of(png("a.png")));
+        ChapterImageService.UploadResult result = chapterImageService.upload(chapterId, List.of(png("a.png")), mode);
 
         // THEN nothing was replaced, and nothing is recorded.
         assertThat(result.compressionSkipped()).isFalse();
@@ -205,12 +205,12 @@ class ChapterImageCompressionIT
     void shouldLeaveNoStagingFolderBehindWhenImagesWereCompressedOutsideADownload() throws IOException
     {
         assumeTool("cjxl");
-        // GIVEN a chapter and a JPEG XL mode selected in Settings.
+        // GIVEN a chapter and a JPEG XL mode chosen.
         int chapterId = newChapter("No staging leftovers");
-        settingsService.setImageCompressionMode(modeService.save(mode("Leftover check")));
+        String mode = modeService.save(mode("Leftover check"));
 
         // WHEN a page is uploaded, THEN it was encoded and staging holds nothing for the chapter.
-        ChapterImageService.UploadResult result = chapterImageService.upload(chapterId, List.of(png("a.png")));
+        ChapterImageService.UploadResult result = chapterImageService.upload(chapterId, List.of(png("a.png")), mode);
         assertThat(result.compressionSkipped()).isFalse();
         ImageCompressionService.Summary upload = result.summary();
         assertThat(upload.files()).isEqualTo(1);
@@ -219,7 +219,7 @@ class ChapterImageCompressionIT
         assertThat(Files.exists(imageService.stagingDir(chapterId, false))).isFalse();
 
         // WHEN the page is compressed again, THEN staging is still empty, whether or not it saved anything.
-        ImageCompressionService.Summary again = chapterImageService.compressExisting(chapterId);
+        ImageCompressionService.Summary again = chapterImageService.compressExisting(chapterId, mode);
         assertThat(again.files()).isEqualTo(1);
         assertThat(again.replaced()).isBetween(0, 1);
         assertThat(again.after()).isLessThanOrEqualTo(again.before());
@@ -227,14 +227,13 @@ class ChapterImageCompressionIT
     }
 
     @Test
-    void shouldStoreUploadedImagesUntouchedWhenTheSettingsModeIsNone() throws IOException
+    void shouldStoreUploadedImagesUntouchedWhenTheChosenModeIsNone() throws IOException
     {
         // GIVEN
         int chapterId = newChapter("Uploaded unprocessed");
-        settingsService.setImageCompressionMode(BuiltInCompressionMode.NONE.getKey());
 
         // WHEN
-        ChapterImageService.UploadResult result = chapterImageService.upload(chapterId, List.of(png("a.png")));
+        ChapterImageService.UploadResult result = chapterImageService.upload(chapterId, List.of(png("a.png")), NONE);
 
         // THEN nothing was processed, and the page is still a PNG with correct stats.
         assertThat(result.summary()).isEqualTo(ImageCompressionService.Summary.NOTHING);
@@ -253,12 +252,12 @@ class ChapterImageCompressionIT
         assumeTool("cjxl");
         // GIVEN a chapter with one page uploaded while compression was off.
         int chapterId = newChapter("Added to later");
-        settingsService.setImageCompressionMode(BuiltInCompressionMode.NONE.getKey());
-        chapterImageService.upload(chapterId, List.of(png("first.png")));
+        chapterImageService.upload(chapterId, List.of(png("first.png")), NONE);
 
         // WHEN a mode is chosen and a second page uploaded.
-        settingsService.setImageCompressionMode(modeService.save(mode("Later JXL")));
-        ChapterImageService.UploadResult result = chapterImageService.upload(chapterId, List.of(png("second.png")));
+        String mode = modeService.save(mode("Later JXL"));
+        ChapterImageService.UploadResult result =
+                chapterImageService.upload(chapterId, List.of(png("second.png")), mode);
 
         // THEN only the new page was considered...
         assertThat(result.compressionSkipped()).isFalse();
@@ -279,15 +278,13 @@ class ChapterImageCompressionIT
         assumeTool("cjxl");
         // GIVEN a chapter whose three pages were stored unprocessed.
         int chapterId = newChapter("Compressed afterwards");
-        settingsService.setImageCompressionMode(BuiltInCompressionMode.NONE.getKey());
-        chapterImageService.upload(chapterId, List.of(png("a.png"), png("b.png"), png("c.png")));
+        chapterImageService.upload(chapterId, List.of(png("a.png"), png("b.png"), png("c.png")), NONE);
         long before = chapterRepository.findById(chapterId).orElseThrow().getDiskSize();
         assertThat(chapterRepository.findById(chapterId).orElseThrow().getCompressionMode()).isNull();
 
         // WHEN a mode is chosen and the chapter is compressed.
         String key = modeService.save(mode("Retrofit JXL"));
-        settingsService.setImageCompressionMode(key);
-        ImageCompressionService.Summary summary = chapterImageService.compressExisting(chapterId);
+        ImageCompressionService.Summary summary = chapterImageService.compressExisting(chapterId, key);
 
         // THEN every page was re-encoded, in place and in order...
         assertThat(summary.files()).isEqualTo(3);
@@ -309,11 +306,11 @@ class ChapterImageCompressionIT
     {
         // GIVEN
         int chapterId = newChapter("Left alone");
-        chapterImageService.upload(chapterId, List.of(png("a.png")));
+        chapterImageService.upload(chapterId, List.of(png("a.png")), NONE);
         long before = chapterRepository.findById(chapterId).orElseThrow().getDiskSize();
 
         // WHEN
-        ImageCompressionService.Summary summary = chapterImageService.compressExisting(chapterId);
+        ImageCompressionService.Summary summary = chapterImageService.compressExisting(chapterId, NONE);
 
         // THEN
         assertThat(summary).isEqualTo(ImageCompressionService.Summary.NOTHING);
@@ -331,11 +328,11 @@ class ChapterImageCompressionIT
     {
         assumeTool("cjxl");
         // GIVEN two chapters with unprocessed pages.
-        settingsService.setImageCompressionMode(BuiltInCompressionMode.NONE.getKey());
+        settingsService.setImageCompressionMode(NONE);
         int first = newChapter("Sweep one");
         int second = newChapter("Sweep two");
-        chapterImageService.upload(first, List.of(png("a.png"), png("b.png")));
-        chapterImageService.upload(second, List.of(png("c.png")));
+        chapterImageService.upload(first, List.of(png("a.png"), png("b.png")), NONE);
+        chapterImageService.upload(second, List.of(png("c.png")), NONE);
 
         // WHEN the sweep runs with a mode selected.
         String key = modeService.save(mode("Sweep JXL"));
@@ -364,7 +361,7 @@ class ChapterImageCompressionIT
     void shouldDoNothingWhenTheLibrarySweepRunsWithTheModeSetToNone()
     {
         // GIVEN
-        settingsService.setImageCompressionMode(BuiltInCompressionMode.NONE.getKey());
+        settingsService.setImageCompressionMode(NONE);
 
         // WHEN
         ImageCompressionSweep.Result result = sweep.compressAll();
@@ -388,17 +385,17 @@ class ChapterImageCompressionIT
     {
         // GIVEN a chapter with an unprocessed page, a mode selected, and another run in progress.
         int chapterId = newChapter("Button pressed during a sweep");
-        chapterImageService.upload(chapterId, List.of(png("a.png")));
-        settingsService.setImageCompressionMode(modeService.save(mode("Busy JXL")));
+        chapterImageService.upload(chapterId, List.of(png("a.png")), NONE);
+        String mode = modeService.save(mode("Busy JXL"));
 
         try (var otherRun = RunLockHolder.hold(compressionService))
         {
             // WHEN / THEN the call is refused...
-            assertThatThrownBy(() -> chapterImageService.compressExisting(chapterId))
+            assertThatThrownBy(() -> chapterImageService.compressExisting(chapterId, mode))
                     .isInstanceOf(ImageCompressionService.RunInProgress.class)
                     .hasMessage(ImageCompressionService.BUSY_MESSAGE);
             // ...the button's own entry point says why instead of failing...
-            assertThat(chapterImageService.compressExistingAndDescribe(chapterId))
+            assertThat(chapterImageService.compressExistingAndDescribe(chapterId, mode))
                     .isEqualTo(ImageCompressionService.BUSY_MESSAGE);
         }
         // ...and the page is exactly as it was.
@@ -411,13 +408,13 @@ class ChapterImageCompressionIT
     {
         // GIVEN a chapter, a mode selected, and another run in progress.
         int chapterId = newChapter("Uploaded during a sweep");
-        settingsService.setImageCompressionMode(modeService.save(mode("Busy upload JXL")));
+        String mode = modeService.save(mode("Busy upload JXL"));
         ChapterImageService.UploadResult result;
 
         try (var otherRun = RunLockHolder.hold(compressionService))
         {
             // WHEN
-            result = chapterImageService.upload(chapterId, List.of(png("a.png")));
+            result = chapterImageService.upload(chapterId, List.of(png("a.png")), mode);
         }
 
         // THEN the page is saved as it arrived, with its stats...

@@ -21,7 +21,8 @@ import java.util.Optional;
  * write transaction, so a busy library must refuse them before that, not after, when the files would already be
  * saved or re-encoded while the database says otherwise.
  * <p>
- * Uploads use the Settings mode; downloads carry their own on the queue row.
+ * Uploads and the per-chapter button use the mode picked on the chapter's page, which starts at Settings' mode;
+ * downloads carry their own on the queue row.
  */
 @Service
 @RequiredArgsConstructor
@@ -30,17 +31,19 @@ public class ChapterImageService
     private final ImageService imageService;
     private final ImageCompressionService compressionService;
     private final ChapterService chapterService;
-    private final SettingsService settingsService;
     private final WriteGate writeGate;
 
     public static final String UPLOAD_NOT_COMPRESSED_MESSAGE =
             "Images saved, but not compressed: another Image Compression run is still in progress. Use "
                     + "\"Compress images\" on this chapter once it has finished.";
 
+    public static final String NONE_CHOSEN_MESSAGE =
+            "The Image Compression mode chosen is \"None\", so there was nothing to do.";
+
     /** Not a flag on {@code Summary}: being skipped is a fact about the upload, not about a compression run. */
     public record UploadResult(ImageCompressionService.Summary summary, boolean compressionSkipped)
     {
-        /** Empty under "None": saying nothing was compressed would only repeat the user's own setting back. */
+        /** Empty under "None": saying nothing was compressed would only repeat the user's own choice back. */
         public Optional<String> message()
         {
             if (compressionSkipped)
@@ -58,11 +61,11 @@ public class ChapterImageService
      * When another run holds the lock the images are still saved, uncompressed: refusing would throw the
      * user's selection away, and waiting could mean waiting for a whole library sweep.
      */
-    public UploadResult upload(int chapterId, List<MultipartFile> files) throws IOException
+    public UploadResult upload(int chapterId, List<MultipartFile> files, String modeKey) throws IOException
     {
         writeGate.claimTurn();
         List<Path> saved = imageService.saveImages(chapterId, files);   // null / empty selection ignored inside
-        CompressionProfile profile = uploadProfile().orElse(null);
+        CompressionProfile profile = compressionService.profileFor(modeKey).orElse(null);
         var result = compressSaved(chapterId, saved, profile);
         chapterService.rescanImages(chapterId);
         recordCompression(chapterId, profile, result.summary());
@@ -84,10 +87,10 @@ public class ChapterImageService
     /**
      * @throws ImageCompressionService.RunInProgress when another user-started run is already compressing
      */
-    public ImageCompressionService.Summary compressExisting(int chapterId)
+    public ImageCompressionService.Summary compressExisting(int chapterId, String modeKey)
     {
         writeGate.claimTurn();
-        CompressionProfile profile = uploadProfile().orElse(null);
+        CompressionProfile profile = compressionService.profileFor(modeKey).orElse(null);
         var summary = compressionService.compressChapter(chapterId, profile);
         chapterService.rescanImages(chapterId);
         recordCompression(chapterId, profile, summary);
@@ -107,24 +110,19 @@ public class ChapterImageService
      * The summary is empty whether the mode is None, another run is in progress or the chapter has no
      * images; only this layer knows which, so it builds the message.
      */
-    public String compressExistingAndDescribe(int chapterId)
+    public String compressExistingAndDescribe(int chapterId, String modeKey)
     {
-        if (uploadProfile().isEmpty())
+        if (compressionService.profileFor(modeKey).isEmpty())
         {
-            return ImageCompressionService.NO_MODE_MESSAGE;
+            return NONE_CHOSEN_MESSAGE;
         }
         try
         {
-            return compressExisting(chapterId).describe();
+            return compressExisting(chapterId, modeKey).describe();
         }
         catch (ImageCompressionService.RunInProgress busy)
         {
             return busy.getMessage();
         }
-    }
-
-    public Optional<CompressionProfile> uploadProfile()
-    {
-        return compressionService.profileFor(settingsService.getImageCompressionMode());
     }
 }

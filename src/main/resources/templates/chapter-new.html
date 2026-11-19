@@ -76,11 +76,15 @@
         <div class="field">
             <label>Images (optional)</label>
             <input type="file" name="files" multiple th:attr="accept=${imageAccept}">
-            <p class="hint">
-                Uploaded images are processed with the Image Compression mode from Settings, which is
-                currently <strong th:text="${compressionModeName}">None</strong>.
-            </p>
             <p class="hint">Pages are ordered by filename. You can add or remove images later from the chapter's edit page.</p>
+        </div>
+        <div class="field">
+            <label for="compression-mode">Image Compression</label>
+            <select id="compression-mode" name="compressionMode" class="capped-select">
+                <option th:each="m : ${compressionModes}" th:value="${m.key}" th:text="${m.label}"
+                        th:selected="${m.key == compressionMode}">mode</option>
+            </select>
+            <p class="hint">For the images uploaded with this chapter. It starts at the mode chosen in Settings.</p>
         </div>
 
         <div class="edit-actions">

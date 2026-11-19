@@ -83,18 +83,20 @@ public class ChapterController
             form.setStatus(Status.REVIEWED);
         }
         model.addAttribute("form", form);
-        addNewModel(form, model);
+        addNewModel(form, null, model);
         return CHAPTER_NEW;
     }
 
+    /** {@code compressionMode} is not on {@link ChapterForm}: it is a choice for this upload, not a chapter value. */
     @PostMapping
     public String create(@Valid @ModelAttribute("form") ChapterForm form, BindingResult result,
                          @RequestParam(name = "files", required = false) List<MultipartFile> files,
+                         @RequestParam(name = "compressionMode", required = false) String compressionMode,
                          Model model, RedirectAttributes redirectAttributes) throws IOException
     {
         if (result.hasErrors())
         {
-            addNewModel(form, model);
+            addNewModel(form, compressionMode, model);
             return CHAPTER_NEW;
         }
         int id;
@@ -105,16 +107,16 @@ public class ChapterController
         catch (DuplicateValueException e)
         {
             result.rejectValue(e.getField(), DUPLICATE, e.getMessage());
-            addNewModel(form, model);
+            addNewModel(form, compressionMode, model);
             return CHAPTER_NEW;
         }
         catch (DataIntegrityViolationException e)
         {
             rejectDuplicate(result, e);
-            addNewModel(form, model);
+            addNewModel(form, compressionMode, model);
             return CHAPTER_NEW;
         }
-        chapterImageService.upload(id, files).message()
+        chapterImageService.upload(id, files, chosenMode(compressionMode)).message()
                 .ifPresent(message -> redirectAttributes.addFlashAttribute("compressed", message));
         return REDIRECT_CHAPTER + id;
     }
@@ -664,17 +666,21 @@ public class ChapterController
 
     @PostMapping("/{id:\\d+}/images")
     public String uploadImages(@PathVariable int id, @RequestParam("files") List<MultipartFile> files,
+                               @RequestParam(name = "compressionMode", required = false) String compressionMode,
                                RedirectAttributes redirectAttributes) throws IOException
     {
-        chapterImageService.upload(id, files).message()
+        chapterImageService.upload(id, files, chosenMode(compressionMode)).message()
                 .ifPresent(message -> redirectAttributes.addFlashAttribute("compressed", message));
         return REDIRECT_CHAPTER + id + "/edit";
     }
 
     @PostMapping("/{id:\\d+}/images/compress")
-    public String compressImages(@PathVariable int id, RedirectAttributes redirectAttributes)
+    public String compressImages(@PathVariable int id,
+                                 @RequestParam(name = "compressionMode", required = false) String compressionMode,
+                                 RedirectAttributes redirectAttributes)
     {
-        redirectAttributes.addFlashAttribute("compressed", chapterImageService.compressExistingAndDescribe(id));
+        redirectAttributes.addFlashAttribute("compressed",
+                chapterImageService.compressExistingAndDescribe(id, chosenMode(compressionMode)));
         return REDIRECT_CHAPTER + id + "/edit#images";
     }
 
@@ -723,19 +729,34 @@ public class ChapterController
         return REDIRECT_CHAPTER + id + "/edit#images";
     }
 
-    private void addNewModel(ChapterForm form, Model model)
+    /**
+     * A request without the field (a page rendered before it existed, a script) gets Settings' mode, as uploads
+     * always did. Anything that names no mode means None.
+     */
+    private String chosenMode(String compressionMode)
+    {
+        return compressionMode != null ? compressionMode : settingsService.getImageCompressionMode();
+    }
+
+    /**
+     * {@code compressionMode} is the choice a refused create posted, so it is not lost; null starts at Settings'
+     * mode, never at the last upload's. {@code storableKey} turns a deleted mode into None, an option the list has.
+     * No "Custom" entry: it navigates away, and the new chapter's form would be lost.
+     */
+    private void addNewModel(ChapterForm form, String compressionMode, Model model)
     {
         model.addAttribute("selected", selectedFor(form));
         model.addAttribute("statuses", Status.CHAPTER_VALUES);
         model.addAttribute("imageAccept", imageService.acceptAttribute());
-        // Shown by the upload input: an upload blocks until compression is done.
-        model.addAttribute("compressionModeName",
-                compressionModeService.displayName(settingsService.getImageCompressionMode()));
+        model.addAttribute("compressionMode", compressionModeService.storableKey(chosenMode(compressionMode)));
+        model.addAttribute("compressionModes", compressionModeService.options().stream()
+                .filter(mode -> !mode.custom())
+                .toList());
     }
 
     private void addEditModel(int id, ChapterForm form, Model model)
     {
-        addNewModel(form, model);
+        addNewModel(form, null, model);
         model.addAttribute("pageUrls", imageService.pageUrls(id));
     }
 

@@ -11,6 +11,7 @@ import io.github.mocchikon.hentie.entity.ImageEncoder;
 import io.github.mocchikon.hentie.entity.ViewMode;
 import io.github.mocchikon.hentie.repository.DownloadQueueRepository;
 import io.github.mocchikon.hentie.repository.ImageCompressionModeRepository;
+import io.github.mocchikon.hentie.service.ChapterImageService;
 import io.github.mocchikon.hentie.service.ChapterService;
 import io.github.mocchikon.hentie.service.ImageService;
 import io.github.mocchikon.hentie.service.SettingsService;
@@ -498,7 +499,7 @@ class ImageCompressionWebIT
     }
 
     @Test
-    void shouldReportNothingToDoWhenCompressingOneChapterWithTheModeSetToNone() throws Exception
+    void shouldReportNothingToDoWhenCompressingOneChapterWithNoneChosen() throws Exception
     {
         // GIVEN a chapter with one page.
         int chapterId = newChapter("Compress button");
@@ -508,12 +509,14 @@ class ImageCompressionWebIT
                 .andExpect(status().is3xxRedirection());
 
         // WHEN
-        mvc.perform(post("/chapter/" + chapterId + "/images/compress").with(user("user")).with(csrf()))
+        mvc.perform(post("/chapter/" + chapterId + "/images/compress")
+                        .param("compressionMode", BuiltInCompressionMode.NONE.getKey())
+                        .with(user("user")).with(csrf()))
                 // THEN it returns to the images section with a message saying nothing was re-encoded.
                 .andExpect(status().is3xxRedirection())
                 .andExpect(redirectedUrl("/chapter/" + chapterId + "/edit#images"))
                 .andExpect(result -> assertThat(result.getFlashMap().get("compressed"))
-                        .isEqualTo(ImageCompressionService.NO_MODE_MESSAGE));
+                        .isEqualTo(ChapterImageService.NONE_CHOSEN_MESSAGE));
         // AND the page is exactly as it was.
         assertThat(imageService.pageUrls(chapterId)).containsExactly("/data/" + chapterId + "/1.png");
     }
@@ -555,18 +558,95 @@ class ImageCompressionWebIT
         }
     }
 
-    /** Named because uploading blocks until the encoding is done. */
+    /** Asserted on the rendered page, because the template picks the selected option. */
     @Test
-    void shouldNameTheCurrentModeOnTheChapterEditPage() throws Exception
+    void shouldPreselectTheSettingsModeOnTheChapterEditPage() throws Exception
     {
         // GIVEN
         settingsService.setImageCompressionMode(BuiltInCompressionMode.LOSSLESS.getKey());
-        int chapterId = newChapter("Named on the edit page");
+        int chapterId = newChapter("Preselected on the edit page");
 
-        // WHEN + THEN
+        // WHEN + THEN Lossless is selected, and "Custom", which would navigate away, is not offered.
         mvc.perform(get("/chapter/" + chapterId + "/edit").with(user("user")))
                 .andExpect(status().isOk())
-                .andExpect(model().attribute("compressionModeName", "Lossless"));
+                .andExpect(model().attribute("compressionMode", BuiltInCompressionMode.LOSSLESS.getKey()))
+                .andExpect(content().string(containsString(
+                        "<option value=\"" + BuiltInCompressionMode.LOSSLESS.getKey() + "\" selected=\"selected\">")))
+                .andExpect(content().string(not(containsString(
+                        "value=\"" + BuiltInCompressionMode.CUSTOM_KEY + "\""))));
+    }
+
+    @Test
+    void shouldPreselectTheSettingsModeOnTheNewChapterPage() throws Exception
+    {
+        // GIVEN
+        String key = modeService.save(mode("New chapter default"));
+        settingsService.setImageCompressionMode(key);
+
+        // WHEN + THEN
+        mvc.perform(get("/chapter/new").with(user("user")))
+                .andExpect(status().isOk())
+                .andExpect(model().attribute("compressionMode", key));
+    }
+
+    /** None chosen against a JPEG XL mode in Settings, so this test needs no encoder. */
+    @Test
+    void shouldUploadWithTheChosenModeInsteadOfTheSettingsMode() throws Exception
+    {
+        // GIVEN
+        settingsService.setImageCompressionMode(modeService.save(mode("Not chosen")));
+        int chapterId = newChapter("Uploaded with a chosen mode");
+
+        // WHEN
+        mvc.perform(multipart("/chapter/" + chapterId + "/images")
+                        .file(new MockMultipartFile("files", "a.png", "image/png", TestImages.png(64, 64)))
+                        .param("compressionMode", BuiltInCompressionMode.NONE.getKey())
+                        .with(user("user")).with(csrf()))
+                .andExpect(status().is3xxRedirection())
+                // THEN nothing is reported, as under None...
+                .andExpect(flash().attributeCount(0));
+
+        // ...the page is stored as it arrived, and nothing is recorded.
+        assertThat(imageService.pageUrls(chapterId)).containsExactly("/data/" + chapterId + "/1.png");
+        assertThat(chapterService.get(chapterId).getCompressionMode()).isNull();
+    }
+
+    @Test
+    void shouldCreateAChapterWithItsImagesInTheChosenMode() throws Exception
+    {
+        // GIVEN a JPEG XL mode in Settings.
+        settingsService.setImageCompressionMode(modeService.save(mode("Not chosen either")));
+
+        // WHEN a chapter is created with a page and None chosen.
+        var result = mvc.perform(multipart("/chapter")
+                        .file(new MockMultipartFile("files", "a.png", "image/png", TestImages.png(64, 64)))
+                        .param("titleFull", "Created with a chosen mode").param("language", "English")
+                        .param("compressionMode", BuiltInCompressionMode.NONE.getKey())
+                        .with(user("user")).with(csrf()))
+                .andExpect(status().is3xxRedirection())
+                .andReturn();
+        int chapterId = Integer.parseInt(result.getResponse().getRedirectedUrl().replace("/chapter/", ""));
+        chapters.add(chapterId);
+
+        // THEN its page is stored as it arrived.
+        assertThat(imageService.pageUrls(chapterId)).containsExactly("/data/" + chapterId + "/1.png");
+    }
+
+    /** A refused create renders the form again, which must keep the mode the user picked. */
+    @Test
+    void shouldKeepTheChosenModeWhenCreatingAChapterIsRefused() throws Exception
+    {
+        // GIVEN
+        settingsService.setImageCompressionMode(BuiltInCompressionMode.NONE.getKey());
+
+        // WHEN the title is missing.
+        mvc.perform(post("/chapter").with(user("user")).with(csrf())
+                        .param("titleFull", "").param("language", "English")
+                        .param("compressionMode", BuiltInCompressionMode.LOSSLESS.getKey()))
+                // THEN
+                .andExpect(status().isOk())
+                .andExpect(view().name("chapter-new"))
+                .andExpect(model().attribute("compressionMode", BuiltInCompressionMode.LOSSLESS.getKey()));
     }
 
     private int newChapter(String titleFull)

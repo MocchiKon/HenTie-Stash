@@ -1,5 +1,6 @@
 package io.github.mocchikon.hentie;
 
+import io.github.mocchikon.hentie.dto.BuiltInCompressionMode;
 import io.github.mocchikon.hentie.dto.ChapterForm;
 import io.github.mocchikon.hentie.dto.ChapterViewModel;
 import io.github.mocchikon.hentie.dto.SeriesForm;
@@ -614,7 +615,7 @@ class ChapterServiceIT
                     "files", "a.jpg", "image/jpeg", "abcde".getBytes(StandardCharsets.UTF_8));
             MockMultipartFile p2 = new MockMultipartFile(
                     "files", "b.jpg", "image/jpeg", "fg".getBytes(StandardCharsets.UTF_8));
-            chapterImageService.upload(chapterId, List.of(p1, p2));
+            chapterImageService.upload(chapterId, List.of(p1, p2), BuiltInCompressionMode.NONE.getKey());
             em.flush();
             em.clear();
 

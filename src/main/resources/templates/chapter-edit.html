@@ -85,15 +85,24 @@
 
     <section class="pages" id="images">
         <h2 class="section-title">Images</h2>
-        <form class="upload-form long-running" method="post" enctype="multipart/form-data"
+        <!-- The mode belongs to the upload form; "Compress images" below submits that form too (form +
+             formaction), so both use it. It posts url-encoded, so a selected file is not uploaded with it. -->
+        <div class="field">
+            <label for="compression-mode">Image Compression</label>
+            <select id="compression-mode" name="compressionMode" form="images-form" class="capped-select">
+                <option th:each="m : ${compressionModes}" th:value="${m.key}" th:text="${m.label}"
+                        th:selected="${m.key == compressionMode}">mode</option>
+            </select>
+        </div>
+        <form id="images-form" class="upload-form long-running" method="post" enctype="multipart/form-data"
               th:action="@{/chapter/{id}/images(id=${form.id})}">
             <input type="file" name="files" multiple th:attr="accept=${imageAccept}">
             <button type="submit" class="btn btn-accent">Upload</button>
         </form>
         <p class="hint">
-            Uploaded images are processed with the Image Compression mode from Settings, which is
-            currently <strong th:text="${compressionModeName}">None</strong>. Uploading waits for that to
-            finish, so it can take a while for a large selection.
+            The Image Compression mode applies to uploaded images and to "Compress images". It starts at the mode
+            chosen in Settings. Uploading waits for compression to finish, so it can take a while for a large
+            selection.
         </p>
 
         <div class="btn-row">
@@ -103,10 +112,9 @@
             <form class="inline-form" method="post" th:action="@{/chapter/{id}/images/rescan(id=${form.id})}">
                 <button type="submit" class="btn btn-ghost">Rescan images</button>
             </form>
-            <form class="inline-form long-running" method="post"
-                  th:action="@{/chapter/{id}/images/compress(id=${form.id})}">
-                <button type="submit" class="btn btn-ghost">Compress images</button>
-            </form>
+            <button type="submit" form="images-form" class="btn btn-ghost long-running"
+                    formenctype="application/x-www-form-urlencoded"
+                    th:attr="formaction=@{/chapter/{id}/images/compress(id=${form.id})}">Compress images</button>
         </div>
         <p class="hint" th:if="${imagesRescanned == true}">Rescanned: page count and disk size updated.</p>
         <p class="hint" th:if="${imagesRescanned == false}">
