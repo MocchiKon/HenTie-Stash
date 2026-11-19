@@ -29,7 +29,6 @@
 
             <div class="detail-meta">
                 <span th:if="${vm.statusDisplay}" class="badge" th:text="${vm.statusDisplay}">Status</span>
-                <span th:if="${vm.chapter.favourite}" class="badge">Favourite</span>
                 <span th:if="${vm.chapter.score != null}" class="badge stars" th:text="'★ ' + ${vm.chapter.score / 2.0} + ' / 5'">★</span>
                 <span class="badge" th:text="${vm.pageCount} + ' page(s)'">0 pages</span>
                 <span th:if="${vm.pageCount > 0}" class="badge" th:text="${vm.diskSizeDisplay}">0 B</span>
@@ -52,6 +51,7 @@
 
             <div class="detail-actions"
                  th:with="lang=${vm.chapter.language == null ? '' : vm.chapter.language}">
+                <form th:replace="~{fragments/components :: favouriteToggle(@{/chapter/{id}/favourite(id=${vm.chapter.id})}, ${vm.chapter.favourite})}"></form>
                 <a class="btn btn-ghost" th:href="@{/chapter/{id}/edit(id=${vm.chapter.id})}">Edit</a>
                 <a class="btn btn-ghost" th:if="${vm.hasSeries()}"
                    th:href="@{/series/{id}(id=${vm.seriesId})}">View all chapters</a>

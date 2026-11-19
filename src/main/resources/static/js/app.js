@@ -464,6 +464,36 @@
             });
     });
 
+    // --- Favourite button on the chapter and series pages: flipped in place, so the page keeps its place ---
+    //     Only a 204 counts as done: an expired login also answers with a redirect. A busy library keeps the
+    //     button as it was; anything else falls back to a plain post. The form always sends the new value.
+    document.addEventListener("submit", function (e) {
+        var form = e.target;
+        if (e.defaultPrevented || !form.classList || !form.classList.contains("favourite-toggle")) { return; }
+        e.preventDefault();
+        var button = form.querySelector("button");
+        var value = form.querySelector('input[name="favourite"]');
+        var body = new URLSearchParams(new FormData(form));
+        body.append("inPlace", "true");
+        button.disabled = true;
+        fetch(form.action, { method: "POST", body: body, redirect: "manual", headers: JSON_ANSWER })
+            .then(function (r) {
+                if (r.status === 503) {
+                    return busyMessage(r).then(function (message) { window.alert(message); });
+                }
+                if (r.status !== 204) { throw new Error("HTTP " + r.status); }
+                var now = value.value === "true";
+                value.value = String(!now);
+                button.setAttribute("aria-pressed", String(now));
+                button.title = now ? "Remove from favourites" : "Add to favourites";
+                button.textContent = now ? "\u2665 Favourite" : "\u2661 Favourite";
+            })
+            .catch(function () {
+                form.submit();   // fires no submit event, so no handler runs again
+            })
+            .finally(function () { button.disabled = false; });
+    });
+
     // --- Divide a chapter ---
     //     Unmarking hides and disables a divider instead of removing it: re-marking brings back what was typed,
     //     and a disabled input is neither sent nor validated.

@@ -1266,4 +1266,30 @@ class ChapterControllerIT
         assertThat(chapter.getStatus()).isEqualTo(Status.REVIEWED);
         assertThat(chapter.isFavourite()).isTrue();
     }
+
+    @Test
+    void shouldMarkAChapterFavouriteFromItsPageAndShowTheButtonPressed() throws Exception
+    {
+        // GIVEN
+        ChapterForm form = new ChapterForm();
+        form.setTitleFull("chw-favourite-button");
+        form.setLanguage("English");
+        int id = chapterService.create(form);
+        mvc.perform(get("/chapter/" + id).with(user("user")))
+                .andExpect(content().string(containsString("aria-pressed=\"false\"")));
+
+        // WHEN it is clicked without JavaScript, then in place to take the mark back
+        mvc.perform(post("/chapter/" + id + "/favourite").param("favourite", "true").with(user("user")).with(csrf()))
+                .andExpect(redirectedUrl("/chapter/" + id));
+        boolean afterClick = chapterRepository.findById(id).orElseThrow().isFavourite();
+        mvc.perform(get("/chapter/" + id).with(user("user")))
+                .andExpect(content().string(containsString("aria-pressed=\"true\"")));
+        mvc.perform(post("/chapter/" + id + "/favourite").param("favourite", "false").param("inPlace", "true")
+                        .with(user("user")).with(csrf()))
+                .andExpect(status().isNoContent());
+
+        // THEN
+        assertThat(afterClick).isTrue();
+        assertThat(chapterRepository.findById(id).orElseThrow().isFavourite()).isFalse();
+    }
 }

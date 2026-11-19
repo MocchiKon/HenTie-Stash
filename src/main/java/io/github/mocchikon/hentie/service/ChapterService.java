@@ -313,6 +313,22 @@ public class ChapterService
         return status != null && Status.CHAPTER_VALUES.contains(status) ? status : Status.NEW;
     }
 
+    /**
+     * Sets rather than toggles, so a second tab sending the same click changes nothing. Evicts only when the mark
+     * really changed.
+     */
+    @Transactional
+    public void setFavourite(int id, boolean favourite)
+    {
+        Chapter chapter = get(id);
+        if (chapter.isFavourite() != favourite)
+        {
+            chapter.setFavourite(favourite);
+            chapterRepository.save(chapter);
+            searchCountCache.clear();
+        }
+    }
+
     /** Evicts only when the status really changed. */
     @Transactional
     public void markReviewed(int id)

@@ -413,4 +413,40 @@ class SeriesControllerIT
         // THEN
         assertThat(seriesRepository.findById(id).orElseThrow().getStatus()).isEqualTo(Status.REVIEWED);
     }
+
+    @Test
+    void shouldMarkASeriesFavouriteFromItsPageAndShowTheButtonPressed() throws Exception
+    {
+        // GIVEN
+        int id = newSeries("srw-favourite");
+        mvc.perform(get("/series/" + id).with(user("user")))
+                .andExpect(content().string(containsString("aria-pressed=\"false\"")));
+
+        // WHEN the button is clicked without JavaScript
+        mvc.perform(post("/series/" + id + "/favourite").param("favourite", "true").with(user("user")).with(csrf()))
+                .andExpect(redirectedUrl("/series/" + id));
+
+        // THEN it is a favourite, and the button now offers to remove the mark
+        assertThat(seriesRepository.findById(id).orElseThrow().isFavourite()).isTrue();
+        mvc.perform(get("/series/" + id).with(user("user")))
+                .andExpect(content().string(containsString("aria-pressed=\"true\"")))
+                .andExpect(content().string(containsString("name=\"favourite\" value=\"false\"")));
+    }
+
+    /** app.js posts in place and only trusts a 204; the same value twice changes nothing. */
+    @Test
+    void shouldSetTheFavouriteMarkInPlace() throws Exception
+    {
+        // GIVEN
+        int id = newSeries("srw-favourite-in-place");
+
+        // WHEN + THEN
+        for (String value : List.of("true", "true", "false"))
+        {
+            mvc.perform(post("/series/" + id + "/favourite").param("favourite", value).param("inPlace", "true")
+                            .with(user("user")).with(csrf()))
+                    .andExpect(status().isNoContent());
+            assertThat(seriesRepository.findById(id).orElseThrow().isFavourite()).isEqualTo(Boolean.parseBoolean(value));
+        }
+    }
 }

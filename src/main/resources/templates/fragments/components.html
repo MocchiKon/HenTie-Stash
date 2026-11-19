@@ -31,6 +31,15 @@
     </div>
 </div>
 
+<!-- Sends the new value, never "toggle", so a click in a second tab cannot undo the first. app.js flips it in place. -->
+<form th:fragment="favouriteToggle(action, favourite)" class="inline-form favourite-toggle" method="post"
+      th:action="${action}">
+    <input type="hidden" name="favourite" th:value="${!favourite}">
+    <button type="submit" class="btn btn-ghost btn-favourite" th:attr="aria-pressed=${favourite}"
+            th:title="${favourite} ? 'Remove from favourites' : 'Add to favourites'"
+            th:text="${favourite} ? '♥ Favourite' : '♡ Favourite'">♡ Favourite</button>
+</form>
+
 <div th:fragment="chipGroups(groups)" class="detail-groups">
     <div class="chip-group" th:each="group : ${groups}" th:unless="${group.empty}">
         <span class="chip-group-title">

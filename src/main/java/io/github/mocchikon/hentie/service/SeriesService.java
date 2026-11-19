@@ -230,6 +230,19 @@ public class SeriesService
         return chapters;
     }
 
+    /** See {@link ChapterService#setFavourite}. */
+    @Transactional
+    public void setFavourite(int id, boolean favourite)
+    {
+        Series series = get(id);
+        if (series.isFavourite() != favourite)
+        {
+            series.setFavourite(favourite);
+            seriesRepository.save(series);
+            searchCountCache.clear();
+        }
+    }
+
     /** Evicts only when the status really changed. */
     @Transactional
     public void markReviewed(int id)

@@ -1257,7 +1257,9 @@ newer than the running version. The Guide's Updates section explains it.
   clamps, never scales. The 0.5–5 half-star UI is presentation only: `<select>` values are 1–10 and views
   divide by 2. "Minimum rating" is `score >= minScore`.
 - **Favourite is a flag, not a status** (`favourite` on `Chapter` and `Series`, on both forms): a favourite is
-  still new, reviewed or updated, and no status change touches the flag.
+  still new, reviewed or updated, and no status change touches the flag. The detail pages' button posts the
+  **new value**, never "toggle", so the same click from a second tab changes nothing; `app.js` posts it in place
+  (`inPlace` → 204) and flips the button, so the page and a review keep their place. It replaces a badge.
 - **"Favourites only" is an included value to search, like a tag** (`OperandKey.FAVOURITE`): its list is
   `ix_<owner>__favourite`, `(favourite, id)`, so the planner probes it, starts from it when it is small
   (`FavouritePredicate`), merges it as a stream when it is broad, and walks it alone by date. It is no row filter:

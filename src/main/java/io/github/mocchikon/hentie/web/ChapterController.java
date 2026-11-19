@@ -524,6 +524,23 @@ public class ChapterController
         return REDIRECT_CHAPTER_QUEUE;
     }
 
+    /** The button posts the new value; without JavaScript the page reloads. */
+    @PostMapping("/{id:\\d+}/favourite")
+    public String favourite(@PathVariable int id, @RequestParam boolean favourite)
+    {
+        chapterService.setFavourite(id, favourite);
+        return REDIRECT_CHAPTER + id;
+    }
+
+    /** {@code app.js} flips the button itself, so the page keeps its place (and the review bar its position). */
+    @PostMapping(value = "/{id:\\d+}/favourite", params = IN_PLACE)
+    @ResponseBody
+    public ResponseEntity<Void> favouriteInPlace(@PathVariable int id, @RequestParam boolean favourite)
+    {
+        chapterService.setFavourite(id, favourite);
+        return ResponseEntity.noContent().build();
+    }
+
     /** Review mode posts this by fetch and moves on itself; the redirect is for a plain form post. */
     @PostMapping("/{id:\\d+}/mark-reviewed")
     public String markReviewed(@PathVariable int id)

@@ -47,6 +47,23 @@ public class SeriesController
         return "series-view";
     }
 
+    /** See {@link ChapterController#favourite}. */
+    @PostMapping("/{id:\\d+}/favourite")
+    public String favourite(@PathVariable int id, @RequestParam boolean favourite)
+    {
+        seriesService.setFavourite(id, favourite);
+        return REDIRECT_SERIES + id;
+    }
+
+    /** See {@link ChapterController#favouriteInPlace}. */
+    @PostMapping(value = "/{id:\\d+}/favourite", params = ChapterController.IN_PLACE)
+    @ResponseBody
+    public ResponseEntity<Void> favouriteInPlace(@PathVariable int id, @RequestParam boolean favourite)
+    {
+        seriesService.setFavourite(id, favourite);
+        return ResponseEntity.noContent().build();
+    }
+
     /** See {@link ChapterController#markReviewed}. */
     @PostMapping("/{id:\\d+}/mark-reviewed")
     public String markReviewed(@PathVariable int id)
