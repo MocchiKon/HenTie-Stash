@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head('Image compression rules')}"></head>
+<body>
+<nav th:replace="~{fragments/layout :: nav}"></nav>
+
+<main class="container">
+    <div class="edit-head">
+        <h1>Image compression rules</h1>
+        <div class="btn-row">
+            <a class="btn btn-accent" th:href="@{/compression-rules/new}">New rule</a>
+            <a class="btn" th:href="@{/compression-modes}">Image Compression modes</a>
+            <a class="btn" th:href="@{/subscriptions}">Subscriptions</a>
+            <a class="btn btn-ghost" th:href="@{/manage}">Back to Manage</a>
+        </div>
+    </div>
+
+    <div th:if="${saved != null}" class="alert ok">Rule saved.</div>
+    <div th:if="${deleted != null}" class="alert ok">Rule deleted.</div>
+    <div th:if="${problem != null}" class="alert error" role="alert" th:text="${problem}">problem</div>
+
+    <p class="hint">
+        Rules choose the image compression for downloads set to <strong>By rules</strong>, such as everything your
+        subscriptions download. When no rule fits, the mode from <a th:href="@{/settings}">Settings</a> is used.
+        <a th:href="@{/guide#compression-rules}">How rules work</a>
+    </p>
+
+    <section class="manage-section">
+        <form method="get" th:action="@{/compression-rules}" class="rule-filter metadata-value-row">
+            <select name="type" class="metadata-type-select" aria-label="Kind of value">
+                <option th:each="t : ${types}" th:value="${t.key}" th:text="${#strings.capitalize(t.key)}"
+                        th:selected="${t.key == filterType}">Artist</option>
+            </select>
+            <input type="search" name="value" class="metadata-value-input" th:value="${filterValue}" maxlength="255"
+                   list="rule-filter-values" autocomplete="off" placeholder="Find rules with…"
+                   aria-label="Find rules with this name">
+            <datalist id="rule-filter-values"></datalist>
+            <button type="submit" class="btn">Filter</button>
+            <a class="btn btn-ghost" th:if="${filterValue != null}" th:href="@{/compression-rules}">Show all</a>
+        </form>
+
+        <h2 class="section-title">
+            <span th:text="${rules.totalElements}">0</span> rule(s)<th:block th:if="${filterValue != null}">
+            with <span class="wrap-anywhere" th:text="${filterValue}">value</span></th:block>
+        </h2>
+
+        <p class="empty" th:if="${rules.totalElements == 0 and filterValue == null}">No rules yet.</p>
+        <p class="empty" th:if="${rules.totalElements == 0 and filterValue != null}">No rule has it.</p>
+
+        <ul class="compression-rule-list" th:unless="${rules.totalElements == 0}">
+            <li class="compression-rule" th:each="rule : ${rules.content}" th:id="'rule-' + ${rule.id()}">
+                <div class="subscription-head">
+                    <span class="badge" th:text="'Priority ' + ${rule.priority()}">Priority 1</span>
+                    <span class="rule-name" th:if="${rule.modeName() != null}" th:text="${rule.modeName()}">Lossless</span>
+                    <span class="rule-name" th:unless="${rule.modeName() != null}">A deleted mode (None is used)</span>
+                    <span class="rule-effect" th:text="'quality ' + ${rule.quality()}">quality 0</span>
+                    <span class="badge" th:if="${rule.allowUpgrade()}">Allows upgrading</span>
+                    <span class="badge incomplete" th:if="${rule.broken()}"
+                          title="Something it lists was deleted">Not in use</span>
+                </div>
+                <p class="rule-conditions-text wrap-anywhere">
+                    <th:block th:if="${#lists.isEmpty(rule.conditions())}">Every gallery</th:block>
+                    <th:block th:each="condition, stat : ${rule.conditions()}"><span
+                            class="hint" th:text="${#strings.capitalize(condition.type().key)} + ':'">Artist:</span>
+                        <span th:text="${condition.name()}">name</span><span class="hint"
+                            th:unless="${stat.last}"> and </span></th:block>
+                </p>
+                <p class="hint" th:if="${rule.broken()}">
+                    Something this rule lists was deleted, so it is not in use. Edit or delete it.
+                </p>
+                <div class="btn-row">
+                    <a class="btn" th:href="@{/compression-rules/{id}/edit(id=${rule.id()})}">Edit</a>
+                    <form method="post" class="inline-form confirm-delete"
+                          th:action="@{/compression-rules/{id}/delete(id=${rule.id()})}"
+                          data-confirm="Delete this rule?">
+                        <input type="hidden" name="page" th:value="${rules.number}">
+                        <input type="hidden" name="type" th:if="${filterValue != null}" th:value="${filterType}">
+                        <input type="hidden" name="value" th:if="${filterValue != null}" th:value="${filterValue}">
+                        <button type="submit" class="btn btn-danger">Delete</button>
+                    </form>
+                </div>
+            </li>
+        </ul>
+
+        <nav class="pagination" th:if="${rules.totalPages > 1}">
+            <a th:if="${!rules.first}" class="bar-btn" title="Previous page"
+               th:href="${filterValue == null} ? @{/compression-rules(page=${rules.number - 1})}
+                       : @{/compression-rules(page=${rules.number - 1},type=${filterType},value=${filterValue})}">&lsaquo;</a>
+            <span th:text="${rules.number + 1} + ' / ' + ${rules.totalPages}">1 / 1</span>
+            <a th:if="${!rules.last}" class="bar-btn" title="Next page"
+               th:href="${filterValue == null} ? @{/compression-rules(page=${rules.number + 1})}
+                       : @{/compression-rules(page=${rules.number + 1},type=${filterType},value=${filterValue})}">&rsaquo;</a>
+        </nav>
+    </section>
+</main>
+
+<script th:src="@{/js/app.js}"></script>
+</body>
+</html>

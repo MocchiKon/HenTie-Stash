@@ -201,6 +201,10 @@
             Applies to images you add by hand and is what the Download page starts at (download can still pick another mode per paste).
             Your own modes are managed from the Manage page.
         </p>
+        <p class="hint">
+            Downloads set to By rules also use it when no <a th:href="@{/compression-rules}">image compression rule</a>
+            fits.
+        </p>
 
         <div class="field">
             <label for="compressionCpuPercent">Processor cores used for Image Compression (%)</label>

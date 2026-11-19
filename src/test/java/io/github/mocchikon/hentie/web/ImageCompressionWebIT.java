@@ -108,9 +108,10 @@ class ImageCompressionWebIT
         mvc.perform(get("/chapter/download").with(user("user")))
                 .andExpect(status().isOk())
                 .andExpect(view().name("chapter-download"))
-                // THEN it offers the same list and preselects the Settings mode, not the last paste's...
+                // THEN it offers By rules, None, the three built-ins and Custom, and preselects the Settings mode,
+                // not the last paste's...
                 .andExpect(model().attribute("compressionMode", BuiltInCompressionMode.HIGH_REDUCTION.getKey()))
-                .andExpect(model().attribute("compressionModes", hasSize(5)))
+                .andExpect(model().attribute("compressionModes", hasSize(6)))
                 // ...and the option really renders as the selected one.
                 .andExpect(content().string(containsString(
                         "value=\"" + BuiltInCompressionMode.HIGH_REDUCTION.getKey() + "\" data-custom=\"false\" selected")));

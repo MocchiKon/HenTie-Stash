@@ -47,9 +47,6 @@ public class SubscriptionForm
     @Max(value = 720, message = "A re-check goes back at most 30 days (720 hours)")
     private Integer recheckDepthHours = 48;
 
-    @Size(max = 64, message = "Choose one of the compression modes offered")
-    private String compressionMode;
-
     private boolean avoidDuplicateTitles;
 
     @Size(max = 32, message = "Choose one of the browsers offered")

@@ -267,5 +267,8 @@ public class AppProperties
         private int minRelativeReduction;
         private int minAbsoluteReduction;
         private String formats = "";
+
+        /** 0 is the best; a user mode starts at the same 1 (see {@code ImageCompressionMode.quality}). */
+        private int quality = 1;
     }
 }

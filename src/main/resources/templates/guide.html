@@ -6,7 +6,8 @@
 
 <main class="container narrow guide">
     <h1>Guide</h1>
-    <p class="hint">How to reach HenTie from other devices, and how to set up ComfyUI.</p>
+    <p class="hint">How to reach HenTie from other devices, how to set up ComfyUI, and how image compression rules
+        work.</p>
 
     <nav class="guide-toc" aria-label="Contents">
         <ol>
@@ -28,6 +29,14 @@
                     <li><a href="#comfyui-disk">Keeping disk writes down</a></li>
                     <li><a href="#comfyui-troubleshooting">Troubleshooting</a></li>
                     <li><a href="#comfyui-security">Security note</a></li>
+                </ol>
+            </li>
+            <li><a href="#compression-rules">Image compression rules</a>
+                <ol>
+                    <li><a href="#compression-rules-deciding">Which rule is used</a></li>
+                    <li><a href="#compression-rules-upgrading">Upgrading galleries you already have</a></li>
+                    <li><a href="#compression-rules-example">Example: favourite artists in better quality</a></li>
+                    <li><a href="#compression-rules-values">Renaming, merging or deleting</a></li>
                 </ol>
             </li>
         </ol>
@@ -434,6 +443,52 @@ exec python main.py --listen 127.0.0.1 --port 8188</pre>
         thing that needs to reach it, and it puts its own login in front of every processed page. Starting ComfyUI
         with <code>--listen 0.0.0.0</code>, or forwarding its port, lets anyone on the network run jobs on your
         computer.</p>
+
+    <!-- ===================================================================================== -->
+    <h2 class="section-title" id="compression-rules">Image compression rules</h2>
+    <p>Compression saves disk space but lowers image quality. Image compression rules let you decide per gallery -
+        for example, keep your favourite artists in full quality and shrink everything else. A rule lists artists,
+        tags, characters, parodies, groups or categories, and the mode for galleries that have them. Find them under
+        <a th:href="@{/compression-rules}">Manage → Image compression rules</a>.</p>
+    <p>Rules are used for downloads set to <strong>By rules</strong>: everything your subscriptions download, and
+        links you paste with <em>By rules</em> chosen on the Download page.</p>
+
+    <h3 id="compression-rules-deciding">Which rule is used</h3>
+    <ul>
+        <li>A rule applies to a gallery that has <strong>everything</strong> it lists. A rule that lists nothing
+            applies to every gallery.</li>
+        <li>If several rules apply, the one with the <strong>lowest priority number</strong> wins (0 is the
+            highest).</li>
+        <li>On the same priority, the mode with the <strong>best quality</strong> wins.</li>
+        <li>If no rule applies, the mode from <a th:href="@{/settings}">Settings</a> is used.</li>
+    </ul>
+    <p>Every mode has a quality: 0 is the best. The built-in modes are None
+        <span th:text="${noneQuality}">0</span>, Lossless <span th:text="${losslessQuality}">0</span>, High reduction
+        <span th:text="${highReductionQuality}">100</span> and Very high reduction
+        <span th:text="${veryHighReductionQuality}">1000</span>. Your own modes start at 1; you can change that on
+        the mode's page.</p>
+    <p>A rule can list an artist you have not downloaded yet.</p>
+
+    <h3 id="compression-rules-upgrading">Upgrading galleries you already have</h3>
+    <p>Tick <strong>Allow upgrading quality</strong> on a rule, and a gallery you already have in lower quality is
+        downloaded again in the rule's mode when a subscription finds it, or when you paste its link with
+        <em>By rules</em>. On the Download page, a mode you pick yourself has the same checkbox.</p>
+    <p>The old images stay until all the new ones have arrived. A gallery kept as downloaded (None) is never
+        downloaded again.</p>
+
+    <h3 id="compression-rules-example">Example: favourite artists in better quality</h3>
+    <ol>
+        <li>A rule that lists nothing, priority <code>1000</code>, mode <em>High reduction</em>: the default for
+            everything.</li>
+        <li>A rule for each favourite artist, priority <code>0</code>, mode <em>Lossless</em>, with Allow upgrading
+            quality ticked.</li>
+    </ol>
+    <p>Every subscription now keeps your favourite artists' galleries in full quality and shrinks the rest, and
+        their galleries you downloaded earlier in lower quality are upgraded when a subscription finds them again.</p>
+
+    <h3 id="compression-rules-values">Renaming, merging or deleting</h3>
+    <p>Renaming or merging an artist, tag or other value on the Manage page keeps its rules working. Deleting one
+        stops the rules that list it; the rules page marks them so you can fix them.</p>
 </main>
 <script th:src="@{/js/app.js}"></script>
 </body>

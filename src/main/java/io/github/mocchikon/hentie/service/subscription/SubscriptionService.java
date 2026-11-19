@@ -1,6 +1,7 @@
 package io.github.mocchikon.hentie.service.subscription;
 
 import io.github.mocchikon.hentie.config.AppProperties;
+import io.github.mocchikon.hentie.dto.BuiltInCompressionMode;
 import io.github.mocchikon.hentie.dto.SubscriptionForm;
 import io.github.mocchikon.hentie.dto.SubscriptionView;
 import io.github.mocchikon.hentie.entity.Subscription;
@@ -13,7 +14,7 @@ import io.github.mocchikon.hentie.scrapper.SearchSource.SearchPage;
 import io.github.mocchikon.hentie.scrapper.gallerydl.GalleryDlDownloader;
 import io.github.mocchikon.hentie.scrapper.gallerydl.GalleryDlOptions;
 import io.github.mocchikon.hentie.service.SettingsService;
-import io.github.mocchikon.hentie.service.compress.ImageCompressionModeService;
+import io.github.mocchikon.hentie.service.compress.ImageCompressionRuleService;
 import io.github.mocchikon.hentie.service.download.DownloadChoices;
 import io.github.mocchikon.hentie.service.download.DownloadQueueService;
 import io.github.mocchikon.hentie.service.download.GalleryImportService;
@@ -45,7 +46,12 @@ import java.util.*;
  * <p>
  * <b>Never queued:</b> a gallery in the library, one downloaded before ({@code downloaded_gallery}, which covers a
  * download never finished too), one with a queue row of any kind (a paste's choices stay its own), and one the site
- * marks as blacklisted for the user.
+ * marks as blacklisted for the user. The exception is a gallery in the library that an image compression rule would
+ * give a better mode than its pages have, and allows to upgrade: decided from the chapter's stored metadata, so
+ * passing the library costs no request to the site.
+ * <p>
+ * <b>Every row it queues is downloaded "By rules"</b>: the rules pick the mode from the gallery's metadata, which a
+ * subscription's search cannot know.
  */
 @Service
 @RequiredArgsConstructor
@@ -62,7 +68,7 @@ public class SubscriptionService
     private final DataDownloaderRegistry registry;
     private final DownloadQueueService queueService;
     private final GalleryImportService importService;
-    private final ImageCompressionModeService modeService;
+    private final ImageCompressionRuleService ruleService;
     private final SettingsService settingsService;
     private final AppProperties appProperties;
 
@@ -81,14 +87,13 @@ public class SubscriptionService
 
     // ---- the page -------------------------------------------------------------------------------------------
 
-    /** Starts at Settings' choices, as the Download page does; storableKey turns a deleted mode into None. */
+    /** Starts at Settings' choices, as the Download page does. */
     @Transactional(readOnly = true)
     public SubscriptionForm newForm()
     {
         var form = new SubscriptionForm();
         form.setSource(registry.searchSites().stream().findFirst().map(SearchSource.SearchSite::key).orElse(null));
         form.setPriority(Subscription.DEFAULT_PRIORITY);
-        form.setCompressionMode(modeService.storableKey(settingsService.getImageCompressionMode()));
         GalleryDlOptions galleryDl = settingsService.getGalleryDlDefaults();
         form.setCookiesBrowser(galleryDl.cookiesBrowser());
         form.setDownloadOriginals(galleryDl.originals());
@@ -110,7 +115,6 @@ public class SubscriptionService
             form.setPollMinutes(subscription.getPollMinutes());
             form.setRecheckEveryHours(subscription.getRecheckEveryHours());
             form.setRecheckDepthHours(subscription.getRecheckDepthHours());
-            form.setCompressionMode(modeService.storableKey(subscription.getCompressionMode()));
             form.setAvoidDuplicateTitles(subscription.isAvoidDuplicateTitles());
             form.setCookiesBrowser(subscription.getCookiesBrowser());
             form.setDownloadOriginals(subscription.isDownloadOriginals());
@@ -181,7 +185,6 @@ public class SubscriptionService
         subscription.setPollMinutes(form.getPollMinutes());
         subscription.setRecheckEveryHours(form.getRecheckEveryHours());
         subscription.setRecheckDepthHours(form.getRecheckDepthHours());
-        subscription.setCompressionMode(modeService.storableKey(form.getCompressionMode()));
         subscription.setAvoidDuplicateTitles(form.isAvoidDuplicateTitles());
         subscription.setCookiesBrowser(galleryDl.cookiesBrowser());
         subscription.setDownloadOriginals(galleryDl.originals());
@@ -291,16 +294,14 @@ public class SubscriptionService
     {
         Map<Integer, Long> waiting = queueService.waitingBySubscription();
         Map<Integer, Long> failed = queueService.failedBySubscription();
-        Map<String, String> modeNames = modeService.namesByKey();
         LocalDateTime now = LocalDateTime.now();
         return repository.findAllByOrderByPriorityAscIdAsc().stream()
                 .map(subscription -> view(subscription, waiting.getOrDefault(subscription.getId(), 0L),
-                        failed.getOrDefault(subscription.getId(), 0L), modeNames, now))
+                        failed.getOrDefault(subscription.getId(), 0L), now))
                 .toList();
     }
 
-    private SubscriptionView view(Subscription subscription, long waiting, long failed, Map<String, String> modeNames,
-                                  LocalDateTime now)
+    private SubscriptionView view(Subscription subscription, long waiting, long failed, LocalDateTime now)
     {
         Optional<SearchSource> source = registry.searchSource(subscription.getSource());
         String siteLabel = source.flatMap(s -> s.searchSites().stream()
@@ -313,9 +314,9 @@ public class SubscriptionService
                 subscription.isEnabled(), status.text(), status.kind(),
                 subscription.getNewestGalleryId(), pageLink(subscription.getNewestGalleryId(), subscription.getSource()),
                 subscription.getOldestGalleryId(), pageLink(subscription.getOldestGalleryId(), subscription.getSource()),
-                subscription.getQueuedCount(), subscription.getInLibraryCount(), subscription.getDeletedSinceCount(),
-                subscription.getAlreadyQueuedCount(), subscription.getBlacklistedCount(), waiting, failed,
-                choices(subscription, modeNames), schedule(subscription));
+                subscription.getQueuedCount(), subscription.getUpgradeCount(), subscription.getInLibraryCount(),
+                subscription.getDeletedSinceCount(), subscription.getAlreadyQueuedCount(),
+                subscription.getBlacklistedCount(), waiting, failed, choicesText(subscription), schedule(subscription));
     }
 
     /** On the subscription's site: an exhentai search lists galleries e-hentai may hide. */
@@ -408,10 +409,9 @@ public class SubscriptionService
         return at.toLocalDate().equals(now.toLocalDate()) ? at.format(TIME) : at.format(DAY_AND_TIME);
     }
 
-    private String choices(Subscription subscription, Map<String, String> modeNames)
+    private String choicesText(Subscription subscription)
     {
         var parts = new ArrayList<String>();
-        parts.add("compression: " + modeNames.getOrDefault(subscription.getCompressionMode(), "a mode since deleted"));
         if (subscription.isAvoidDuplicateTitles())
         {
             parts.add("avoiding duplicated titles");
@@ -617,23 +617,32 @@ public class SubscriptionService
     {
         Map<String, Listed> byGalleryId = new LinkedHashMap<>();
         listed.forEach(gallery -> byGalleryId.put(source.galleryId(gallery.resourceId()), gallery));
-        Map<String, GalleryImportService.Holding> holdings = importService.holdings(byGalleryId.keySet());
+        Map<String, GalleryImportService.Held> holdings = importService.holdings(byGalleryId.keySet());
+        DownloadChoices choices = choices(subscription);
         var links = new LinkedHashMap<String, String>();
+        var upgrades = new HashSet<String>();
         int queued = 0;
         for (var entry : byGalleryId.entrySet())
         {
             String galleryId = entry.getKey();
             Listed gallery = entry.getValue();
-            GalleryImportService.Holding holding = holdings.get(galleryId);
+            GalleryImportService.Held held = holdings.get(galleryId);
             if (blacklisted.contains(gallery.resourceId()))
             {
                 count(gallery, () -> subscription.setBlacklistedCount(subscription.getBlacklistedCount() + 1));
             }
-            else if (holding == GalleryImportService.Holding.DELETED)
+            else if (held != null && held.is(GalleryImportService.Holding.DELETED))
             {
                 count(gallery, () -> subscription.setDeletedSinceCount(subscription.getDeletedSinceCount() + 1));
             }
-            else if (holding != null)
+            else if (held != null && held.is(GalleryImportService.Holding.IN_LIBRARY)
+                    && ruleService.wantsUpgrade(choices.compressionMode(), choices.allowUpgrade(), held.chapterId(),
+                    held.compressionMode()))
+            {
+                links.put(galleryId, source.link(gallery.resourceId()));
+                upgrades.add(galleryId);
+            }
+            else if (held != null)
             {
                 // In the library, or downloaded once and never finished: either way in downloaded_gallery or a chapter.
                 count(gallery, () -> subscription.setInLibraryCount(subscription.getInLibraryCount() + 1));
@@ -644,15 +653,22 @@ public class SubscriptionService
             }
         }
         Set<String> inserted = links.isEmpty() ? Set.of()
-                : queueService.queueForSubscription(subscription.getId(), links.values(), choices(subscription));
+                : queueService.queueForSubscription(subscription.getId(), links.values(), choices);
         for (String galleryId : links.keySet())
         {
             Listed gallery = byGalleryId.get(galleryId);
             if (inserted.contains(galleryId))
             {
                 queued++;
-                // A gallery listed again (a re-check) counts once it is queued: it newly matched the search.
-                subscription.setQueuedCount(subscription.getQueuedCount() + 1);
+                // Counted once queued, also when listed again (a re-check): it newly matched the search, or a rule.
+                if (upgrades.contains(galleryId))
+                {
+                    subscription.setUpgradeCount(subscription.getUpgradeCount() + 1);
+                }
+                else
+                {
+                    subscription.setQueuedCount(subscription.getQueuedCount() + 1);
+                }
             }
             else
             {
@@ -670,7 +686,9 @@ public class SubscriptionService
         }
     }
 
-    /** As stored; a delay edited into something gallery-dl cannot read falls back to Settings' default. */
+    /**
+     * As stored, "By rules"; a delay edited into something gallery-dl cannot read falls back to Settings' default.
+     */
     private DownloadChoices choices(Subscription subscription)
     {
         GalleryDlOptions galleryDl;
@@ -684,7 +702,8 @@ public class SubscriptionService
             galleryDl = new GalleryDlOptions(subscription.getCookiesBrowser(), subscription.isDownloadOriginals(),
                     settingsService.getGalleryDlDefaults().delay());
         }
-        return new DownloadChoices(subscription.getCompressionMode(), subscription.isAvoidDuplicateTitles(), galleryDl);
+        return new DownloadChoices(BuiltInCompressionMode.RULES_KEY, false, subscription.isAvoidDuplicateTitles(),
+                galleryDl);
     }
 
     private void recordCheckpoint(int subscriptionId, String newest, LocalDateTime at)

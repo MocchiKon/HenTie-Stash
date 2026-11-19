@@ -82,7 +82,10 @@ class SubscriptionWebIT
         // WHEN + THEN
         mvc.perform(get("/subscriptions/new").with(user("user")))
                 .andExpect(status().isOk())
-                .andExpect(model().attributeExists("sites", "compressionModes", "browserGroups"))
+                .andExpect(model().attributeExists("sites", "browserGroups"))
+                .andExpect(model().attributeDoesNotExist("compressionModes"))
+                // The rules decide each gallery's mode, so the form only points there.
+                .andExpect(content().string(containsString("href=\"/compression-rules\"")))
                 .andExpect(model().attribute("galleryDlSites", "e-hentai exhentai"))
                 .andExpect(content().string(containsString("data-shown-for=\"e-hentai exhentai\"")))
                 .andExpect(content().string(containsString("value=\"librewolf\" selected")))
@@ -300,7 +303,7 @@ class SubscriptionWebIT
     /** The rest takes the form's defaults: a parameter given twice would bind its first value. */
     private MockHttpServletRequestBuilder subscriptionPost()
     {
-        return post("/subscriptions").with(user("user")).with(csrf()).param("compressionMode", "NONE");
+        return post("/subscriptions").with(user("user")).with(csrf());
     }
 
     private MockHttpServletRequestBuilder action(int id, String action)

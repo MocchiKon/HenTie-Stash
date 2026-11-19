@@ -23,6 +23,18 @@ public enum BuiltInCompressionMode
     /** A user mode's key is {@code custom:<id>}. */
     public static final String CUSTOM_PREFIX = "custom:";
 
+    /**
+     * Not a mode: a queued download whose mode the image compression rules pick once its metadata is known. Outside
+     * the enum, so no setting can hold it: Settings' mode is what the rules fall back on.
+     */
+    public static final String RULES_KEY = "RULES";
+
+    /** Reserved as a mode name like the built-in ones, so the Download page's dropdown never shows it twice. */
+    public static final String RULES_LABEL = "By rules";
+
+    /** None keeps the bytes as they arrived, so nothing can be better. */
+    public static final int NONE_QUALITY = 0;
+
     private final String displayName;
 
     BuiltInCompressionMode(String displayName)

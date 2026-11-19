@@ -3,6 +3,7 @@ package io.github.mocchikon.hentie.service.download;
 import io.github.mocchikon.hentie.config.WriteGate;
 import io.github.mocchikon.hentie.scrapper.DataDownloaderRegistry;
 import io.github.mocchikon.hentie.scrapper.FavouritesSource;
+import io.github.mocchikon.hentie.service.compress.ImageCompressionRuleService;
 import io.github.mocchikon.hentie.service.download.DownloadQueueService.EnqueueResult;
 import lombok.RequiredArgsConstructor;
 import org.apache.commons.lang3.StringUtils;
@@ -26,7 +27,8 @@ import java.util.concurrent.locks.ReentrantLock;
  * <p>
  * <b>A gallery the library had is left out</b>, unless its download never finished: queueing the whole list would
  * fetch every gallery's details again only to find the chapter there. That includes a chapter deleted since: the
- * user removed it, and a bulk action must not bring it back.
+ * user removed it, and a bulk action must not bring it back. A chapter in the library is queued only for an upgrade
+ * the choices allow ({@link ImageCompressionRuleService#wantsUpgrade}), decided from what the library knows.
  */
 @Service
 @RequiredArgsConstructor
@@ -37,6 +39,7 @@ public class FavouritesDownloadService
     private final DataDownloaderRegistry registry;
     private final GalleryImportService importService;
     private final DownloadQueueService queueService;
+    private final ImageCompressionRuleService ruleService;
     private final DownloadWorker worker;
     private final WriteGate writeGate;
 
@@ -128,16 +131,25 @@ public class FavouritesDownloadService
     {
         var linksByGalleryId = new LinkedHashMap<String, String>();
         resourceIds.forEach(id -> linksByGalleryId.put(source.galleryId(id), source.link(id)));
-        Map<String, GalleryImportService.Holding> holdings = importService.holdings(linksByGalleryId.keySet());
+        Map<String, GalleryImportService.Held> holdings = importService.holdings(linksByGalleryId.keySet());
         var links = new ArrayList<String>();
         linksByGalleryId.forEach((galleryId, link) ->
         {
-            GalleryImportService.Holding holding = holdings.get(galleryId);
-            if (holding == GalleryImportService.Holding.IN_LIBRARY)
+            GalleryImportService.Held held = holdings.get(galleryId);
+            if (held != null && held.is(GalleryImportService.Holding.IN_LIBRARY))
             {
-                tally.inLibrary++;
+                if (ruleService.wantsUpgrade(choices.compressionMode(), choices.allowUpgrade(), held.chapterId(),
+                        held.compressionMode()))
+                {
+                    links.add(link);
+                    tally.upgrades++;
+                }
+                else
+                {
+                    tally.inLibrary++;
+                }
             }
-            else if (holding == GalleryImportService.Holding.DELETED)
+            else if (held != null && held.is(GalleryImportService.Holding.DELETED))
             {
                 tally.deletedSince++;
             }
@@ -159,6 +171,7 @@ public class FavouritesDownloadService
         private int listed;
         private int inLibrary;
         private int deletedSince;
+        private int upgrades;
         private EnqueueResult enqueued = EnqueueResult.NONE;
 
         private Tally(String source)
@@ -168,12 +181,13 @@ public class FavouritesDownloadService
 
         private Outcome finished()
         {
-            return new Outcome(source, null, null, 0, 0, listed, inLibrary, deletedSince, enqueued);
+            return new Outcome(source, null, null, 0, 0, listed, inLibrary, deletedSince, upgrades, enqueued);
         }
 
         private Outcome stopped(int page, int pageCount, String error)
         {
-            return new Outcome(source, null, error, page, pageCount, listed, inLibrary, deletedSince, enqueued);
+            return new Outcome(source, null, error, page, pageCount, listed, inLibrary, deletedSince, upgrades,
+                    enqueued);
         }
     }
 
@@ -184,13 +198,14 @@ public class FavouritesDownloadService
      * @param listed       galleries listed, every one counted in exactly one of the other numbers
      * @param inLibrary    left out: the library has them
      * @param deletedSince left out: downloaded before, their chapter deleted since
+     * @param upgrades     of those queued, galleries in the library downloaded again in a better mode
      */
     public record Outcome(String source, String refusal, String error, int stoppedAt, int pageCount, int listed,
-                          int inLibrary, int deletedSince, EnqueueResult enqueued)
+                          int inLibrary, int deletedSince, int upgrades, EnqueueResult enqueued)
     {
         static Outcome refused(String source, String reason)
         {
-            return new Outcome(source, reason, null, 0, 0, 0, 0, 0, EnqueueResult.NONE);
+            return new Outcome(source, reason, null, 0, 0, 0, 0, 0, 0, EnqueueResult.NONE);
         }
 
         public boolean isRefused()
@@ -235,6 +250,10 @@ public class FavouritesDownloadService
             if (enqueued.alreadyQueued() > 0)
             {
                 parts.add(enqueued.alreadyQueued() + " already waiting");
+            }
+            if (upgrades > 0)
+            {
+                parts.add(upgrades + " of them already in the library, to upgrade their quality");
             }
             if (inLibrary > 0)
             {

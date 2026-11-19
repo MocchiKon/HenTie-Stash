@@ -36,8 +36,9 @@
         </div>
         <div class="field">
             <label>Image Compression</label>
+            <!-- data-shows: app.js hides "Allow upgrading" while By rules is chosen. -->
             <select name="compressionMode" class="compression-mode-select"
-                    data-custom-href="/compression-modes/new">
+                    data-custom-href="/compression-modes/new" data-shows>
                 <option th:each="m : ${compressionModes}" th:value="${m.key}" th:text="${m.label}"
                         th:attr="data-custom=${m.custom}"
                         th:selected="${m.key == compressionMode}">mode</option>
@@ -46,6 +47,19 @@
                 Applies to the images of the chapters queued by
                 this form, and is remembered on each queued link (changing it afterwards does not affect
                 what is already waiting).
+            </p>
+            <p class="hint">
+                <strong>By rules</strong>: your <a th:href="@{/compression-rules}">image compression rules</a> choose
+                for each gallery.
+            </p>
+        </div>
+        <div class="field" th:attr="data-shown-for=${handPickedModeKeys}">
+            <label class="checkbox big">
+                <input type="checkbox" name="allowUpgrade" value="true" th:checked="${allowUpgrade}">
+                <span>Allow upgrading quality</span>
+            </label>
+            <p class="hint">
+                Also download galleries you already have again, if they were saved in lower quality.
             </p>
         </div>
         <div class="field">
@@ -90,6 +104,9 @@
                     Queues every gallery in your favourites on that site that is not in the library yet, with the
                     choices above. A gallery downloaded before and
                     deleted since is left out - paste its link to download it again.
+                </p>
+                <p class="hint">
+                    Galleries you already have are downloaded again only to upgrade their quality, when allowed above.
                 </p>
                 <p class="hint" th:unless="${favouritesReady}">
                     The favourites list belongs to the owner of an API key: set the site's key in

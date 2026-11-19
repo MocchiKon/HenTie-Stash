@@ -66,27 +66,64 @@ class ImageCompressionModeIT
         assertThat(lossless.minAbsoluteReduction()).isZero();
         assertThat(lossless.formats()).containsExactlyInAnyOrder("jpg", "png");
 
-        // WHEN + THEN High reduction: source formats only, so re-running it over its own output is a no-op
-        // rather than a second halving.
+        // WHEN + THEN High reduction: AVIF at half the size, source formats only, so re-running it over its own
+        // output is a no-op rather than a second halving.
         CompressionProfile high = modeService.resolve("HIGH_REDUCTION").orElseThrow();
-        assertThat(high.encoder()).isEqualTo(ImageEncoder.JXL);
-        assertThat(high.encoderArgs()).containsExactly(
-                "-q", "70", "-e", "10", "--lossless_jpeg=0", "--allow_jpeg_reconstruction=0");
+        assertThat(high.encoder()).isEqualTo(ImageEncoder.AVIF);
+        assertThat(high.encoderArgs()).containsExactly("-q", "60", "-s", "1", "--jobs", "1");
         assertThat(high.magickArgs()).containsExactly("-filter", "lanczos", "-resize", "50%");
         assertThat(high.imageHeightLimit()).isNull();
         assertThat(high.minRelativeReduction()).isEqualTo(20);
-        assertThat(high.minAbsoluteReduction()).isEqualTo(20);
+        assertThat(high.minAbsoluteReduction()).isZero();
         assertThat(high.formats()).containsExactlyInAnyOrder("jpg", "png", "webp");
 
-        // WHEN + THEN Very high reduction: the same, but AVIF.
+        // WHEN + THEN Very high reduction: the same at a lower AVIF quality.
         CompressionProfile veryHigh = modeService.resolve("VERY_HIGH_REDUCTION").orElseThrow();
         assertThat(veryHigh.encoder()).isEqualTo(ImageEncoder.AVIF);
-        assertThat(veryHigh.encoderArgs()).containsExactly("-q", "40", "-s", "0");
+        assertThat(veryHigh.encoderArgs()).containsExactly("-q", "40", "-s", "1", "--jobs", "1");
         assertThat(veryHigh.magickArgs()).containsExactly("-filter", "lanczos", "-resize", "50%");
         assertThat(veryHigh.imageHeightLimit()).isNull();
         assertThat(veryHigh.minRelativeReduction()).isEqualTo(20);
-        assertThat(veryHigh.minAbsoluteReduction()).isEqualTo(20);
+        assertThat(veryHigh.minAbsoluteReduction()).isZero();
         assertThat(veryHigh.formats()).containsExactlyInAnyOrder("jpg", "png", "webp");
+    }
+
+    /**
+     * Image compression rules pick by these: None and Lossless keep the source's pixels, the reductions rank below
+     * any mode of the user's, which starts at 1.
+     */
+    @Test
+    void shouldGiveEveryModeItsQuality()
+    {
+        // GIVEN
+        String custom = modeService.save(mode("Quality probe", ImageEncoder.JXL));
+
+        // WHEN
+        var qualities = modeService.qualities();
+
+        // THEN
+        assertThat(qualities).containsEntry("NONE", 0).containsEntry("LOSSLESS", 0)
+                .containsEntry("HIGH_REDUCTION", 100).containsEntry("VERY_HIGH_REDUCTION", 1000)
+                .containsEntry(custom, ImageCompressionMode.DEFAULT_QUALITY);
+        assertThat(ImageCompressionMode.DEFAULT_QUALITY).isOne();
+        assertThat(modeService.isBetter("LOSSLESS", "HIGH_REDUCTION")).isTrue();
+        assertThat(modeService.isBetter("NONE", "LOSSLESS")).as("equal, not better").isFalse();
+        assertThat(modeService.isBetter(custom, "VERY_HIGH_REDUCTION")).isTrue();
+    }
+
+    /** "By rules" is no mode: only a queued download may hold it, and no mode may take its name. */
+    @Test
+    void shouldStoreByRulesOnlyForADownload()
+    {
+        // WHEN + THEN
+        assertThat(modeService.storableDownloadKey("rules")).isEqualTo(BuiltInCompressionMode.RULES_KEY);
+        assertThat(modeService.storableKey(BuiltInCompressionMode.RULES_KEY)).isEqualTo("NONE");
+        assertThat(modeService.resolve(BuiltInCompressionMode.RULES_KEY)).isEmpty();
+        assertThat(modeService.downloadOptions().getFirst().key()).isEqualTo(BuiltInCompressionMode.RULES_KEY);
+        assertThat(modeService.options()).extracting(CompressionModeOption::key)
+                .doesNotContain(BuiltInCompressionMode.RULES_KEY);
+        assertThatThrownBy(() -> modeService.save(mode("by RULES", ImageEncoder.JXL)))
+                .isInstanceOf(ImageCompressionModeService.NameTaken.class);
     }
 
     @Test

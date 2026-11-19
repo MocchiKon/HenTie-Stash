@@ -3,10 +3,12 @@ package io.github.mocchikon.hentie;
 import io.github.mocchikon.hentie.config.AppProperties;
 import io.github.mocchikon.hentie.dto.BuiltInCompressionMode;
 import io.github.mocchikon.hentie.dto.ChapterForm;
+import io.github.mocchikon.hentie.dto.CompressionRuleForm;
 import io.github.mocchikon.hentie.dto.SubscriptionForm;
 import io.github.mocchikon.hentie.entity.*;
 import io.github.mocchikon.hentie.repository.DownloadQueueRepository;
 import io.github.mocchikon.hentie.repository.DownloadedGalleryRepository;
+import io.github.mocchikon.hentie.repository.ImageCompressionRuleRepository;
 import io.github.mocchikon.hentie.repository.SubscriptionCheckpointRepository;
 import io.github.mocchikon.hentie.repository.SubscriptionRepository;
 import io.github.mocchikon.hentie.scrapper.DataDownloaderRegistry;
@@ -16,6 +18,7 @@ import io.github.mocchikon.hentie.scrapper.gallerydl.GalleryDlOptions;
 import io.github.mocchikon.hentie.scrapper.nhentai.NhentaiProperties;
 import io.github.mocchikon.hentie.service.ChapterService;
 import io.github.mocchikon.hentie.service.SettingsService;
+import io.github.mocchikon.hentie.service.compress.ImageCompressionRuleService;
 import io.github.mocchikon.hentie.service.download.DownloadChoices;
 import io.github.mocchikon.hentie.service.download.DownloadQueueService;
 import io.github.mocchikon.hentie.service.subscription.SubscriptionRunner;
@@ -66,6 +69,8 @@ class SubscriptionRunnerIT
     @Autowired AppProperties appProperties;
     @Autowired DataDownloaderRegistry registry;
     @Autowired PlatformTransactionManager transactionManager;
+    @Autowired ImageCompressionRuleService ruleService;
+    @Autowired ImageCompressionRuleRepository ruleRepository;
 
     private FakeNhentai nhentai;
     private FakeEhentai ehentai;
@@ -99,6 +104,7 @@ class SubscriptionRunnerIT
     {
         subscriptionRepository.deleteAll();
         queueRepository.deleteAll();
+        ruleRepository.deleteAll();
         chapters.forEach(chapterService::delete);
         downloaded.forEach(downloadedGalleryRepository::deleteById);
         nhentaiProperties.setBaseUrl(nhentaiUrlBefore);
@@ -200,7 +206,7 @@ class SubscriptionRunnerIT
         chapter("nhentai:5", DownloadStatus.SUCCESSFUL);
         downloadedAndDeleted("nhentai:4");
         chapter("nhentai:3", DownloadStatus.PENDING);
-        queueService.enqueue(List.of("nhentai:2"), new DownloadChoices("LOSSLESS", true, TestDownloads.PLAIN_GALLERY_DL));
+        queueService.enqueue(List.of("nhentai:2"), new DownloadChoices("LOSSLESS", false, true, TestDownloads.PLAIN_GALLERY_DL));
         int id = subscribe("nhentai", "q");
 
         // WHEN
@@ -211,12 +217,61 @@ class SubscriptionRunnerIT
                 .extracting(DownloadQueueItem::getGalleryId, DownloadQueueItem::getPriority,
                         DownloadQueueItem::getSubscriptionId, DownloadQueueItem::getCompressionMode)
                 .containsExactlyInAnyOrder(tuple("nhentai:2", DownloadQueueItem.ASKED_FOR, null, "LOSSLESS"),
-                        tuple("nhentai:1", DownloadQueueItem.FROM_SUBSCRIPTION, id, PLAIN));
+                        tuple("nhentai:1", DownloadQueueItem.FROM_SUBSCRIPTION, id, BuiltInCompressionMode.RULES_KEY));
         Subscription walked = reload(id);
         assertThat(walked.getQueuedCount()).isEqualTo(1);
         assertThat(walked.getInLibraryCount()).isEqualTo(2);
         assertThat(walked.getDeletedSinceCount()).isEqualTo(1);
         assertThat(walked.getAlreadyQueuedCount()).isEqualTo(1);
+    }
+
+    /**
+     * A gallery in the library is passed over, unless a rule that allows upgrades gives it a better mode than its pages
+     * have: then it is queued By rules, and counted apart from the new ones.
+     */
+    @Test
+    void shouldQueueAGalleryInTheLibraryAgainOnlyForAnUpgradeARuleAllows()
+    {
+        // GIVEN three galleries in the library - compressed with Very high reduction, with Lossless, and never - and
+        // a rule allowing every gallery an upgrade to Lossless
+        searchable(1, 3, Duration.ofHours(5));
+        int worse = chapter("nhentai:3", DownloadStatus.SUCCESSFUL);
+        int equal = chapter("nhentai:2", DownloadStatus.SUCCESSFUL);
+        chapter("nhentai:1", DownloadStatus.SUCCESSFUL);
+        chapterService.setCompressionMode(worse, BuiltInCompressionMode.VERY_HIGH_REDUCTION.getKey());
+        chapterService.setCompressionMode(equal, BuiltInCompressionMode.LOSSLESS.getKey());
+        everyGallery(BuiltInCompressionMode.LOSSLESS.getKey(), true);
+        int id = subscribe("nhentai", "q");
+
+        // WHEN
+        runAll();
+
+        // THEN
+        assertThat(rowsOf(id)).extracting(DownloadQueueItem::getGalleryId, DownloadQueueItem::getCompressionMode)
+                .containsExactly(tuple("nhentai:3", BuiltInCompressionMode.RULES_KEY));
+        Subscription walked = reload(id);
+        assertThat(walked.getUpgradeCount()).isOne();
+        assertThat(walked.getQueuedCount()).isZero();
+        assertThat(walked.getInLibraryCount()).isEqualTo(2);
+    }
+
+    @Test
+    void shouldPassOverACompressedGalleryWhenNoRuleAllowsAnUpgrade()
+    {
+        // GIVEN
+        searchable(1, 1, Duration.ofHours(5));
+        int compressed = chapter("nhentai:1", DownloadStatus.SUCCESSFUL);
+        chapterService.setCompressionMode(compressed, BuiltInCompressionMode.VERY_HIGH_REDUCTION.getKey());
+        everyGallery(BuiltInCompressionMode.LOSSLESS.getKey(), false);
+        int id = subscribe("nhentai", "q");
+
+        // WHEN
+        runAll();
+
+        // THEN
+        assertThat(rowsOf(id)).isEmpty();
+        assertThat(reload(id).getUpgradeCount()).isZero();
+        assertThat(reload(id).getInLibraryCount()).isOne();
     }
 
     @Test
@@ -616,7 +671,6 @@ class SubscriptionRunnerIT
         form.setSource(site);
         form.setQuery(query);
         form.setPriority(priority);
-        form.setCompressionMode(PLAIN);
         return subscriptionService.save(form, TestDownloads.PLAIN_GALLERY_DL);
     }
 
@@ -625,7 +679,6 @@ class SubscriptionRunnerIT
         SubscriptionForm form = subscriptionService.newForm();
         form.setSource(site);
         form.setQuery(query);
-        form.setCompressionMode(PLAIN);
         return subscriptionService.save(form, galleryDl);
     }
 
@@ -673,7 +726,7 @@ class SubscriptionRunnerIT
         checkpointRepository.save(checkpoint);
     }
 
-    private void chapter(String galleryId, DownloadStatus status)
+    private int chapter(String galleryId, DownloadStatus status)
     {
         var form = new ChapterForm();
         form.setTitleFull("Subscribed " + galleryId);
@@ -682,6 +735,16 @@ class SubscriptionRunnerIT
         int chapterId = chapterService.create(form);
         chapterService.setDownloadStatus(chapterId, status);
         chapters.add(chapterId);
+        return chapterId;
+    }
+
+    /** A rule without conditions: it decides every gallery. */
+    private void everyGallery(String mode, boolean allowUpgrade)
+    {
+        var form = new CompressionRuleForm();
+        form.setCompressionMode(mode);
+        form.setAllowUpgrade(allowUpgrade);
+        ruleService.save(form);
     }
 
     private void downloadedAndDeleted(String galleryId)

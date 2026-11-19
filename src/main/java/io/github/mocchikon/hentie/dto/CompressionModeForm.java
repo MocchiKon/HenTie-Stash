@@ -1,5 +1,6 @@
 package io.github.mocchikon.hentie.dto;
 
+import io.github.mocchikon.hentie.entity.ImageCompressionMode;
 import io.github.mocchikon.hentie.entity.ImageEncoder;
 import jakarta.validation.constraints.*;
 import lombok.Data;
@@ -45,4 +46,9 @@ public class CompressionModeForm
     /** E.g. {@code JPG,GIF,PNG}. Blank = every image. */
     @Size(max = 255, message = "Image formats must be at most 255 characters")
     private String formats = "";
+
+    /** 0 is the best; image compression rules compare modes by it. */
+    @NotNull(message = "Enter a quality, 0 for the best")
+    @Min(value = 0, message = "Quality must be 0 (the best) or more")
+    private Integer quality = ImageCompressionMode.DEFAULT_QUALITY;
 }

@@ -571,7 +571,9 @@ public class ImageService
         int published = 0;
         try (Stream<Path> files = Files.list(staging))
         {
-            for (Path file : files.filter(Files::isRegularFile).toList())
+            // Images only: an encoder that failed copying its output in from the work folder can leave a .part.
+            for (Path file : files.filter(Files::isRegularFile)
+                    .filter(file -> ImageDirectory.isImage(file.getFileName().toString())).toList())
             {
                 String name = file.getFileName().toString();
                 publishPage(file, target.resolve(name));

@@ -67,6 +67,7 @@ class MetadataTypeTest
         {
             assertThat(type.getChapterJoinTable()).isNotBlank();
             assertThat(type.getSeriesJoinTable()).isNotBlank();
+            assertThat(type.getCompressionRuleJoinTable()).startsWith("image_compression_rule_");
             assertThat(type.getFkColumn()).isNotBlank();
             assertThat(type.getSearchParam()).isNotBlank();
             assertThat(type.getNameProperty()).isNotBlank();

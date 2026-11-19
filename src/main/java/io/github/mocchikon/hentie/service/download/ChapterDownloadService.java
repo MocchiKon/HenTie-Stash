@@ -1,6 +1,7 @@
 package io.github.mocchikon.hentie.service.download;
 
 import io.github.mocchikon.hentie.config.AppProperties;
+import io.github.mocchikon.hentie.dto.BuiltInCompressionMode;
 import io.github.mocchikon.hentie.entity.DownloadQueueItem;
 import io.github.mocchikon.hentie.entity.DownloadStatus;
 import io.github.mocchikon.hentie.scrapper.DataDownloaderRegistry;
@@ -13,6 +14,7 @@ import io.github.mocchikon.hentie.scrapper.gallerydl.GalleryDlOptions;
 import io.github.mocchikon.hentie.service.ChapterService;
 import io.github.mocchikon.hentie.service.ImageDirectory;
 import io.github.mocchikon.hentie.service.ImageService;
+import io.github.mocchikon.hentie.service.compress.ImageCompressionRuleService;
 import io.github.mocchikon.hentie.service.compress.ImageCompressionService;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
@@ -36,11 +38,12 @@ import java.util.function.Consumer;
  *
  * <p>Only a {@code PENDING} chapter (a download this app started and never finished) gets its absent pages
  * fetched. Any other chapter with images keeps them as they are, and nothing on disk is overwritten, except
- * by a full-quality re-download the user asks for.
+ * by a full-quality re-download the user asks for, or an upgrade: a download in a mode better than the one that
+ * compressed the chapter's pages, which the row allows ({@link ImageCompressionRuleService#plan}).
  *
  * <p><b>A page lands in the chapter's folder as soon as it is whole</b>, so a crash, an abort or a failed attempt
- * loses only the pages in flight: the next attempt fetches what is still absent. Only the full-quality
- * re-download keeps its pages back until every one has arrived.
+ * loses only the pages in flight: the next attempt fetches what is still absent. Only a replacement (full quality or
+ * an upgrade) keeps its pages back until every one has arrived.
  *
  * <p>Not transactional: it spans minutes of network and disk work, and holding SQLite's single write lock
  * that long would block the app.
@@ -57,14 +60,16 @@ public class ChapterDownloadService
     private final ImageService imageService;
     private final ChapterService chapterService;
     private final ImagePostProcessor imagePostProcessor;
+    private final ImageCompressionRuleService ruleService;
     private final AppProperties appProperties;
 
     /**
-     * What an in-process retry of a full-quality re-download may inherit from staging, where it keeps its pages until
-     * the end. The folder is stored, not looked up again, because the automatic choice follows the RAM disk's free
-     * space, so a retry could get an empty folder.
+     * What an in-process retry of a replacement may inherit from staging, where it keeps its pages until the end. The
+     * folder is stored, not looked up again, because the automatic choice follows the RAM disk's free space, so a
+     * retry could get an empty folder. Only a retry in the same mode inherits: the staged pages are already re-encoded
+     * in it, and {@code reEncoded} counts them for the label the publish records.
      */
-    private record StagedRun(int chapterId, Path dir)
+    private record StagedRun(int chapterId, Path dir, String mode, AtomicInteger reEncoded)
     {
     }
 
@@ -130,27 +135,54 @@ public class ChapterDownloadService
         // --- 4. remember that this gallery has been downloaded ------------------------------------
         importService.recordDownloaded(link.galleryId(), chapterId);
 
-        // --- 5. what, if anything, still has to be fetched? ---------------------------------------
+        // --- 5. which mode, and whether the chapter's pages are replaced ---------------------------
+        // A full-quality re-download is always uncompressed. Otherwise the row's mode, or for a row queued "By rules"
+        // the rules', which read the chapter's metadata, so they decide only now that the chapter is in the library.
+        // An unfinished chapter is never upgraded: it gets its missing pages in the mode, as a resumed download does.
+        String mode;
+        boolean upgrade;
+        if (item.isReplacePages())
+        {
+            mode = BuiltInCompressionMode.NONE.getKey();
+            upgrade = false;
+        }
+        else
+        {
+            ImageCompressionRuleService.Plan plan = ruleService.plan(item.getCompressionMode(),
+                    item.isAllowUpgrade(), chapterId, recordedMode);
+            mode = plan.modeKey();
+            upgrade = plan.upgrade() && status != DownloadStatus.PENDING;
+        }
+        boolean replacing = item.isReplacePages() || upgrade;
+
+        // --- 6. what, if anything, still has to be fetched? ---------------------------------------
         // A non-PENDING chapter with images keeps them whatever the source says: comparing counts would put
         // back pages the user deleted on purpose.
         int pageCount = data.pages();
-        // A re-download replaces only the pages the chapter has, and only canonically named ones, so a page
-        // the user keeps under another name is not taken for the source's.
+        // A replacement replaces only the pages the chapter has, and only canonically named ones, so a page the user
+        // keeps under another name is not taken for the source's.
         Set<Integer> onDisk;
-        Set<Integer> replacing;
-        if (item.isReplacePages())
+        Set<Integer> replaced;
+        if (replacing)
         {
             var numbers = imageService.pageNumbersForReplacing(chapterId);
             onDisk = numbers.all();
-            replacing = numbers.canonical();
+            replaced = numbers.canonical();
+            if (upgrade && onDisk.isEmpty())
+            {
+                // Nothing to replace: the pages are simply downloaded, in the better mode.
+                upgrade = false;
+                replacing = false;
+                replaced = Set.of();
+            }
         }
         else
         {
             onDisk = imageService.pageNumbersOnDisk(chapterId);
-            replacing = Set.of();
+            replaced = Set.of();
         }
         boolean fillGaps = status == DownloadStatus.PENDING || onDisk.isEmpty();
-        if (!fillGaps && !item.isReplacePages())
+        if (!fillGaps && !replacing)
         {
             log.info("Skipping image download for chapter {} ({}) - {} page(s) already on disk, download "
                     + "status {}", chapterId, link.galleryId(), onDisk.size(), status);
@@ -169,12 +201,21 @@ public class ChapterDownloadService
         List<Integer> missing = new ArrayList<>();
         for (int page = 1; page <= pageCount; page++)
         {
-            if ((fillGaps && !onDisk.contains(page)) || replacing.contains(page))
+            if ((fillGaps && !onDisk.contains(page)) || replaced.contains(page))
             {
                 missing.add(page);
             }
         }
-        if (missing.isEmpty() && item.isReplacePages())
+        if (missing.isEmpty() && upgrade)
+        {
+            // Nobody asked for this chapter by hand; failing would only fill the Failed list with an upgrade that
+            // can never happen.
+            log.info("Not downloading chapter {} ({}) again in {} - none of its pages is one of the {} the source "
+                    + "lists, named the way this app names them", chapterId, link.galleryId(), mode, pageCount);
+            chapterService.syncImageStats(chapterId);
+            return chapterId;
+        }
+        if (missing.isEmpty() && replacing)
         {
             // Finishing quietly would leave a re-download button that can never do anything; say why instead.
             throw new PermanentDownloadException("None of the pages of chapter " + chapterId + " is one of the "
@@ -192,15 +233,20 @@ public class ChapterDownloadService
 
         // Checked before fetching too: publishReplacing would be refused anyway, a sweep holds the lock for
         // hours, and giving up discards whatever was staged.
-        if (item.isReplacePages() && imagePostProcessor.isRunInProgress())
+        if (replacing && imagePostProcessor.isRunInProgress())
         {
             throw compressionRunInProgress(chapterId);
         }
+        if (upgrade)
+        {
+            log.info("Downloading the pages of chapter {} ({}) again in {} - they were compressed with {}",
+                    chapterId, link.galleryId(), mode, recordedMode);
+        }
 
-        // --- 6. fetch the missing pages -----------------------------------------------------------
+        // --- 7. fetch the missing pages -----------------------------------------------------------
         phase.accept("Downloading images");
         var attempt = new Attempt(item, link, data, chapterId, status, onDisk, missing, phase);
-        return item.isReplacePages() ? replacePages(attempt) : fillIn(attempt, recordedMode);
+        return replacing ? replacePages(attempt, mode) : fillIn(attempt, recordedMode, mode);
     }
 
     /** One attempt at a queue item, from the moment it is known which pages it fetches. */
@@ -214,8 +260,9 @@ public class ChapterDownloadService
      * in staging only until its encoder is done. So nothing in staging outlives the attempt.
      *
      * @param recordedMode the compression mode the chapter records before this attempt
+     * @param mode         the mode its pages get: the row's, or the rules' for a row queued "By rules"
      */
-    private int fillIn(Attempt attempt, String recordedMode)
+    private int fillIn(Attempt attempt, String recordedMode, String mode)
     {
         int chapterId = attempt.chapterId();
         // Before the first page lands: only a PENDING chapter gets its absent pages fetched, so the pages an
@@ -227,7 +274,6 @@ public class ChapterDownloadService
         // Nothing staged is reused: what a killed process left there may be torn.
         discardStaged(chapterId);
 
-        String mode = attempt.item().getCompressionMode();
         var encoded = new EncodedPages(chapterId);
         Optional<ImagePostProcessor.Run> processing = imagePostProcessor.start(chapterId, mode, encoded);
         // Before any page is re-encoded: nothing rebuilds it from the files, so a crash after a re-encoded page
@@ -331,30 +377,48 @@ public class ChapterDownloadService
     }
 
     /**
-     * A full-quality re-download, always uncompressed: nothing is replaced before every original has arrived, so
-     * its pages wait in staging until the end. A retry in the same process keeps what an earlier attempt staged.
+     * Replaces the pages the chapter has: a full-quality re-download (None) or an upgrade to a better mode. Nothing is
+     * replaced before every page has arrived, re-encoded or kept by its encoder, so the pages wait in staging until
+     * the end. Staging is the data folder's, never a RAM disk: a whole gallery waits there. A retry in the same
+     * process keeps what an earlier attempt staged in the same mode.
      */
-    private int replacePages(Attempt attempt)
+    private int replacePages(Attempt attempt, String mode)
     {
         int chapterId = attempt.chapterId();
         // A killed run may have left a torn page, so the first attempt discards staging. A retry in the same
         // process keeps what it fetched (so a failure on page 199 does not restart from page 1).
         StagedRun previous = stagedByThisProcess;
-        if (previous == null || previous.chapterId() != chapterId)
+        if (previous == null || previous.chapterId() != chapterId || !previous.mode().equals(mode))
         {
             imageService.discardStagedPages(chapterId);
-            previous = new StagedRun(chapterId, imageService.stagingDir(chapterId, false));
+            previous = new StagedRun(chapterId, imageService.stagingDir(chapterId, false), mode, new AtomicInteger());
         }
-        stagedByThisProcess = previous;
-        Path staging = previous.dir();
+        StagedRun run = previous;
+        stagedByThisProcess = run;
+        Path staging = run.dir();
         Set<Integer> staged = imageService.stagedPageNumbers(staging);
+        // Each page is re-encoded where it is staged, overlapping with the download.
+        Optional<ImagePostProcessor.Run> processing = imagePostProcessor.start(chapterId, mode, (file, reEncoded) ->
+        {
+            if (reEncoded)
+            {
+                run.reEncoded().incrementAndGet();
+            }
+        });
+        Destination destination = processing.isPresent()
+                ? new EncodedInStaging(staging, processing.get()) : new Staging(staging);
 
         log.info("Downloading {} image(s) for chapter {} ({})", attempt.missing().size() - staged.size(), chapterId,
                 attempt.link().galleryId());
         int skipped;
         try
         {
-            skipped = fetchPages(new Fetch(attempt, staged, staging, new Staging(staging)));
+            // The run must close on every exit, before the pages are published or a retry reads staging.
+            ImagePostProcessor.Run encoding = processing.orElse(null);
+            try (encoding)
+            {
+                skipped = fetchPages(new Fetch(attempt, staged, staging, destination));
+            }
             logFinished(attempt, skipped);
             // A lenient run that got no page at all would leave a SUCCESSFUL chapter without pages, which
             // re-queueing could never fix.
@@ -377,7 +441,8 @@ public class ChapterDownloadService
         int published;
         try
         {
-            published = publishReplacing(chapterId, staging, attempt.missing(), skipped > 0);
+            published = publishReplacing(chapterId, staging, attempt.missing(), skipped > 0, mode,
+                    run.reEncoded().get());
             stagedByThisProcess = null;
         }
         catch (IOException e)
@@ -419,7 +484,7 @@ public class ChapterDownloadService
         void accept(int page, Path file) throws IOException;
     }
 
-    /** A full-quality re-download's pages, kept back until every one has arrived. */
+    /** A replacement's pages stored as fetched, kept back until every one has arrived. */
     private final class Staging implements Destination
     {
         private final Path dir;
@@ -504,6 +569,34 @@ public class ChapterDownloadService
             {
                 throw failed;
             }
+        }
+    }
+
+    /**
+     * A replacement's pages to compress: staged, and left there by the encoder, re-encoded or kept, until every one has
+     * arrived. Nothing moves them meanwhile, so nothing can fail between the encoder and the publish.
+     */
+    private final class EncodedInStaging implements Destination
+    {
+        private final Path staging;
+        private final ImagePostProcessor.Run run;
+
+        EncodedInStaging(Path staging, ImagePostProcessor.Run run)
+        {
+            this.staging = staging;
+            this.run = run;
+        }
+
+        @Override
+        public void accept(int page, String extension, byte[] bytes) throws IOException
+        {
+            run.page(imageService.stagePage(staging, page, extension, bytes));
+        }
+
+        @Override
+        public void accept(int page, Path file) throws IOException
+        {
+            run.page(imageService.stageFile(staging, page, file));
         }
     }
 
@@ -807,13 +900,18 @@ public class ChapterDownloadService
     /**
      * Takes the Image Compression run lock, unlike other downloads, because it overwrites and deletes
      * published pages a run may be encoding. Refused rather than waited for, since a sweep holds the lock
-     * for hours. Reading the folder and clearing the mode happen under the same lock, so no run can compress
+     * for hours. Reading the folder and recording the mode happen under the same lock, so no run can compress
      * a page in between.
+     * <p>
+     * The chapter records the mode that re-encoded pages last: this one when it re-encoded any. Otherwise its pages
+     * are originals again, unless a page stays compressed: one skipped, or one this download could not replace, which
+     * keeps the mode that compressed it.
      *
-     * @param skippedAny a skipped page stays compressed, so the mode is kept
+     * @param skippedAny a skipped page stays as it was
+     * @param reEncoded  pages the mode re-encoded, staged by this attempt or an earlier one of this process
      */
-    private int publishReplacing(int chapterId, Path staging, List<Integer> fetched, boolean skippedAny)
-            throws IOException
+    private int publishReplacing(int chapterId, Path staging, List<Integer> fetched, boolean skippedAny, String mode,
+                                 int reEncoded) throws IOException
     {
         try
         {
@@ -821,11 +919,15 @@ public class ChapterDownloadService
             {
                 try
                 {
-                    boolean fullQualityNow = !skippedAny && !imageService.encodedPageSurvives(chapterId, fetched);
+                    boolean originalsNow = !skippedAny && !imageService.encodedPageSurvives(chapterId, fetched);
                     int published = imageService.publishReplacingPages(chapterId, staging);
-                    if (fullQualityNow)
+                    if (reEncoded > 0)
                     {
-                        clearCompressionMode(chapterId);
+                        recordReplacedMode(chapterId, mode);
+                    }
+                    else if (originalsNow)
+                    {
+                        recordReplacedMode(chapterId, null);
                     }
                     return published;
                 }
@@ -845,17 +947,20 @@ public class ChapterDownloadService
         }
     }
 
-    /** Does not fail the item: the pages are published, and a retry would fetch the whole gallery for one column. */
-    private void clearCompressionMode(int chapterId)
+    /**
+     * Does not fail the item: the pages are published, and a retry would fetch the whole gallery for one column. A
+     * label left behind its pages is harmless: it names a worse mode, so the chapter may be upgraded once more.
+     */
+    private void recordReplacedMode(int chapterId, String mode)
     {
         try
         {
-            chapterService.setCompressionMode(chapterId, null);
+            chapterService.setCompressionMode(chapterId, mode);
         }
         catch (RuntimeException e)
         {
-            log.warn("Replaced the pages of chapter {} in full quality, but could not record that it is no longer "
-                    + "compressed", chapterId, e);
+            log.warn("Replaced the pages of chapter {}, but could not record the mode they have now ({})", chapterId,
+                    mode == null ? "full quality" : mode, e);
         }
     }
 

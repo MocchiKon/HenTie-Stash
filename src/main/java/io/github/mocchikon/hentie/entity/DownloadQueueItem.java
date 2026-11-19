@@ -63,12 +63,21 @@ public class DownloadQueueItem
     private boolean ignoreImageErrors = false;
 
     /**
-     * Mode key picked on the paste form. Not read from Settings at run time, because that may have changed
-     * by the time this row runs.
+     * Mode key picked on the paste form, or {@link BuiltInCompressionMode#RULES_KEY} for the image compression rules
+     * to decide once the gallery's metadata is known. Not read from Settings at run time, because that may have
+     * changed by the time this row runs.
      */
     @Column(name = "compression_mode", nullable = false, length = 64,
             columnDefinition = "varchar(64) not null default 'NONE'")
     private String compressionMode = BuiltInCompressionMode.NONE.getKey();
+
+    /**
+     * A gallery already in the library is downloaded again in {@link #compressionMode} when that is better than
+     * the mode its chapter's pages were compressed with. Only for a mode picked by hand: "By rules" leaves it to
+     * the rules. A paste replaces it, retries keep it.
+     */
+    @Column(name = "allow_upgrade", nullable = false, columnDefinition = "boolean not null default 0")
+    private boolean allowUpgrade = false;
 
     /**
      * Refuse a new gallery whose full title a chapter from another source already has. A paste replaces it;

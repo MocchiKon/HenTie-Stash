@@ -94,15 +94,9 @@
         </div>
 
         <div class="field">
-            <label for="compressionMode">Image Compression</label>
-            <select id="compressionMode" th:field="*{compressionMode}" class="compression-mode-select"
-                    data-custom-href="/compression-modes/new">
-                <option th:each="m : ${compressionModes}" th:value="${m.key}" th:text="${m.label}"
-                        th:attr="data-custom=${m.custom}">mode</option>
-            </select>
+            <label>Image Compression</label>
             <p class="hint">
-                Given to each gallery the subscription queues, like the choices below. Changing them later applies
-                to what it queues from then on.
+                Chosen for each gallery by your <a th:href="@{/compression-rules}">image compression rules</a>.
             </p>
         </div>
 

@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head('Image compression rule')}"></head>
+<body>
+<nav th:replace="~{fragments/layout :: nav}"></nav>
+
+<main class="container narrow">
+    <div class="edit-head">
+        <h1 th:text="${form.id == null} ? 'New image compression rule' : 'Edit image compression rule'">
+            New image compression rule</h1>
+        <div class="btn-row">
+            <a class="btn btn-ghost" th:href="@{/compression-rules}">Back to rules</a>
+        </div>
+    </div>
+
+    <div class="alert warning" th:if="${broken}">
+        Something this rule listed was deleted, so it is not in use. Save it to use it again with what is listed below.
+    </div>
+
+    <form class="edit-form" method="post" th:action="@{/compression-rules}" th:object="${form}" data-rule-form
+          data-confirm-every-gallery="This rule lists nothing, so it applies to every gallery. Save it?">
+        <input type="hidden" th:field="*{id}">
+
+        <div class="field">
+            <label>Applies to galleries with</label>
+            <p class="hint">
+                All of these. Leave empty to apply to every gallery. You can list an artist you have not downloaded
+                yet.
+            </p>
+            <p class="field-error" role="alert" th:if="${conditionsError != null}" th:text="${conditionsError}">error</p>
+            <div class="rule-conditions" data-rule-conditions>
+                <div class="rule-condition metadata-value-row" th:each="conditionType, stat : *{conditionTypes}">
+                    <select name="conditionTypes" class="metadata-type-select" aria-label="Kind of value">
+                        <option th:each="t : ${types}" th:value="${t.key}" th:text="${#strings.capitalize(t.key)}"
+                                th:selected="${t.key == conditionType}">Artist</option>
+                    </select>
+                    <input type="text" name="conditionValues" class="metadata-value-input" maxlength="255"
+                           autocomplete="off" placeholder="Name…" aria-label="Name"
+                           th:value="${form.conditionValues.size() > stat.index} ? ${form.conditionValues[stat.index]} : ''"
+                           th:attr="list='condition-values-' + ${stat.index}">
+                    <datalist th:id="'condition-values-' + ${stat.index}"></datalist>
+                    <button type="button" class="btn btn-ghost" data-remove-condition>Remove</button>
+                </div>
+                <!-- One empty row more, so a condition can be added without JavaScript too; an empty row is no
+                     condition. app.js copies it for "Add condition". -->
+                <div class="rule-condition metadata-value-row" data-condition-template>
+                    <select name="conditionTypes" class="metadata-type-select" aria-label="Kind of value">
+                        <option th:each="t : ${types}" th:value="${t.key}" th:text="${#strings.capitalize(t.key)}"
+                                th:selected="${t.name() == 'ARTIST'}">Artist</option>
+                    </select>
+                    <input type="text" name="conditionValues" class="metadata-value-input" maxlength="255"
+                           autocomplete="off" placeholder="Name…" aria-label="Name" value=""
+                           list="condition-values-new">
+                    <datalist id="condition-values-new"></datalist>
+                    <button type="button" class="btn btn-ghost" data-remove-condition>Remove</button>
+                </div>
+            </div>
+            <button type="button" class="btn" data-add-condition hidden>Add condition</button>
+        </div>
+
+        <div class="field">
+            <label for="compressionMode">Image Compression mode<span class="req" aria-hidden="true">*</span></label>
+            <select id="compressionMode" th:field="*{compressionMode}" class="compression-mode-select capped-select"
+                    data-custom-href="/compression-modes/new">
+                <option th:each="m : ${compressionModes}" th:value="${m.key}" th:text="${m.label}"
+                        th:attr="data-custom=${m.custom}">mode</option>
+            </select>
+            <p class="field-error" th:if="${#fields.hasErrors('compressionMode')}" th:errors="*{compressionMode}">error</p>
+            <p class="hint">Quality in brackets: 0 is the best.</p>
+        </div>
+
+        <div class="field">
+            <label for="priority">Priority<span class="req" aria-hidden="true">*</span></label>
+            <input type="number" id="priority" th:field="*{priority}" class="short-input" required min="0" step="1">
+            <p class="field-error" th:if="${#fields.hasErrors('priority')}" th:errors="*{priority}">error</p>
+            <p class="hint">
+                0 is the highest. If several rules apply to a gallery, the highest priority wins, then the best quality.
+            </p>
+        </div>
+
+        <div class="field">
+            <label class="checkbox big">
+                <input type="checkbox" th:field="*{allowUpgrade}">
+                <span>Allow upgrading quality</span>
+            </label>
+            <p class="hint">
+                Also download galleries you already have again in this mode, if they were saved in lower quality.
+            </p>
+        </div>
+
+        <div class="edit-actions">
+            <button type="submit" class="btn btn-accent">Save rule</button>
+        </div>
+    </form>
+</main>
+
+<script th:src="@{/js/app.js}"></script>
+</body>
+</html>

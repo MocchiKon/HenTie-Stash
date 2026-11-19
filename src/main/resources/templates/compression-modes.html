@@ -30,6 +30,12 @@
         referring to it falls back to <strong>None</strong>, so no image is ever processed by a mode that no
         longer exists.
     </p>
+    <p class="hint">
+        Quality: 0 is the best. <a th:href="@{/compression-rules}">Image compression rules</a> use it to choose
+        between modes. Built-in modes: None <span th:text="${noneQuality}">0</span>, Lossless
+        <span th:text="${losslessQuality}">0</span>, High reduction <span th:text="${highReductionQuality}">100</span>,
+        Very high reduction <span th:text="${veryHighReductionQuality}">1000</span>.
+    </p>
 
     <p class="empty" th:if="${#lists.isEmpty(modes)}">You have not defined any modes yet.</p>
 
@@ -44,7 +50,8 @@
                     th:text="| · ImageMagick only above ${mode.imageHeightLimit} px|"> · ImageMagick only above 1000 px</span><span
                     th:if="${mode.minRelativeReduction > 0}"> · ≥<span th:text="${mode.minRelativeReduction}">0</span>% smaller</span><span
                     th:if="${mode.minAbsoluteReduction > 0}"> · ≥<span th:text="${mode.minAbsoluteReduction}">0</span> KB smaller</span><span
-                    th:text="${#strings.isEmpty(mode.formats)} ? ' · all image formats' : ' · only ' + ${mode.formats}"> · all image formats</span>
+                    th:text="${#strings.isEmpty(mode.formats)} ? ' · all image formats' : ' · only ' + ${mode.formats}"> · all image formats</span><span
+                    th:text="| · quality ${mode.quality}|"> · quality 1</span>
             </span>
             <span class="rule-actions btn-row">
                 <a class="btn" th:href="@{/compression-modes/{id}/edit(id=${mode.id})}">Edit</a>

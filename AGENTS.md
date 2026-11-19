@@ -1,4 +1,4 @@
-# CLAUDE.md — HenTie design decisions
+# HenTie design decisions
 
 Why the codebase is shaped this way. **Only decisions, constraints and invariants live here** — what the
 code does is in the code. Read the relevant section before changing the data model, search, matching,
@@ -78,7 +78,7 @@ live under `app.data-dir`, served at `/data/**`. `mock_server/` stands in for a 
 `entity/` JPA entities, ORDINAL enums, `entity/link/` read-only search projections · `repository/` +
 `repository/spec/` search predicates · `service/` business logic, with `match/` (chapter→series matching),
 `download/` (download pipeline), `subscription/` (saved searches that queue downloads), `compress/` (downscaling +
-re-encoding), `comfy/` (ComfyUI in the image viewer), `scratch/` (temporary image files) · `scrapper/` data
+re-encoding, and the image compression rules that pick a download's mode), `comfy/` (ComfyUI in the image viewer), `scratch/` (temporary image files) · `scrapper/` data
 sources (a real one in its own package, `scrapper/nhentai/`, `ehentai/`, `hitomi/`, `chaika/`;
 `scrapper/gallerydl/` runs gallery-dl for the sources that use it; `SearchSource` is what a subscription walks)
 · `dto/` view models, forms, search
@@ -102,8 +102,8 @@ Flyway history.
   `SchemaMigrationIT` boots with `ddl-auto=validate` and checks the FTS tables, triggers, foreign keys and
   indexes that Hibernate cannot validate.
 - **Every join table has `ON DELETE CASCADE` foreign keys to both its owner and its metadata row**
-  (hand-written in V1: the dialect emits none, and SQLite cannot add one later without rebuilding the
-  table). So no delete path (Hibernate, a batch delete, native SQL) can leave a link naming a missing row,
+  (hand-written in the migrations: the dialect emits none, and SQLite cannot add one later without rebuilding the
+  table). That includes an image compression rule's conditions (`image_compression_rule_<kind>`, V7). So no delete path (Hibernate, a batch delete, native SQL) can leave a link naming a missing row,
   which the native search relies on. Hibernate still deletes an owner's links itself; the cascade then
   finds nothing, one index seek per join table. **Each FK column must lead an index**, or every parent
   delete scans the join table. **`chapter.series_id` has none on purpose**: unlinking must go through
@@ -592,7 +592,8 @@ it by also implementing **`FavouritesSource`**; the Download page lists those.
   gallery id is left out unless it is `PENDING` (then queued, to finish it), and so is a gallery in
   `downloaded_gallery` whose chapter was deleted since: the user removed it, and a bulk action must not bring
   it back (pasting its link still does). Queueing everything would fetch every gallery's details again, at
-  the API's rate, only to find its chapter there.
+  the API's rate, only to find its chapter there. A chapter in the library is queued only for an upgrade the
+  choices allow ("By rules", or the checkbox; see "Image compression rules"), decided from what the library knows.
 - **The same choices as a paste.** The button submits the paste form (`formaction`), so its Image Compression
   mode and duplicate-title check apply, and the rows go through `DownloadQueueService.enqueue` (a failed row
   is queued again, a waiting one counts as waiting).
@@ -789,7 +790,13 @@ decides** — a `SearchSource` never touches the database. Manage → Chapters �
   since and one whose download never finished (`recordDownloaded` runs before its pages); one with a queue row of
   any kind (a paste's choices stay its own; a failed row waits for the user); one the site marks blacklisted.
   Removing a row is not remembered, so a re-check or another subscription may queue it again; a paste always
-  downloads.
+  downloads. **The exception is an upgrade** (see "Image compression rules"): a gallery in the library that the
+  rules give a better mode than its pages have, and allow to upgrade, is queued again, decided from the chapter's
+  stored mode and metadata, so passing the library costs no request to the site. Counted in `upgrade_count`, each
+  time one is queued.
+- **Every row it queues is "By rules"**: a subscription has no mode of its own (V7 dropped
+  `subscription.compression_mode`; rows queued before keep theirs). Its search cannot know a gallery's metadata, and
+  a favourite artist's gallery must get the artist's mode whichever subscription finds it first.
 - **Its rows run after what the user asks for** (priority 1, see "Chapter downloading"). Deleting a subscription
   keeps them (`ON DELETE SET NULL`, the priority stays); pausing stops only the listing. **A subscription's own
   priority** (`subscription.priority`, 0 highest, 1 default) **orders its walk, not those rows**: the runner steps
@@ -850,7 +857,8 @@ downloaded and uploaded images. Default mode is **None**: bytes are stored as th
   queued downloads. **A key that no longer resolves means None**, so deleting a mode in use is allowed.
   - **What may be stored is a whitelist** (`ImageCompressionModeService.storableKey`, applied in
     `DownloadQueueService.enqueue` and `SettingsController`): the `CUSTOM` dropdown sentinel is blocked
-    only by JS, and SQLite does not enforce `VARCHAR(n)`. Custom keys are canonicalized on the way in.
+    only by JS, and SQLite does not enforce `VARCHAR(n)`. Custom keys are canonicalized on the way in. A queue
+    row may also hold `RULES` (`storableDownloadKey`), which is no mode (see "Image compression rules").
 - **`chapter.compression_mode` is the key of the mode that last re-encoded the chapter's pages; null while
   the pages are original.** It drives the "Compressed: <mode>" label and the full-quality re-download
   offer. It is written **only when a run replaced a page** (`Summary.replaced() > 0`) by upload,
@@ -865,27 +873,32 @@ downloaded and uploaded images. Default mode is **None**: bytes are stored as th
     its pages is harmless: a full-quality re-download clears it. A crash before a download re-encoded its first
     page leaves one.
 - **"Re-download in full quality" is a queue row with `replace_pages`**, offered only for a compressed
-  chapter whose gallery id names a known source. `DataDownloaderRegistry.linkFor` rebuilds the link via
+  chapter whose gallery id names a known source. An upgrade (see "Image compression rules") runs the same
+  replacement with a mode; what follows holds for both unless it says full quality. `DataDownloaderRegistry.linkFor` rebuilds the link via
   `DataDownloader.link` and returns it only if it parses back to the same gallery id. **A Lossless chapter
   is not offered**: its pages already hold the source's pixels, so the download would only swap equivalent
   files.
   - **Only pages the chapter has, by canonical name** (`ImageDirectory.canonicalPageNumbers`: `3.jpg`, not
     `03.jpg`), so a deleted page stays deleted and no page ends up twice. A `PENDING` or empty chapter also
     gets its absent pages.
-  - **Always uncompressed and strict**; the gallery's existing row is re-used. Retry keeps the flag; a
-    paste clears it.
-  - **Nothing is replaced before every original has arrived**, and **the new page goes in before the old
-    comes out** (`ImageService.publishReplacingPages`) — a crash leaves both, which the listing counts once
-    and the still-queued row fixes. An old version that cannot be deleted fails the item.
+  - **Full quality is always uncompressed and strict**; the gallery's existing row is re-used. Retry keeps the
+    flag; a paste clears it.
+  - **Nothing is replaced before every page has arrived** (and been re-encoded, for an upgrade: in place in
+    staging, which is the data folder's, never a RAM disk, since a whole gallery waits there), and **the new page
+    goes in before the old comes out** (`ImageService.publishReplacingPages`) — a crash leaves both, which the
+    listing counts once and the still-queued row fixes. An old version that cannot be deleted fails the item.
+    Only a retry in the same process **and the same mode** inherits staging (`StagedRun`).
   - **It never creates a chapter** (no chapter for the gallery → permanent failure).
-  - It clears `compression_mode` only if no page was skipped **and no `.jxl`/`.avif` survives** the
-    publish. The folder is read under the run lock; a failure to clear is logged, not a failed item.
+  - Afterwards the chapter records the mode **if it re-encoded any page**; otherwise it clears
+    `compression_mode`, but only if no page was skipped **and no `.jxl`/`.avif` survives** the publish. The
+    folder is read under the run lock; a failure to record is logged, not a failed item. Written after the
+    publish: a label behind its pages names a worse mode, which costs at most one more upgrade.
   - **Its publish takes the run lock** (with clearing the mode), and is refused as a transient failure
     while a run holds it — checked before fetching too, since a sweep holds it for hours.
 - **The three built-in modes are not rows.** They always exist, are not editable, and live in
   `image-compression-modes.properties` — **a separate file because the test profile replaces
   `application.properties`**; `ImageCompressionModeIT` checks the shipped values. "Custom" in the dropdown
-  is **not a mode** (it opens the form); its label is reserved like the built-in names.
+  is **not a mode** (it opens the form); its label is reserved like the built-in names, and so is "By rules".
 - **One user-started run at a time** (`ImageCompressionService.exclusively`, non-blocking `tryLock`).
   Upload, per-chapter button and sweep take the lock; a second one is **refused, never queued** (the pool
   is already full, and a sweep holds it for hours). The sweep holds it for the whole walk. A refused
@@ -893,7 +906,7 @@ downloaded and uploaded images. Default mode is **None**: bytes are stored as th
   compress staged files only, and every intermediate has its own name. (Exception: the full-quality
   re-download's publish.)
 - **Uploads use the Settings mode; downloads carry theirs on the queue row** (it runs later and must
-  survive a restart). The download form **starts at the Settings mode**, never at the last paste's choice,
+  survive a restart), or "By rules" for the rules to decide. The download form **starts at the Settings mode**, never at the last paste's choice,
   via `storableKey` (a deleted mode starts at None). Re-pasting **replaces** the row's mode. Pages an earlier
   attempt saved stay as they were saved: a mode chosen afterwards applies to the pages still missing.
 - **Any failure keeps the original image and logs it** (missing binary, codec error, timeout, unknown
@@ -962,6 +975,56 @@ downloaded and uploaded images. Default mode is **None**: bytes are stored as th
   (`image.compression.cpu-percent`, default 100%): a resizable semaphore in `ImageCompressionExecutor`
   limits the tasks running at once, so a lowered percentage also holds back pages already queued.
   `app.image-compression.threads` is the pool's 100% size (0 = one per processor).
+
+### Image compression rules (`ImageCompressionRuleService`, `/compression-rules`)
+A rule names metadata values and a mode. A download queued **"By rules"** (`download_queue.compression_mode` holds
+`BuiltInCompressionMode.RULES_KEY`) gets its mode from the rules: every subscription row, and a paste that picks it.
+Linked from Manage → Image Compression and from the Subscriptions page; the Guide's Image compression rules section
+explains them.
+- **"By rules" is no mode.** Only a queue row stores it; `resolve` treats it as nothing (the pipeline asks the rules
+  first); Settings never offers it, because **Settings' mode is the fallback** when no rule matches.
+- **The decision**: a rule matches when the chapter carries **every** value it names; one naming none matches every
+  gallery (a default at a high priority number). Only the matching rules with the lowest priority number count;
+  among them the **best quality** wins, the older rule on a tie (never the order rows come in), and upgrading is
+  allowed when **any** of them allows it. No match: Settings' mode, no upgrade. A rule whose mode was deleted applies
+  None, as every key that no longer resolves.
+- **Quality** (`image_compression_mode.quality`; the built-ins' in `image-compression-modes.properties`, None a
+  constant 0): 0 is the best, like a priority. None and Lossless are 0, so a Lossless chapter is never upgraded to
+  None, for the reason it is not offered a full-quality re-download. A mode's quality is the user's judgement;
+  V7 gave existing modes 1, a new one's default.
+- **Decided after the import, from the chapter** (`ChapterDownloadService` step 5): its metadata are what the
+  metadata rules and canonical names made of the source's, so a rule names what the library calls a value. The
+  row keeps `RULES`: nothing rewrites it, so `requestChanged` sees no change and a retry decides again.
+- **Conditions are ids**, one join table per kind (`image_compression_rule_<kind>`,
+  `MetadataType.getCompressionRuleJoinTable`), both directions indexed. A rename keeps a rule; a merge moves its
+  conditions onto the target (`MetadataService.reassignRuleConditions`), one condition fewer for a rule that named
+  both. **`condition_count` is what a chapter must match, not a cache of the rows**: removing a value takes its
+  condition along by the cascade but leaves the count, so "artist X and tag Y" never quietly becomes "artist X"
+  (and decides galleries the user never named); the rule matches nothing and its page says so. **Never recompute
+  the count from the rows.** A merge lowers it only by the duplicate it drops.
+- **A decision is one native query, pinned** (`cross join`, `INDEXED BY` on V7's `(meta_id, rule_id)` indexes):
+  from the chapter's links to the rules naming each value, so it costs what the rules naming its values cost, not
+  what all rules cost (10,000 rules: well under a millisecond with one per artist, 6 ms when all share a tag).
+  Unpinned, statistics skewed by a value many rules name made SQLite scan the rules' conditions (up to 15 ms).
+- **The rules page is paginated and filters by a value**: a rule per favourite artist runs into thousands. A page's
+  conditions load in one query per kind, their names in one per kind.
+- **A typed name the library lacks is added** (`MetadataService.add`, refusing a ruled-out name or a pipe), so a
+  rule can name an artist before any of their galleries is downloaded. One refused row saves nothing: the
+  transaction rolls back the values the others added.
+
+#### Upgrades
+- **An upgrade downloads a finished chapter's pages again in a strictly better mode**
+  (`ImageCompressionRuleService.plan`: the new mode's quality below the recorded one's; null recorded = original
+  pages, which nothing beats; a mode since deleted counts as the worst). A "By rules" row takes the rules' answer; a
+  row with a mode picked by hand its own `download_queue.allow_upgrade`, the Download page's checkbox (hidden for
+  "By rules", and never stored on such a row). A `PENDING` chapter is never upgraded: it fills its gaps in the
+  decided mode, as a resumed download does.
+- **It is the full-quality re-download's replacement with a mode** (see "Image compression"). An automatic upgrade
+  that finds no canonically named page to replace finishes quietly with a log line; failing would fill the Failed
+  list with something nobody asked for by hand.
+- **Who queues one**: a subscription listing a gallery `IN_LIBRARY` (`wantsUpgrade`, from the stored mode and
+  metadata, asking the rules only about compressed pages), a paste "By rules" or with the checkbox, and "Download
+  all favourites" with those choices. Everywhere else a gallery in the library stays left out.
 
 ### Serving JPEG XL to a browser that cannot show it
 - **The URL never changes** (`/data/{chapter}/{page}.jxl`); `JxlTranscodeInterceptor` decides per client
@@ -1344,12 +1407,14 @@ Per cache:
     own group, not with its plain tag), groups by canonical name onto **one** survivor (`female:halo` into
     `halo ♀`), records **no rules**, reads uncached, and reports rows a rule blocks as `blocked`.
 - **Generic over six kinds via `MetadataType`** (tag, artist, character, parody, group, category: entity, name
-  property, FK column, and **three** join tables: `chapter_*`, `series_*` override, `series_effective_*`).
-  **Merge/remove must touch all three** — the effective one's FK would otherwise block the delete and series
-  search would go stale. After native join-table changes, `em.flush(); em.clear();` before deleting the entity
+  property, FK column, and **four** join tables: `chapter_*`, `series_*` override, `series_effective_*`, and the
+  image compression rules' `image_compression_rule_*`).
+  **Merge/remove must touch the first three** — the effective one's FK would otherwise block the delete and series
+  search would go stale. **A merge moves the rules' conditions too**; a removal leaves them to the cascade, on
+  purpose (see "Image compression rules"). After native join-table changes, `em.flush(); em.clear();` before deleting the entity
   row. Both evict `searchCount`.
   - **A new kind reaches further than the services, which loop over `MetadataType`**: its three tables in V1
-    (keys and indexes as under "Invariants"), the `Chapter`/`Series` collections (effective one included), a
+    and its image compression rule table as in V7 (keys and indexes as under "Invariants"), the `Chapter`/`Series` collections (effective one included), a
     `MetadataLink` projection per owner, the form, `SearchCriteria` (`filterKey`, `hasFilter`, `normalize`),
     both specs and `CompoundSearchQuery`'s switches, `recomputeDerived`, the views' chip groups, the import
     (`GalleryData`, `GalleryImportService`) and the templates. `CategoryIT` checks one kind end to end.
@@ -1624,6 +1689,8 @@ for good coverage.
   against the real clock, since the JDK's server always sends its own `Date` header). A runner suite commits every step, so it is not `@Transactional`, removes what it made, and
   restores the addresses, limits, Settings' e-hentai account and the cooldown. Upload times there sit half an hour
   off the whole hours, or a gallery would be on the filter's edge.
+- ⚠️ **A suite that commits image compression rules deletes them** (`ImageCompressionRuleRepository.deleteAll()`):
+  a leftover rule without conditions decides every download "By rules" in the suites after it.
 - **`*E2E` suites talk to the real sites and run only with `-Pe2e`** (the profile replaces surefire's includes),
   so the default build passes offline and never touches a site. One sets the real configuration back for itself
   (`NhentaiDownloadE2E` copies `new NhentaiProperties()` over the test profile's) and restores it afterwards.

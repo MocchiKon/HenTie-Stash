@@ -136,6 +136,8 @@
                 <span class="hint" th:if="${item.attempts > 0}"
                       th:text="${item.attempts} + ' failed attempt(s) so far'">1 failed attempt(s) so far</span>
                 <span class="hint" th:if="${item.replacePages}">re-downloading in full quality</span>
+                <span class="hint" th:if="${item.compressionMode == 'RULES'}">image compression by rules</span>
+                <span class="hint" th:if="${item.allowUpgrade}">may upgrade quality</span>
                 <span class="hint" th:if="${item.ignoreImageErrors}">ignoring image errors</span>
                 <span class="hint" th:if="${item.avoidDuplicateTitles}">avoiding duplicated titles</span>
                 <!-- containsKey: a mode deleted while queued has no name, and would print "compressing: null". -->
@@ -192,6 +194,8 @@
                 <a class="hint" th:if="${item.chapterId != null}" th:href="@{'/chapter/' + ${item.chapterId}}"
                    th:text="'chapter ' + ${item.chapterId}">chapter 1</a>
                 <span class="hint" th:if="${item.replacePages}">re-downloading in full quality</span>
+                <span class="hint" th:if="${item.compressionMode == 'RULES'}">image compression by rules</span>
+                <span class="hint" th:if="${item.allowUpgrade}">may upgrade quality</span>
                 <span class="hint" th:if="${item.avoidDuplicateTitles}">avoiding duplicated titles</span>
                 <span class="queue-error" th:text="${item.error}">Something went wrong</span>
                 <div class="queue-actions">

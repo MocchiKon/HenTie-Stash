@@ -9,14 +9,16 @@ package io.github.mocchikon.hentie.dto;
  * @param statusKind     {@code ok}, {@code warning} or {@code error}, for the status line's look
  * @param newestLink     the head on the site, null when there is none (or no page for it)
  * @param waiting        its rows waiting in the download queue
+ * @param upgrades       galleries in the library it queued again, for a better mode a rule allows
  * @param failed         its rows on the queue's Failed list
- * @param choices        what each gallery it queues gets (compression, duplicate titles, gallery-dl)
+ * @param choices        what each gallery it queues gets (duplicate titles, gallery-dl); empty when nothing applies
  * @param schedule       how often it looks for new galleries and re-checks recent ones
  */
 public record SubscriptionView(int id, String title, String siteLabel, int priority, String query, String searchUrl,
                                boolean enabled, String status, String statusKind,
                                String newestGalleryId, String newestLink, String oldestGalleryId, String oldestLink,
-                               int queued, int inLibrary, int deletedSince, int alreadyQueued, int blacklisted,
+                               int queued, int upgrades, int inLibrary, int deletedSince, int alreadyQueued,
+                               int blacklisted,
                                long waiting, long failed, String choices, String schedule)
 {
 }

@@ -134,15 +134,19 @@ public interface ChapterRepository extends JpaRepository<Chapter, Integer>, JpaS
     }
 
     /** A seek per id on the unique {@code gallery_id}; a gallery id no chapter holds is absent. */
-    @Query("select c.galleryId as galleryId, c.downloadStatus as downloadStatus from Chapter c "
-            + "where c.galleryId in :galleryIds")
+    @Query("select c.id as id, c.galleryId as galleryId, c.downloadStatus as downloadStatus, "
+            + "c.compressionMode as compressionMode from Chapter c where c.galleryId in :galleryIds")
     List<GalleryDownload> findDownloadStatusByGalleryIdIn(Collection<String> galleryIds);
 
     interface GalleryDownload
     {
+        Integer getId();
+
         String getGalleryId();
 
         DownloadStatus getDownloadStatus();
+
+        String getCompressionMode();
     }
 
     // Pre-save checks for the unique gallery_id; *AndIdNot skips the row being edited.

@@ -2,6 +2,7 @@ package io.github.mocchikon.hentie.web;
 
 import io.github.mocchikon.hentie.config.AppProperties;
 import io.github.mocchikon.hentie.service.SettingsService;
+import io.github.mocchikon.hentie.service.compress.ImageCompressionModeService;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Controller;
@@ -18,6 +19,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 public class GuideController
 {
     private final AppProperties appProperties;
+    private final ImageCompressionModeService modeService;
 
     @GetMapping("/guide")
     public String guide(HttpServletRequest request, Model model)
@@ -27,6 +29,7 @@ public class GuideController
         model.addAttribute("pagesAhead", SettingsService.DEFAULT_PAGES_AHEAD);
         model.addAttribute("comfyJobTimeoutSeconds", appProperties.getComfyui().getJobTimeoutSeconds());
         model.addAttribute("comfyResultCacheMaxMb", appProperties.getComfyui().getResultCacheMaxMb());
+        CompressionModeController.addBuiltInQualities(model, modeService);
         return "guide";
     }
 }

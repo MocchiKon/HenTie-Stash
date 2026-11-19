@@ -86,7 +86,7 @@ class DownloadAbortIT
 
     private static DownloadChoices choices()
     {
-        return new DownloadChoices(BuiltInCompressionMode.NONE.getKey(), false, TestDownloads.PLAIN_GALLERY_DL);
+        return new DownloadChoices(BuiltInCompressionMode.NONE.getKey(), false, false, TestDownloads.PLAIN_GALLERY_DL);
     }
 
     @Test

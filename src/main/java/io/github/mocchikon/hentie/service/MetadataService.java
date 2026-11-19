@@ -224,6 +224,17 @@ public class MetadataService
     }
 
     /**
+     * The row a typed name stands for, as {@link #add} would store it: case and e-hentai's namespaces do not matter.
+     * Empty when there is none.
+     */
+    @Transactional(readOnly = true)
+    public Optional<Integer> findId(MetadataType type, String name)
+    {
+        String canonical = canonical(type, name);
+        return StringUtils.isBlank(canonical) ? Optional.empty() : idsOfName(type, canonical).stream().findFirst();
+    }
+
+    /**
      * The picked tags plus the plain tag every gendered one stands for ({@link #plainTagOf}), for a chapter or
      * series create/edit form: search finds a gallery by the plain tag, so a version picked alone must not leave
      * it out. A plain tag that an old version-only row lacks is created, unless a rule rules it out.
@@ -634,6 +645,8 @@ public class MetadataService
         deleteLinks(type.getChapterJoinTable(), type.getFkColumn(), id);
         deleteLinks(type.getSeriesJoinTable(), type.getFkColumn(), id);
         deleteLinks(type.getSeriesEffectiveJoinTable(), type.getFkColumn(), id);
+        // Image compression rules' conditions on it go with the row, by the cascade. Their rules keep the count they
+        // must match, so they never match again rather than match more than the user named.
         // The native deletes bypassed Hibernate; clear so no managed entity still references this row.
         em.flush();
         em.clear();
@@ -742,6 +755,7 @@ public class MetadataService
         reassignLinks(type.getChapterJoinTable(), "chapter_id", type.getFkColumn(), sourceId, targetId);
         reassignLinks(type.getSeriesJoinTable(), "series_id", type.getFkColumn(), sourceId, targetId);
         reassignLinks(type.getSeriesEffectiveJoinTable(), "series_id", type.getFkColumn(), sourceId, targetId);
+        reassignRuleConditions(type, sourceId, targetId);
         // The native updates bypassed Hibernate; clear so no managed entity still references the source.
         em.flush();
         em.clear();
@@ -1097,6 +1111,24 @@ public class MetadataService
             }
         }
         return ids;
+    }
+
+    /**
+     * Image compression rules naming the source name the target from now on. A rule that names both loses one
+     * condition and the count it must match with it; the count is not recomputed from the rows, since a rule that
+     * lost a condition to a removal must stay unable to match (see {@code ImageCompressionRule}).
+     */
+    private void reassignRuleConditions(MetadataType type, Integer sourceId, Integer targetId)
+    {
+        String table = type.getCompressionRuleJoinTable();
+        String fk = type.getFkColumn();
+        em.createNativeQuery("update image_compression_rule set condition_count = condition_count - 1 where id in ("
+                        + "select s.rule_id from " + table + " s join " + table + " t on t.rule_id = s.rule_id "
+                        + "where s." + fk + " = :source and t." + fk + " = :target)") // NOSONAR - safe, no user input
+                .setParameter("source", sourceId)
+                .setParameter("target", targetId)
+                .executeUpdate();
+        reassignLinks(table, "rule_id", fk, sourceId, targetId);
     }
 
     private void deleteLinks(String joinTable, String fkColumn, Integer id)

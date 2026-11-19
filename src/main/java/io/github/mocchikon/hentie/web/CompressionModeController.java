@@ -1,5 +1,6 @@
 package io.github.mocchikon.hentie.web;
 
+import io.github.mocchikon.hentie.dto.BuiltInCompressionMode;
 import io.github.mocchikon.hentie.dto.CompressionModeForm;
 import io.github.mocchikon.hentie.entity.ImageCompressionMode;
 import io.github.mocchikon.hentie.entity.ImageEncoder;
@@ -11,6 +12,8 @@ import org.springframework.ui.Model;
 import org.springframework.validation.BindingResult;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
+
+import java.util.Map;
 
 /**
  * User-defined modes only; "Custom" in a dropdown navigates here. The built-in modes are not editable, so
@@ -30,6 +33,7 @@ public class CompressionModeController
     public String list(Model model)
     {
         model.addAttribute("modes", modeService.customModes());
+        addBuiltInQualities(model, modeService);
         return "compression-modes";
     }
 
@@ -89,6 +93,18 @@ public class CompressionModeController
     private void addFormModel(Model model)
     {
         model.addAttribute("encoders", ImageEncoder.values());
+        addBuiltInQualities(model, modeService);
+    }
+
+    /** As configured, so the pages never name a quality an install has overridden. */
+    static void addBuiltInQualities(Model model, ImageCompressionModeService modeService)
+    {
+        Map<String, Integer> qualities = modeService.qualities();
+        model.addAttribute("noneQuality", qualities.get(BuiltInCompressionMode.NONE.getKey()));
+        model.addAttribute("losslessQuality", qualities.get(BuiltInCompressionMode.LOSSLESS.getKey()));
+        model.addAttribute("highReductionQuality", qualities.get(BuiltInCompressionMode.HIGH_REDUCTION.getKey()));
+        model.addAttribute("veryHighReductionQuality",
+                qualities.get(BuiltInCompressionMode.VERY_HIGH_REDUCTION.getKey()));
     }
 
     private static CompressionModeForm toForm(ImageCompressionMode mode)
@@ -103,6 +119,7 @@ public class CompressionModeController
         form.setMinRelativeReduction(mode.getMinRelativeReduction());
         form.setMinAbsoluteReduction(mode.getMinAbsoluteReduction());
         form.setFormats(mode.getFormats());
+        form.setQuality(mode.getQuality());
         return form;
     }
 
@@ -119,6 +136,7 @@ public class CompressionModeController
         mode.setMinRelativeReduction(form.getMinRelativeReduction());
         mode.setMinAbsoluteReduction(form.getMinAbsoluteReduction());
         mode.setFormats(trim(form.getFormats()));
+        mode.setQuality(form.getQuality());
         return mode;
     }
 

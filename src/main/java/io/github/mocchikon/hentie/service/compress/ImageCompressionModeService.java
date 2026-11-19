@@ -22,6 +22,9 @@ import java.util.*;
  * the list, cannot repoint a stored choice.
  *
  * <p>A key that no longer resolves (a deleted custom mode) means "None", the answer that cannot lose a page.
+ *
+ * <p>{@link BuiltInCompressionMode#RULES_KEY} is no mode: a queue row holding it is given one by the image
+ * compression rules. Only a download may store it ({@link #storableDownloadKey}).
  */
 @Service
 @RequiredArgsConstructor
@@ -52,6 +55,19 @@ public class ImageCompressionModeService
     }
 
     // ---- the dropdown ------------------------------------------------------
+
+    /**
+     * The Download page's dropdown: "By rules" first, then {@link #options}. Settings never offers it: the rules fall
+     * back on Settings' mode.
+     */
+    @Transactional(readOnly = true)
+    public List<CompressionModeOption> downloadOptions()
+    {
+        var options = new ArrayList<CompressionModeOption>();
+        options.add(CompressionModeOption.of(BuiltInCompressionMode.RULES_KEY, BuiltInCompressionMode.RULES_LABEL));
+        options.addAll(options());
+        return options;
+    }
 
     /** "Custom" is flagged because it is not a mode: it navigates to the page where one is created. */
     @Transactional(readOnly = true)
@@ -99,12 +115,15 @@ public class ImageCompressionModeService
 
     // ---- resolving a stored choice ----------------------------------------
 
-    /** Empty for {@code NONE}, blank, the "Custom" sentinel and a custom mode that no longer exists. */
+    /**
+     * Empty for {@code NONE}, blank, the "Custom" and "By rules" sentinels and a custom mode that no longer exists.
+     * A download queued "By rules" asks the rules for a key before it gets here.
+     */
     @Transactional(readOnly = true)
     public Optional<CompressionProfile> resolve(String key)
     {
         String trimmed = StringUtils.trimToEmpty(key);
-        if (trimmed.isEmpty() || trimmed.equalsIgnoreCase(BuiltInCompressionMode.CUSTOM_KEY))
+        if (trimmed.isEmpty() || trimmed.equalsIgnoreCase(BuiltInCompressionMode.CUSTOM_KEY) || isRules(trimmed))
         {
             return Optional.empty();
         }
@@ -170,6 +189,74 @@ public class ImageCompressionModeService
         {
             return BuiltInCompressionMode.NONE.getKey();
         }
+    }
+
+    /** {@link #storableKey}, or "By rules", which a queued download may hold until its metadata is known. */
+    @Transactional(readOnly = true)
+    public String storableDownloadKey(String key)
+    {
+        return isRules(key) ? BuiltInCompressionMode.RULES_KEY : storableKey(key);
+    }
+
+    public static boolean isRules(String key)
+    {
+        return BuiltInCompressionMode.RULES_KEY.equalsIgnoreCase(StringUtils.trimToEmpty(key));
+    }
+
+    // ---- quality -----------------------------------------------------------
+
+    /**
+     * The quality of every mode there is, by key, in one read, since a decision compares several. A key absent from
+     * the map no longer resolves: see {@link #qualityOf} and {@link #recordedQualityOf} for what that means.
+     */
+    @Transactional(readOnly = true)
+    public Map<String, Integer> qualities()
+    {
+        AppProperties.ImageCompression config = appProperties.getImageCompression();
+        var qualities = new HashMap<String, Integer>();
+        qualities.put(BuiltInCompressionMode.NONE.getKey(), BuiltInCompressionMode.NONE_QUALITY);
+        qualities.put(BuiltInCompressionMode.LOSSLESS.getKey(), config.getLossless().getQuality());
+        qualities.put(BuiltInCompressionMode.HIGH_REDUCTION.getKey(), config.getHighReduction().getQuality());
+        qualities.put(BuiltInCompressionMode.VERY_HIGH_REDUCTION.getKey(), config.getVeryHighReduction().getQuality());
+        repository.findAllByOrderByIdAsc().forEach(mode -> qualities.put(keyOf(mode.getId()), mode.getQuality()));
+        return qualities;
+    }
+
+    /** Of a mode about to be used: one that no longer resolves runs as None, so it has None's quality. */
+    public static int qualityOf(Map<String, Integer> qualities, String key)
+    {
+        return qualities.getOrDefault(canonicalKey(key), BuiltInCompressionMode.NONE_QUALITY);
+    }
+
+    /**
+     * Of the pages a chapter's {@code compression_mode} says re-encoded them: null means original pages, as good as
+     * None. A mode since deleted is of unknown quality, so any mode there is counts as better: an upgrade it allows
+     * puts pages of a known quality back.
+     */
+    public static int recordedQualityOf(Map<String, Integer> qualities, String recordedKey)
+    {
+        return recordedKey == null ? BuiltInCompressionMode.NONE_QUALITY
+                : qualities.getOrDefault(canonicalKey(recordedKey), Integer.MAX_VALUE);
+    }
+
+    /** Whether pages {@code recordedKey} compressed would be strictly better in {@code modeKey}. */
+    @Transactional(readOnly = true)
+    public boolean isBetter(String modeKey, String recordedKey)
+    {
+        Map<String, Integer> qualities = qualities();
+        return qualityOf(qualities, modeKey) < recordedQualityOf(qualities, recordedKey);
+    }
+
+    /** The spelling {@link #qualities} keys by; anything that is no mode's key comes back as it was. */
+    private static String canonicalKey(String key)
+    {
+        String trimmed = StringUtils.trimToEmpty(key);
+        Integer id = customId(trimmed);
+        if (id != null)
+        {
+            return keyOf(id);
+        }
+        return trimmed.toUpperCase(Locale.ROOT);
     }
 
     private Optional<CompressionProfile> customProfile(String key)
@@ -246,6 +333,11 @@ public class ImageCompressionModeService
         {
             throw new NameTaken("\"" + name + "\" is the dropdown entry for defining a new mode - please "
                     + "choose another name.");
+        }
+        if (BuiltInCompressionMode.RULES_LABEL.equalsIgnoreCase(name))
+        {
+            throw new NameTaken("\"" + name + "\" is the dropdown entry that leaves the mode to the image "
+                    + "compression rules - please choose another name.");
         }
         repository.findFirstByNameIgnoreCase(name)
                 .filter(other -> !other.getId().equals(mode.getId()))

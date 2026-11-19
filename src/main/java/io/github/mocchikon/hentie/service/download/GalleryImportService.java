@@ -67,23 +67,35 @@ public class GalleryImportService
      * A gallery it never had is absent from the map.
      */
     @Transactional(readOnly = true)
-    public Map<String, Holding> holdings(Collection<String> galleryIds)
+    public Map<String, Held> holdings(Collection<String> galleryIds)
     {
         if (galleryIds.isEmpty())
         {
             return Map.of();
         }
-        var holdings = new HashMap<String, Holding>();
+        var holdings = new HashMap<String, Held>();
         for (var chapter : chapterRepository.findDownloadStatusByGalleryIdIn(galleryIds))
         {
-            holdings.put(chapter.getGalleryId(), chapter.getDownloadStatus() == DownloadStatus.PENDING
-                    ? Holding.UNFINISHED : Holding.IN_LIBRARY);
+            holdings.put(chapter.getGalleryId(), new Held(chapter.getDownloadStatus() == DownloadStatus.PENDING
+                    ? Holding.UNFINISHED : Holding.IN_LIBRARY, chapter.getId(), chapter.getCompressionMode()));
         }
         for (DownloadedGallery downloaded : downloadedGalleryRepository.findAllById(galleryIds))
         {
-            holdings.putIfAbsent(downloaded.getGalleryId(), Holding.DELETED);
+            holdings.putIfAbsent(downloaded.getGalleryId(), new Held(Holding.DELETED, null, null));
         }
         return holdings;
+    }
+
+    /**
+     * @param chapterId       null for {@link Holding#DELETED}
+     * @param compressionMode the chapter's: what an upgrade has to beat
+     */
+    public record Held(Holding holding, Integer chapterId, String compressionMode)
+    {
+        public boolean is(Holding other)
+        {
+            return holding == other;
+        }
     }
 
     public enum Holding

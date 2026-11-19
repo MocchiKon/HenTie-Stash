@@ -55,7 +55,8 @@ public class DownloadQueueService
     {
         // The one seam every enqueue passes, so an invalid key (the "Custom" sentinel, a hand-made POST)
         // becomes NONE here instead of being stored.
-        String mode = modeService.storableKey(choices.compressionMode());
+        String mode = modeService.storableDownloadKey(choices.compressionMode());
+        boolean allowUpgrade = allowsUpgrade(mode, choices);
         boolean avoidDuplicateTitles = choices.avoidDuplicateTitles();
         GalleryDlOptions galleryDl = choices.galleryDl();
         int accepted = 0;
@@ -85,6 +86,7 @@ public class DownloadQueueService
                     // A paste asks for an ordinary, strict download with this paste's choices.
                     item.setIgnoreImageErrors(false);
                     item.setCompressionMode(mode);
+                    item.setAllowUpgrade(allowUpgrade);
                     item.setAvoidDuplicateTitles(avoidDuplicateTitles);
                     item.setRejectedDuplicate(false);
                     item.setDuplicateChapterId(null);
@@ -97,11 +99,12 @@ public class DownloadQueueService
                 else
                 {
                     // A waiting row takes this paste's choices too; a running attempt keeps its own.
-                    if (!mode.equals(item.getCompressionMode())
+                    if (!mode.equals(item.getCompressionMode()) || item.isAllowUpgrade() != allowUpgrade
                             || item.isAvoidDuplicateTitles() != avoidDuplicateTitles || item.isReplacePages()
                             || !StoredGalleryDl.of(item).equals(StoredGalleryDl.of(galleryDl)) || !isClaimed(item))
                     {
                         item.setCompressionMode(mode);
+                        item.setAllowUpgrade(allowUpgrade);
                         item.setAvoidDuplicateTitles(avoidDuplicateTitles);
                         item.setReplacePages(false);
                         setGalleryDlOptions(item, galleryDl);
@@ -118,6 +121,7 @@ public class DownloadQueueService
             item.setLink(trimmedLink);
             item.setGalleryId(galleryId);
             item.setCompressionMode(mode);
+            item.setAllowUpgrade(allowUpgrade);
             item.setAvoidDuplicateTitles(avoidDuplicateTitles);
             setGalleryDlOptions(item, galleryDl);
             item.setQueuedAt(LocalDateTime.now());
@@ -125,6 +129,12 @@ public class DownloadQueueService
             accepted++;
         }
         return new EnqueueResult(accepted, requeued, alreadyQueued, rejected);
+    }
+
+    /** "By rules" leaves upgrading to the rules, so its row never asks for it on its own. */
+    private static boolean allowsUpgrade(String storedMode, DownloadChoices choices)
+    {
+        return choices.allowUpgrade() && !ImageCompressionModeService.isRules(storedMode);
     }
 
     /**
@@ -141,7 +151,8 @@ public class DownloadQueueService
     @Transactional(propagation = Propagation.MANDATORY)
     public Set<String> queueForSubscription(int subscriptionId, Collection<String> links, DownloadChoices choices)
     {
-        String mode = modeService.storableKey(choices.compressionMode());
+        String mode = modeService.storableDownloadKey(choices.compressionMode());
+        boolean allowUpgrade = allowsUpgrade(mode, choices);
         var queued = new HashSet<String>();
         for (String link : links)
         {
@@ -160,6 +171,7 @@ public class DownloadQueueService
             item.setLink(trimmedLink);
             item.setGalleryId(galleryId);
             item.setCompressionMode(mode);
+            item.setAllowUpgrade(allowUpgrade);
             item.setAvoidDuplicateTitles(choices.avoidDuplicateTitles());
             setGalleryDlOptions(item, choices.galleryDl());
             item.setPriority(DownloadQueueItem.FROM_SUBSCRIPTION);
@@ -245,6 +257,7 @@ public class DownloadQueueService
         item.setAttempts(0);
         item.setIgnoreImageErrors(false);
         item.setCompressionMode(BuiltInCompressionMode.NONE.getKey());
+        item.setAllowUpgrade(false);
         item.setAvoidDuplicateTitles(false);
         item.setRejectedDuplicate(false);
         item.setDuplicateChapterId(null);
@@ -346,6 +359,7 @@ public class DownloadQueueService
     private static boolean requestChanged(DownloadQueueItem row, DownloadQueueItem attempted)
     {
         return row.isReplacePages() != attempted.isReplacePages()
+                || row.isAllowUpgrade() != attempted.isAllowUpgrade()
                 || row.isIgnoreImageErrors() != attempted.isIgnoreImageErrors()
                 || row.isAvoidDuplicateTitles() != attempted.isAvoidDuplicateTitles()
                 || !Objects.equals(row.getCompressionMode(), attempted.getCompressionMode())

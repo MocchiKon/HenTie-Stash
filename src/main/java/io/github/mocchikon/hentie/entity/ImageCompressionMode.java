@@ -53,4 +53,15 @@ public class ImageCompressionMode
     /** Input extensions, e.g. {@code "JPG,PNG"}. Blank = every image. */
     @Column(name = "formats", nullable = false, length = 255)
     private String formats = "";
+
+    /**
+     * 0 is the best, as with priorities. Image compression rules choose the best quality among the modes their
+     * winners name, and only a strictly better one is worth downloading a chapter again for. The user's own
+     * judgement: nothing here measures it.
+     */
+    @Column(name = "quality", nullable = false, columnDefinition = "integer not null default 1")
+    private int quality = DEFAULT_QUALITY;
+
+    /** Below None and Lossless (0), above the built-in reductions (100 and 1000). */
+    public static final int DEFAULT_QUALITY = 1;
 }

@@ -30,7 +30,7 @@ class SchemaMigrationIT
     void shouldMatchTheEntityMappingsWhenSchemaComesFromMigrations()
     {
         // Starting the context is the real check; this assertion keeps the test from passing vacuously.
-        assertThat(appliedMigrations()).containsExactly("1", "2", "3", "4", "5", "6");
+        assertThat(appliedMigrations()).containsExactly("1", "2", "3", "4", "5", "6", "7");
     }
 
     @Test
@@ -115,7 +115,30 @@ class SchemaMigrationIT
         assertThat(columnNames("download_queue")).contains("compression_mode");
         assertThat(columnNames("image_compression_mode")).contains(
                 "name", "encoder", "encoder_args", "magick_args", "image_height_limit",
-                "min_relative_reduction", "min_absolute_reduction", "formats");
+                "min_relative_reduction", "min_absolute_reduction", "formats", "quality");
+    }
+
+    /**
+     * A decision seeks each of a chapter's values in the (meta_id, rule_id) indexes, and the rules page walks
+     * (priority, id); without them every download would read every rule. A subscription no longer has a mode of its
+     * own, and a queue row keeps whether it may upgrade a chapter in the library.
+     */
+    @Test
+    void shouldCreateTheImageCompressionRuleSchemaWhenMigrating()
+    {
+        // GIVEN + WHEN + THEN
+        assertThat(columnNames("image_compression_rule")).contains(
+                "priority", "compression_mode", "allow_upgrade", "condition_count");
+        assertThat(columnNames("download_queue")).contains("allow_upgrade");
+        assertThat(columnNames("subscription")).contains("upgrade_count").doesNotContain("compression_mode");
+        assertThat(objectNames("type = 'index'")).contains(
+                "ix_image_compression_rule__priority_id", "ix_image_compression_rule__condition_count",
+                "ix_compression_rule_tags__tag_rule", "ux_compression_rule_tags__rule_tag",
+                "ix_compression_rule_artists__artist_rule", "ux_compression_rule_artists__rule_artist",
+                "ix_compression_rule_characters__character_rule", "ux_compression_rule_characters__rule_character",
+                "ix_compression_rule_parodies__parody_rule", "ux_compression_rule_parodies__rule_parody",
+                "ix_compression_rule_groups__group_rule", "ux_compression_rule_groups__rule_group",
+                "ix_compression_rule_categories__category_rule", "ux_compression_rule_categories__rule_category");
     }
 
     /**
@@ -207,7 +230,7 @@ class SchemaMigrationIT
         // GIVEN
         List<String> tablesWithGeneratedIds = List.of("chapter", "series", "artist", "character", "group_artists",
                 "parody", "tag", "category", "metadata_rule", "download_queue", "image_compression_mode",
-                "subscription", "subscription_checkpoint");
+                "subscription", "subscription_checkpoint", "image_compression_rule");
 
         // WHEN
         List<String> autoincrementTables = objectNames("type = 'table' AND sql LIKE '%primary key autoincrement%'");
@@ -250,6 +273,8 @@ class SchemaMigrationIT
             expected.put("chapter_" + meta[0], List.of("chapter_id -> chapter(id) CASCADE", reference));
             expected.put("series_" + meta[0], List.of("series_id -> series(id) CASCADE", reference));
             expected.put("series_effective_" + meta[0], List.of("series_id -> series(id) CASCADE", reference));
+            expected.put("image_compression_rule_" + meta[0],
+                    List.of("rule_id -> image_compression_rule(id) CASCADE", reference));
         }
         expected.put("series_effective_languages", List.of("series_id -> series(id) CASCADE"));
 
@@ -264,8 +289,9 @@ class SchemaMigrationIT
         // GIVEN
         List<String> tables = objectNames("type = 'table' AND sql LIKE '%references%'");
 
-        // WHEN + THEN the 19 join tables, the queue's subscription and a subscription's checkpoints
-        assertThat(tables).hasSize(21);
+        // WHEN + THEN the 19 join tables, the 6 of the image compression rules, the queue's subscription and a
+        // subscription's checkpoints
+        assertThat(tables).hasSize(27);
         for (String table : tables)
         {
             List<String> leadingColumns = jdbc.queryForList(

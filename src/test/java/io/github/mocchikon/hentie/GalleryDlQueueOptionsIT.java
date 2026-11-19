@@ -32,7 +32,7 @@ class GalleryDlQueueOptionsIT
 
     private static DownloadChoices choices(String browser, boolean originals, String delay)
     {
-        return new DownloadChoices(NONE, false, new GalleryDlOptions(browser, originals, delay));
+        return new DownloadChoices(NONE, false, false, new GalleryDlOptions(browser, originals, delay));
     }
 
     @Test

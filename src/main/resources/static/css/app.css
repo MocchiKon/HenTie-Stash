@@ -760,6 +760,22 @@ a.queue-link:hover { color: var(--accent); }
 .rule-actions { margin: 0 0 0 auto; }
 .rule-actions .inline-form { margin: 0; }
 
+/* ===== Image compression rules ===== */
+/* A kind and a name side by side; the name takes what is left and the row wraps on a phone. */
+.metadata-value-row { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+/* width: auto, or the base rules' width: 100% would put each control on a line of its own. */
+.metadata-value-row select { flex: 0 0 auto; width: auto; max-width: min(100%, 12rem); }
+.metadata-value-row input.metadata-value-input { flex: 1 1 12rem; width: auto; min-width: 0; max-width: 24rem; }
+.rule-conditions { display: flex; flex-direction: column; gap: .5rem; margin-bottom: .5rem; }
+.rule-filter { margin-bottom: 1rem; }
+.compression-rule-list { list-style: none; margin: .75rem 0 0; padding: 0; display: flex; flex-direction: column; gap: .5rem; }
+.compression-rule {
+    min-width: 0; padding: .6rem .8rem;
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius);
+}
+.compression-rule .hint, .rule-conditions-text { margin: .35rem 0; }
+.compression-rule .btn-row { margin-top: .35rem; }
+
 /* ===== Subscriptions ===== */
 .subscription-list { list-style: none; margin: .75rem 0 0; padding: 0; display: flex; flex-direction: column; gap: .75rem; }
 .subscription-item {

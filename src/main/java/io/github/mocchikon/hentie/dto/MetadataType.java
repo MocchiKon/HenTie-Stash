@@ -6,12 +6,12 @@ import io.github.mocchikon.hentie.entity.Character;
 /** Carries each kind's JPA/SQL names so the service layer can treat all six the same way. */
 public enum MetadataType
 {
-    TAG("Tags", "tag", Tag.class, "name", "chapter_tags", "series_tags", "series_effective_tags", "tag_id", "tagIds"),
-    ARTIST("Artists", "artist", Artist.class, "name", "chapter_artists", "series_artists", "series_effective_artists", "artist_id", "artistIds"),
-    CHARACTER("Characters", "character", Character.class, "name", "chapter_characters", "series_characters", "series_effective_characters", "character_id", "characterIds"),
-    PARODY("Parodies", "parody", Parody.class, "title", "chapter_parodies", "series_parodies", "series_effective_parodies", "parody_id", "parodyIds"),
-    GROUP("Groups", "group", Group.class, "name", "chapter_groups", "series_groups", "series_effective_groups", "group_id", "groupIds"),
-    CATEGORY("Categories", "category", Category.class, "name", "chapter_categories", "series_categories", "series_effective_categories", "category_id", "categoryIds");
+    TAG("Tags", "tag", Tag.class, "name", "chapter_tags", "series_tags", "series_effective_tags", "image_compression_rule_tags", "tag_id", "tagIds"),
+    ARTIST("Artists", "artist", Artist.class, "name", "chapter_artists", "series_artists", "series_effective_artists", "image_compression_rule_artists", "artist_id", "artistIds"),
+    CHARACTER("Characters", "character", Character.class, "name", "chapter_characters", "series_characters", "series_effective_characters", "image_compression_rule_characters", "character_id", "characterIds"),
+    PARODY("Parodies", "parody", Parody.class, "title", "chapter_parodies", "series_parodies", "series_effective_parodies", "image_compression_rule_parodies", "parody_id", "parodyIds"),
+    GROUP("Groups", "group", Group.class, "name", "chapter_groups", "series_groups", "series_effective_groups", "image_compression_rule_groups", "group_id", "groupIds"),
+    CATEGORY("Categories", "category", Category.class, "name", "chapter_categories", "series_categories", "series_effective_categories", "image_compression_rule_categories", "category_id", "categoryIds");
 
     private final String displayName;
     private final String key;
@@ -20,12 +20,13 @@ public enum MetadataType
     private final String chapterJoinTable;
     private final String seriesJoinTable;
     private final String seriesEffectiveJoinTable;
+    private final String compressionRuleJoinTable;
     private final String fkColumn;
     private final String searchParam;
 
     MetadataType(String displayName, String key, Class<?> entityClass, String nameProperty,
                  String chapterJoinTable, String seriesJoinTable, String seriesEffectiveJoinTable,
-                 String fkColumn, String searchParam)
+                 String compressionRuleJoinTable, String fkColumn, String searchParam)
     {
         this.displayName = displayName;
         this.key = key;
@@ -34,6 +35,7 @@ public enum MetadataType
         this.chapterJoinTable = chapterJoinTable;
         this.seriesJoinTable = seriesJoinTable;
         this.seriesEffectiveJoinTable = seriesEffectiveJoinTable;
+        this.compressionRuleJoinTable = compressionRuleJoinTable;
         this.fkColumn = fkColumn;
         this.searchParam = searchParam;
     }
@@ -59,6 +61,11 @@ public enum MetadataType
     public String getSeriesJoinTable() { return seriesJoinTable; }
     /** Merge must move these links too: left behind, the cascade deletes them with the source and series search goes stale. */
     public String getSeriesEffectiveJoinTable() { return seriesEffectiveJoinTable; }
+    /**
+     * Image compression rules' conditions on this kind. A merge moves them like links; a removal leaves the cascade
+     * to delete them, which keeps the rule from ever matching again (see {@code ImageCompressionRule}).
+     */
+    public String getCompressionRuleJoinTable() { return compressionRuleJoinTable; }
     public String getFkColumn() { return fkColumn; }
     public String getSearchParam() { return searchParam; }
 }

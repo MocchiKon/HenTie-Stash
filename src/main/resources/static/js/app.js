@@ -1066,6 +1066,83 @@
         });
     }
 
+    // --- Image compression rules: a name box suggests names of the kind chosen beside it ---
+    //     A datalist, not a token field: a rule may name a value the library does not have yet, so typed text
+    //     counts as it is, and suggestions only spare the typing.
+    function wireMetadataValue(row) {
+        var select = row.querySelector(".metadata-type-select");
+        var input = row.querySelector(".metadata-value-input");
+        var list = row.querySelector("datalist");
+        if (!select || !input || !list) { return; }
+        var timer;
+        var suggest = function () {
+            clearTimeout(timer);
+            timer = setTimeout(function () {
+                fetch("/api/autocomplete/" + encodeURIComponent(select.value) + "?q="
+                        + encodeURIComponent(input.value.trim()))
+                    .then(function (r) { return r.ok ? r.json() : []; })
+                    .then(function (options) {
+                        list.innerHTML = "";
+                        options.forEach(function (o) {
+                            var option = document.createElement("option");
+                            option.value = o.label;
+                            list.appendChild(option);
+                        });
+                    })
+                    .catch(function () { list.innerHTML = ""; });
+            }, 180);
+        };
+        input.addEventListener("input", suggest);
+        input.addEventListener("focus", suggest);
+        select.addEventListener("change", function () { list.innerHTML = ""; });
+    }
+
+    document.querySelectorAll(".metadata-value-row").forEach(wireMetadataValue);
+
+    // --- Image compression rule form: condition rows ---
+    //     Rows post as two lists in step (conditionTypes, conditionValues), so adding or removing one renumbers
+    //     nothing. A copy of the empty last row is the template, taken before anyone types into it.
+    document.querySelectorAll("[data-rule-conditions]").forEach(function (container) {
+        var form = container.closest("form");
+        var template = container.querySelector("[data-condition-template]");
+        var addButton = form && form.querySelector("[data-add-condition]");
+        var blank = template ? template.cloneNode(true) : null;
+        var added = 0;
+        var wireRemove = function (row) {
+            var remove = row.querySelector("[data-remove-condition]");
+            if (remove) {
+                remove.addEventListener("click", function () { row.parentNode.removeChild(row); });
+            }
+        };
+        container.querySelectorAll(".rule-condition").forEach(wireRemove);
+        if (blank && addButton) {
+            blank.removeAttribute("data-condition-template");
+            addButton.hidden = false;
+            addButton.addEventListener("click", function () {
+                var row = blank.cloneNode(true);
+                var list = row.querySelector("datalist");
+                var input = row.querySelector(".metadata-value-input");
+                added++;
+                list.id = "condition-values-added-" + added;
+                input.setAttribute("list", list.id);
+                container.appendChild(row);
+                wireRemove(row);
+                wireMetadataValue(row);
+                input.focus();
+            });
+        }
+        if (form) {
+            form.addEventListener("submit", function (e) {
+                if (e.defaultPrevented) { return; }
+                var named = Array.prototype.some.call(form.querySelectorAll(".metadata-value-input"),
+                    function (input) { return input.value.trim() !== ""; });
+                if (!named && !window.confirm(form.getAttribute("data-confirm-every-gallery"))) {
+                    e.preventDefault();
+                }
+            });
+        }
+    });
+
     // --- Does this browser display JPEG XL? ---
     //     The answer goes in a cookie that tells the server whether to decode .jxl pages to PNG. Probed on
     //     every load, since a browser update can change support and the probe costs nothing.

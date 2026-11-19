@@ -1,6 +1,5 @@
 package io.github.mocchikon.hentie.entity;
 
-import io.github.mocchikon.hentie.dto.BuiltInCompressionMode;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
@@ -58,11 +57,6 @@ public class Subscription
 
     @Column(name = "recheck_depth_hours", nullable = false)
     private int recheckDepthHours;
-
-    /** A mode key; read when a gallery is queued, so an edit applies to what is queued from then on. */
-    @Column(name = "compression_mode", nullable = false, length = 64,
-            columnDefinition = "varchar(64) not null default 'NONE'")
-    private String compressionMode = BuiltInCompressionMode.NONE.getKey();
 
     @Column(name = "avoid_duplicate_titles", nullable = false, columnDefinition = "boolean not null default 0")
     private boolean avoidDuplicateTitles;
@@ -153,6 +147,13 @@ public class Subscription
     @Column(name = "blacklisted_count", nullable = false, columnDefinition = "integer not null default 0")
     private int blacklistedCount;
 
+    /**
+     * Galleries in the library queued again, because an image compression rule gives them a better mode than their
+     * pages have. Counted whenever one is queued, not only the first time it is listed: it is a download.
+     */
+    @Column(name = "upgrade_count", nullable = false, columnDefinition = "integer not null default 0")
+    private int upgradeCount;
+
     // ---- the last failure -----------------------------------------------------------------------------------
 
     /** Null after a step that worked. */
@@ -168,6 +169,6 @@ public class Subscription
 
     public int listedCount()
     {
-        return queuedCount + inLibraryCount + deletedSinceCount + alreadyQueuedCount + blacklistedCount;
+        return queuedCount + upgradeCount + inLibraryCount + deletedSinceCount + alreadyQueuedCount + blacklistedCount;
     }
 }

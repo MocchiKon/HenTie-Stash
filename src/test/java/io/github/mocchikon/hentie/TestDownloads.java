@@ -16,7 +16,7 @@ public final class TestDownloads
 
     public static DownloadChoices choices(String compressionMode, boolean avoidDuplicateTitles)
     {
-        return new DownloadChoices(compressionMode, avoidDuplicateTitles, PLAIN_GALLERY_DL);
+        return new DownloadChoices(compressionMode, false, avoidDuplicateTitles, PLAIN_GALLERY_DL);
     }
 
     /** A queue row built by hand, with the gallery-dl choices every queued row carries ({@link #PLAIN_GALLERY_DL}). */

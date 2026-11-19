@@ -5,7 +5,6 @@ import io.github.mocchikon.hentie.scrapper.DataDownloaderRegistry;
 import io.github.mocchikon.hentie.scrapper.SearchSource;
 import io.github.mocchikon.hentie.scrapper.gallerydl.GalleryDlOptions;
 import io.github.mocchikon.hentie.service.SettingsService;
-import io.github.mocchikon.hentie.service.compress.ImageCompressionModeService;
 import io.github.mocchikon.hentie.service.subscription.SubscriptionRunner;
 import io.github.mocchikon.hentie.service.subscription.SubscriptionService;
 import jakarta.validation.Valid;
@@ -37,7 +36,6 @@ public class SubscriptionController
     private final SubscriptionService subscriptionService;
     private final SubscriptionRunner runner;
     private final DataDownloaderRegistry registry;
-    private final ImageCompressionModeService compressionModeService;
     private final SettingsService settingsService;
 
     @GetMapping
@@ -165,7 +163,6 @@ public class SubscriptionController
         model.addAttribute("sites", registry.searchSites());
         // Space-separated, as the form's show-and-hide reads it.
         model.addAttribute("galleryDlSites", String.join(" ", subscriptionService.galleryDlSites()));
-        model.addAttribute("compressionModes", compressionModeService.options());
         model.addAttribute("browserGroups", GalleryDlOptions.BROWSER_GROUPS);
         model.addAttribute("minPollMinutes", SubscriptionForm.MIN_POLL_MINUTES);
         var notReady = new LinkedHashMap<String, String>();

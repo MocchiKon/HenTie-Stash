@@ -102,6 +102,20 @@
             </p>
         </div>
 
+        <div class="field">
+            <label for="quality">Quality<span class="req" aria-hidden="true">*</span></label>
+            <input type="number" id="quality" th:field="*{quality}" class="short-input" required min="0" step="1">
+            <p class="field-error" th:if="${#fields.hasErrors('quality')}" th:errors="*{quality}">error</p>
+            <p class="hint">
+                How good this mode's images look: 0 is the best.
+                <a th:href="@{/compression-rules}">Image compression rules</a> use it to choose between modes. For
+                comparison: None <span th:text="${noneQuality}">0</span>, Lossless
+                <span th:text="${losslessQuality}">0</span>, High reduction
+                <span th:text="${highReductionQuality}">100</span>, Very high reduction
+                <span th:text="${veryHighReductionQuality}">1000</span>.
+            </p>
+        </div>
+
         <div class="edit-actions">
             <button type="submit" class="btn btn-accent">Save mode</button>
         </div>
