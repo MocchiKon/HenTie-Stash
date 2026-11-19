@@ -24,7 +24,7 @@ import java.util.*;
  * steps of its own.
  *
  * <p><b>The pages that stay are never renamed</b>: for a downloaded chapter the names are the source's page numbers,
- * which a full-quality re-download relies on. A new part has no gallery id, so its pages are numbered from 1.
+ * which a lossless re-download relies on. A new part has no gallery id, so its pages are numbered from 1.
  */
 @Service
 @RequiredArgsConstructor
@@ -87,7 +87,7 @@ public class ChapterDivisionService
      * <ul>
      *   <li><b>An unfinished download</b>: re-queueing it fetches every page number the chapter lacks, i.e. the
      *       moved ones.</li>
-     *   <li><b>A waiting queue row</b>: a full-quality re-download picks its pages when it starts and publishes
+     *   <li><b>A waiting queue row</b>: a lossless re-download picks its pages when it starts and publishes
      *       minutes later, so it would put the moved pages back.</li>
      *   <li><b>An unknown language</b>: the new chapters need one, and get this chapter's.</li>
      * </ul>

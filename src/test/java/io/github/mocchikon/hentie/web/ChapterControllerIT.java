@@ -368,11 +368,11 @@ class ChapterControllerIT
         assertThat(finishedHtml).doesNotContain("Incomplete download");
     }
 
-    // --- Compressed chapters: the label and the full-quality re-download ---------------
+    // --- Compressed chapters: the label and the lossless re-download ---------------
 
     /** Asserted on the markup, since a model flag would not catch a template that never shows them. */
     @Test
-    void shouldLabelACompressedChapterAndOfferToDownloadItAgainInFullQuality() throws Exception
+    void shouldLabelACompressedChapterAndOfferToDownloadItAgainLosslessly() throws Exception
     {
         // GIVEN a compressed chapter from the mock source, and an uncompressed one.
         int compressed = newChapter("chw-fq-compressed", "mock:chw-fq-compressed");
@@ -383,22 +383,22 @@ class ChapterControllerIT
         String compressedHtml = mvc.perform(get("/chapter/" + compressed).with(user("user")))
                 .andExpect(status().isOk())
                 .andExpect(model().attribute("compressedWith", "High reduction"))
-                .andExpect(model().attribute("canRedownloadFullQuality", true))
+                .andExpect(model().attribute("canRedownloadLossless", true))
                 .andReturn().getResponse().getContentAsString();
         String plainHtml = mvc.perform(get("/chapter/" + plain).with(user("user")))
                 .andExpect(status().isOk())
                 .andExpect(model().attribute("compressedWith", (Object) null))
-                .andExpect(model().attribute("canRedownloadFullQuality", false))
+                .andExpect(model().attribute("canRedownloadLossless", false))
                 .andReturn().getResponse().getContentAsString();
 
         // THEN only the compressed one carries both.
         assertThat(compressedHtml).contains("Compressed: High reduction")
-                .contains("Re-download in full quality")
+                .contains("Re-download in lossless quality")
                 .contains("action=\"/chapter/" + compressed + "/redownload\"");
-        assertThat(plainHtml).doesNotContain("Compressed:").doesNotContain("Re-download in full quality");
+        assertThat(plainHtml).doesNotContain("Compressed:").doesNotContain("Re-download in lossless quality");
     }
 
-    /** Lossless already holds the source's pixels, so there is nothing a full-quality re-download could restore. */
+    /** Lossless already holds the source's pixels, so a lossless re-download would gain nothing. */
     @Test
     void shouldLabelButNotOfferARedownloadForALosslessChapter() throws Exception
     {
@@ -410,11 +410,11 @@ class ChapterControllerIT
         String html = mvc.perform(get("/chapter/" + id).with(user("user")))
                 .andExpect(status().isOk())
                 .andExpect(model().attribute("compressedWith", "Lossless"))
-                .andExpect(model().attribute("canRedownloadFullQuality", false))
+                .andExpect(model().attribute("canRedownloadLossless", false))
                 .andReturn().getResponse().getContentAsString();
 
         // THEN
-        assertThat(html).contains("Compressed: Lossless").doesNotContain("Re-download in full quality");
+        assertThat(html).contains("Compressed: Lossless").doesNotContain("Re-download in lossless quality");
     }
 
     @Test
@@ -449,7 +449,7 @@ class ChapterControllerIT
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
 
         // THEN
-        assertThat(html).contains("Compressed: High reduction").doesNotContain("Re-download in full quality");
+        assertThat(html).contains("Compressed: High reduction").doesNotContain("Re-download in lossless quality");
     }
 
     /** Must not read "None", which would claim the pages are full quality. */
@@ -481,16 +481,16 @@ class ChapterControllerIT
                     .andExpect(redirectedUrl("/chapter/queue"))
                     .andExpect(flash().attribute("redownloadQueued", id));
 
-            // THEN the gallery's row asks for its pages again, uncompressed...
+            // THEN the gallery's row asks for its pages again, losslessly...
             DownloadQueueItem item = downloadQueueRepository.findByLink("mock:chw-fq-queue").orElseThrow();
             assertThat(item.isReplacePages()).isTrue();
-            assertThat(item.getCompressionMode()).isEqualTo(BuiltInCompressionMode.NONE.getKey());
+            assertThat(item.getCompressionMode()).isEqualTo(BuiltInCompressionMode.LOSSLESS.getKey());
             assertThat(item.getGalleryId()).isEqualTo("mock:chw-fq-queue");
             // ...and the queue page says what it is.
             mvc.perform(get("/chapter/queue").with(user("user")).flashAttr("redownloadQueued", id))
                     .andExpect(status().isOk())
-                    .andExpect(content().string(containsString("Queued a full-quality re-download")))
-                    .andExpect(content().string(containsString("re-downloading in full quality")));
+                    .andExpect(content().string(containsString("Queued a lossless re-download")))
+                    .andExpect(content().string(containsString("re-downloading in lossless quality")));
         }
         finally
         {

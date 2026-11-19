@@ -31,9 +31,9 @@
     <div th:if="${favourites != null}" class="alert" th:classappend="${favourites.isStopped()} ? 'error' : 'ok'"
          th:text="${favourites.summary()}">Listed 3 nhentai favourite(s): queued 3.</div>
     <div th:if="${redownloadQueued != null}" class="alert ok">
-        Queued a full-quality re-download of <a th:href="@{/chapter/{id}(id=${redownloadQueued})}"
-            th:text="'chapter ' + ${redownloadQueued}">chapter 1</a>. Its compressed pages are replaced once the
-        originals have arrived.
+        Queued a lossless re-download of <a th:href="@{/chapter/{id}(id=${redownloadQueued})}"
+            th:text="'chapter ' + ${redownloadQueued}">chapter 1</a>. Its current pages are replaced once the
+        new ones have arrived.
     </div>
     <div th:if="${retriedCount != null}" class="alert ok">
         <span th:text="${retriedCount}">0</span> failed item(s) put back in the queue<span
@@ -135,7 +135,8 @@
                       th:text="'waiting until ' + ${deferredUntil.get(item.id)} + ', when its site is asked again'">waiting until 15:00</span>
                 <span class="hint" th:if="${item.attempts > 0}"
                       th:text="${item.attempts} + ' failed attempt(s) so far'">1 failed attempt(s) so far</span>
-                <span class="hint" th:if="${item.replacePages}">re-downloading in full quality</span>
+                <span class="hint" th:if="${item.replacePages}"
+                      th:text="${#strings.equals(item.compressionMode, 'NONE')} ? 're-downloading in full quality' : (${#strings.equals(item.compressionMode, 'LOSSLESS')} ? 're-downloading in lossless quality' : 're-downloading')">re-downloading in lossless quality</span>
                 <span class="hint" th:if="${item.compressionMode == 'RULES'}">image compression by rules</span>
                 <span class="hint" th:if="${item.allowUpgrade}">may upgrade quality</span>
                 <span class="hint" th:if="${item.ignoreImageErrors}">ignoring image errors</span>
@@ -193,7 +194,8 @@
                       th:text="${subscriptionTitles.containsKey(item.subscriptionId)} ? 'from subscription ' + ${subscriptionTitles.get(item.subscriptionId)} : 'from a deleted subscription'">from subscription</span>
                 <a class="hint" th:if="${item.chapterId != null}" th:href="@{'/chapter/' + ${item.chapterId}}"
                    th:text="'chapter ' + ${item.chapterId}">chapter 1</a>
-                <span class="hint" th:if="${item.replacePages}">re-downloading in full quality</span>
+                <span class="hint" th:if="${item.replacePages}"
+                      th:text="${#strings.equals(item.compressionMode, 'NONE')} ? 're-downloading in full quality' : (${#strings.equals(item.compressionMode, 'LOSSLESS')} ? 're-downloading in lossless quality' : 're-downloading')">re-downloading in lossless quality</span>
                 <span class="hint" th:if="${item.compressionMode == 'RULES'}">image compression by rules</span>
                 <span class="hint" th:if="${item.allowUpgrade}">may upgrade quality</span>
                 <span class="hint" th:if="${item.avoidDuplicateTitles}">avoiding duplicated titles</span>

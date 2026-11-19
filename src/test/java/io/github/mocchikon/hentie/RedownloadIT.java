@@ -12,11 +12,13 @@ import io.github.mocchikon.hentie.service.DownloadService;
 import io.github.mocchikon.hentie.service.ImageDirectory;
 import io.github.mocchikon.hentie.service.ImageService;
 import io.github.mocchikon.hentie.service.compress.ImageCompressionService;
+import io.github.mocchikon.hentie.service.compress.ImageToolLocator;
 import io.github.mocchikon.hentie.service.download.DownloadQueueService;
 import io.github.mocchikon.hentie.service.download.DownloadWorker;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -37,13 +39,14 @@ import java.util.stream.Stream;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * "Re-download in full quality": the one download path that overwrites pages, so most of this pins what it
- * must still leave alone. Compression is simulated by swapping each {@code n.png} for an {@code n.jxl}, so no
- * encoder is needed.
+ * A re-download the user asks for ("Re-download in lossless quality"): the one download path that overwrites pages
+ * by hand, so most of this pins what it must still leave alone. Most tests re-download in None, and compression is
+ * simulated by swapping each {@code n.png} for an {@code n.jxl}, so no encoder is needed; the replacement is the same
+ * in any mode.
  */
 @SpringBootTest
 @Transactional
-class FullQualityRedownloadIT
+class RedownloadIT
 {
     /** Matches {@code app.download.mock-dir} in the test profile. */
     private static final Path MOCK_DIR = Paths.get("./target/test-mock-server");
@@ -52,7 +55,9 @@ class FullQualityRedownloadIT
 
     private static final String LOSSLESS = BuiltInCompressionMode.LOSSLESS.getKey();
 
-    /** A lossy mode: only those chapters are offered a full-quality re-download. */
+    private static final String NONE = BuiltInCompressionMode.NONE.getKey();
+
+    /** A lossy mode: only those chapters are offered a lossless re-download. */
     private static final String COMPRESSED_MODE = BuiltInCompressionMode.HIGH_REDUCTION.getKey();
 
     @Autowired DownloadQueueService queueService;
@@ -64,6 +69,7 @@ class FullQualityRedownloadIT
     @Autowired ImageService imageService;
     @Autowired ImageDirectory imageDirectory;
     @Autowired ImageCompressionService compressionService;
+    @Autowired ImageToolLocator toolLocator;
     @PersistenceContext EntityManager em;
 
     private Integer createdChapterId;
@@ -95,7 +101,7 @@ class FullQualityRedownloadIT
         assertThat(pageFiles(chapterId)).containsExactly("1.jxl", "2.jxl");
 
         // WHEN a full-quality re-download is queued, and the worker runs it.
-        assertThat(downloadService.queueFullQuality(chapterService.get(chapterId))).isTrue();
+        assertThat(downloadService.queueRedownload(chapterService.get(chapterId), NONE)).isTrue();
         assertThat(worker.processNext()).isTrue();
 
         // THEN the pages are the source's own again, and the compressed ones are gone...
@@ -114,6 +120,32 @@ class FullQualityRedownloadIT
         assertThat(queueRepository.findByLink("mock:8400")).isEmpty();
     }
 
+    /** The chapter page's button: the source's pixels, stored losslessly. */
+    @Test
+    void shouldReplaceTheCompressedPagesWithLosslessOnes() throws IOException
+    {
+        assumeTool("cjxl");
+        // GIVEN a downloaded chapter whose two pages were compressed afterwards.
+        int chapterId = downloadedAndCompressed("8415", 2);
+
+        // WHEN a lossless re-download is queued, and the worker runs it.
+        assertThat(downloadService.queueLosslessRedownload(chapterService.get(chapterId))).isTrue();
+        assertThat(worker.processNext()).isTrue();
+
+        // THEN the pages were re-encoded from the source's, not left as they were...
+        Path dir = imageDirectory.chapterDir(chapterId);
+        assertThat(pageFiles(chapterId)).containsExactly("1.jxl", "2.jxl");
+        assertThat(Files.readAllBytes(dir.resolve("1.jxl"))).isNotEqualTo(COMPRESSED);
+        assertThat(Files.readAllBytes(dir.resolve("2.jxl"))).isNotEqualTo(COMPRESSED);
+        // ...and the chapter says Lossless, so it is not offered again.
+        em.flush();
+        em.clear();
+        Chapter chapter = chapterRepository.findById(chapterId).orElseThrow();
+        assertThat(chapter.getCompressionMode()).isEqualTo(LOSSLESS);
+        assertThat(downloadService.losslessRedownloadLink(chapter)).isEmpty();
+        assertThat(queueRepository.findByLink("mock:8415")).isEmpty();
+    }
+
     /** A finished download's pages are the user's, so a page they deleted stays deleted. */
     @Test
     void shouldReplaceOnlyThePagesTheChapterHas() throws IOException
@@ -123,7 +155,7 @@ class FullQualityRedownloadIT
         chapterService.deletePage(chapterId, "2.jxl");
 
         // WHEN
-        downloadService.queueFullQuality(chapterService.get(chapterId));
+        downloadService.queueRedownload(chapterService.get(chapterId), NONE);
         assertThat(worker.processNext()).isTrue();
 
         // THEN pages 1 and 3 are originals again, and page 2 did not come back.
@@ -146,7 +178,7 @@ class FullQualityRedownloadIT
         imageService.invalidateListing(chapterId);
 
         // WHEN
-        downloadService.queueFullQuality(chapterService.get(chapterId));
+        downloadService.queueRedownload(chapterService.get(chapterId), NONE);
         assertThat(worker.processNext()).isTrue();
 
         // THEN the canonically named pages were replaced and 02.jxl is exactly as it was.
@@ -165,7 +197,7 @@ class FullQualityRedownloadIT
         imageService.invalidateListing(chapterId);
 
         // WHEN
-        downloadService.queueFullQuality(chapterService.get(chapterId));
+        downloadService.queueRedownload(chapterService.get(chapterId), NONE);
         assertThat(worker.processNext()).isTrue();
 
         // THEN the canonical pages are originals, 02.jxl is untouched, and the chapter still says it is compressed.
@@ -187,7 +219,7 @@ class FullQualityRedownloadIT
         imageService.invalidateListing(chapterId);
 
         // WHEN
-        downloadService.queueFullQuality(chapterService.get(chapterId));
+        downloadService.queueRedownload(chapterService.get(chapterId), NONE);
         assertThat(worker.processNext()).isTrue();
 
         // THEN 02.jpg is untouched, and the chapter no longer says it is compressed.
@@ -204,7 +236,7 @@ class FullQualityRedownloadIT
     {
         // GIVEN a compressed chapter, and a run holding the lock on another thread.
         int chapterId = downloadedAndCompressed("8411", 2);
-        downloadService.queueFullQuality(chapterService.get(chapterId));
+        downloadService.queueRedownload(chapterService.get(chapterId), NONE);
         var held = new CountDownLatch(1);
         var release = new CountDownLatch(1);
         Thread run = new Thread(() -> compressionService.exclusively(() ->
@@ -255,7 +287,7 @@ class FullQualityRedownloadIT
         Files.delete(MOCK_DIR.resolve("galleries/8403/2.png"));
 
         // WHEN the re-download runs out of attempts.
-        downloadService.queueFullQuality(chapterService.get(chapterId));
+        downloadService.queueRedownload(chapterService.get(chapterId), NONE);
         int attempts = 0;
         while (worker.processNext())
         {
@@ -281,7 +313,7 @@ class FullQualityRedownloadIT
         // GIVEN a failed re-download of a chapter whose source lost page 2.
         int chapterId = downloadedAndCompressed("8404", 2);
         Files.delete(MOCK_DIR.resolve("galleries/8404/2.png"));
-        downloadService.queueFullQuality(chapterService.get(chapterId));
+        downloadService.queueRedownload(chapterService.get(chapterId), NONE);
         while (worker.processNext())
         {
             // run out of attempts
@@ -306,7 +338,7 @@ class FullQualityRedownloadIT
     {
         // GIVEN a re-download queued for a gallery no chapter holds.
         writeGallery("8405", 1);
-        queueService.enqueueFullQuality("mock:8405", "mock:8405", TestDownloads.PLAIN_GALLERY_DL);
+        queueService.enqueueRedownload("mock:8405", "mock:8405", NONE, TestDownloads.PLAIN_GALLERY_DL);
 
         // WHEN
         assertThat(worker.processNext()).isTrue();
@@ -331,7 +363,7 @@ class FullQualityRedownloadIT
         queueService.recordFailure(row, "boom again", null, true, false, null, 3);
 
         // WHEN a full-quality re-download is queued for it.
-        queueService.enqueueFullQuality("mock:8406", "mock:8406", TestDownloads.PLAIN_GALLERY_DL);
+        queueService.enqueueRedownload("mock:8406", "mock:8406", NONE, TestDownloads.PLAIN_GALLERY_DL);
 
         // THEN it is that same row, pending again, with every choice reset.
         assertThat(queueRepository.findAll()).filteredOn(item -> "mock:8406".equals(item.getGalleryId())).hasSize(1);
@@ -341,7 +373,7 @@ class FullQualityRedownloadIT
         assertThat(item.getError()).isNull();
         assertThat(item.getAttempts()).isZero();
         assertThat(item.isReplacePages()).isTrue();
-        assertThat(item.getCompressionMode()).isEqualTo(BuiltInCompressionMode.NONE.getKey());
+        assertThat(item.getCompressionMode()).isEqualTo(NONE);
         assertThat(item.isIgnoreImageErrors()).isFalse();
         assertThat(item.isAvoidDuplicateTitles()).isFalse();
     }
@@ -351,11 +383,11 @@ class FullQualityRedownloadIT
     void shouldKeepARowTurnedIntoARedownloadWhileItsAttemptWasRunning()
     {
         // GIVEN the row an ordinary attempt was started from, and a re-download queued meanwhile.
-        queueService.enqueue(List.of("mock:8410"), TestDownloads.choices(BuiltInCompressionMode.NONE.getKey(), false));
+        queueService.enqueue(List.of("mock:8410"), TestDownloads.choices(NONE, false));
         em.flush();
         DownloadQueueItem attempted = queueRepository.findByLink("mock:8410").orElseThrow();
         em.detach(attempted);
-        queueService.enqueueFullQuality("mock:8410", "mock:8410", TestDownloads.PLAIN_GALLERY_DL);
+        queueService.enqueueRedownload("mock:8410", "mock:8410", NONE, TestDownloads.PLAIN_GALLERY_DL);
 
         // WHEN + THEN - the attempt failing records nothing on the row...
         assertThat(queueService.recordFailure(attempted, "boom", null, true, false, null, 3))
@@ -375,7 +407,7 @@ class FullQualityRedownloadIT
     void shouldKeepARowWhoseChoicesAPasteChangedWhileItsAttemptWasRunning()
     {
         // GIVEN the row an uncompressed attempt was started from, re-pasted meanwhile with a compressing mode.
-        queueService.enqueue(List.of("mock:8413"), TestDownloads.choices(BuiltInCompressionMode.NONE.getKey(), false));
+        queueService.enqueue(List.of("mock:8413"), TestDownloads.choices(NONE, false));
         em.flush();
         DownloadQueueItem attempted = queueRepository.findByLink("mock:8413").orElseThrow();
         em.detach(attempted);
@@ -404,10 +436,10 @@ class FullQualityRedownloadIT
     void shouldTurnAWaitingRedownloadBackIntoAnOrdinaryDownloadWhenTheLinkIsPasted()
     {
         // GIVEN
-        queueService.enqueueFullQuality("mock:8407", "mock:8407", TestDownloads.PLAIN_GALLERY_DL);
+        queueService.enqueueRedownload("mock:8407", "mock:8407", NONE, TestDownloads.PLAIN_GALLERY_DL);
 
         // WHEN
-        var result = queueService.enqueue(List.of("mock:8407"), TestDownloads.choices(BuiltInCompressionMode.NONE.getKey(), false));
+        var result = queueService.enqueue(List.of("mock:8407"), TestDownloads.choices(NONE, false));
 
         // THEN
         assertThat(result.alreadyQueued()).isEqualTo(1);
@@ -430,18 +462,48 @@ class FullQualityRedownloadIT
         int fromElsewhere = newChapter("Imported from a source with no downloader", "elsewhere:8408");
 
         // WHEN + THEN - never compressed: nothing to offer, whatever the source.
-        assertThat(downloadService.fullQualityLink(chapterService.get(fromSource))).isEmpty();
+        assertThat(downloadService.losslessRedownloadLink(chapterService.get(fromSource))).isEmpty();
 
         // WHEN + THEN - compressed: offered for the mock source only.
         chapterService.setCompressionMode(fromSource, COMPRESSED_MODE);
         chapterService.setCompressionMode(byHand, COMPRESSED_MODE);
         chapterService.setCompressionMode(fromElsewhere, COMPRESSED_MODE);
-        assertThat(downloadService.fullQualityLink(chapterService.get(fromSource))).contains("mock:8408");
-        assertThat(downloadService.fullQualityLink(chapterService.get(byHand))).isEmpty();
-        assertThat(downloadService.fullQualityLink(chapterService.get(fromElsewhere))).isEmpty();
+        assertThat(downloadService.losslessRedownloadLink(chapterService.get(fromSource))).contains("mock:8408");
+        assertThat(downloadService.losslessRedownloadLink(chapterService.get(byHand))).isEmpty();
+        assertThat(downloadService.losslessRedownloadLink(chapterService.get(fromElsewhere))).isEmpty();
         // ...and queueing one it is not offered for queues nothing.
-        assertThat(downloadService.queueFullQuality(chapterService.get(byHand))).isFalse();
+        assertThat(downloadService.queueLosslessRedownload(chapterService.get(byHand))).isFalse();
         assertThat(queueRepository.findAll()).noneMatch(DownloadQueueItem::isReplacePages);
+    }
+
+    @Test
+    void shouldQueueALosslessStrictReplacement()
+    {
+        // GIVEN a compressed chapter from the mock source.
+        int id = newChapter("Compressed lossily", "mock:8416");
+        chapterService.setCompressionMode(id, COMPRESSED_MODE);
+
+        // WHEN
+        assertThat(downloadService.queueLosslessRedownload(chapterService.get(id))).isTrue();
+
+        // THEN
+        DownloadQueueItem item = queueRepository.findByLink("mock:8416").orElseThrow();
+        assertThat(item.isReplacePages()).isTrue();
+        assertThat(item.getCompressionMode()).isEqualTo(LOSSLESS);
+        assertThat(item.isAllowUpgrade()).isFalse();
+        assertThat(item.isIgnoreImageErrors()).isFalse();
+    }
+
+    /** A deleted mode counts as the worst, as for an upgrade. */
+    @Test
+    void shouldOfferALosslessRedownloadForAChapterWhoseModeWasDeleted()
+    {
+        // GIVEN
+        int id = newChapter("Compressed with a deleted mode", "mock:8417");
+        chapterService.setCompressionMode(id, "custom:987654");
+
+        // WHEN + THEN
+        assertThat(downloadService.losslessRedownloadLink(chapterService.get(id))).contains("mock:8417");
     }
 
     /** Lossless already holds the source's pixels, so a re-download would only swap equivalent pages. */
@@ -453,18 +515,24 @@ class FullQualityRedownloadIT
         chapterService.setCompressionMode(id, LOSSLESS);
 
         // WHEN + THEN
-        assertThat(downloadService.fullQualityLink(chapterService.get(id))).isEmpty();
-        assertThat(downloadService.queueFullQuality(chapterService.get(id))).isFalse();
+        assertThat(downloadService.losslessRedownloadLink(chapterService.get(id))).isEmpty();
+        assertThat(downloadService.queueLosslessRedownload(chapterService.get(id))).isFalse();
         assertThat(queueRepository.findAll()).noneMatch(DownloadQueueItem::isReplacePages);
     }
 
     // ---- helpers -------------------------------------------------------------
 
+    private void assumeTool(String tool)
+    {
+        Assumptions.assumeTrue(toolLocator.find(tool).isPresent(),
+                () -> "No bundled " + tool + " for this platform - skipping");
+    }
+
     /** Downloaded, then each page swapped for an {@code n.jxl}, with stats and recorded mode to match. */
     private int downloadedAndCompressed(String id, int pages) throws IOException
     {
         writeGallery(id, pages);
-        queueService.enqueue(List.of("mock:" + id), TestDownloads.choices(BuiltInCompressionMode.NONE.getKey(), false));
+        queueService.enqueue(List.of("mock:" + id), TestDownloads.choices(NONE, false));
         assertThat(worker.processNext()).isTrue();
         int chapterId = chapterRepository.findByGalleryId("mock:" + id).orElseThrow().getId();
         createdChapterId = chapterId;

@@ -19,7 +19,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * The gallery-dl choices on a queue row: a paste sets them and a re-paste replaces them, a retry keeps them, and a
- * re-download in full quality takes the defaults it is given.
+ * re-download in lossless quality takes the defaults it is given.
  */
 @SpringBootTest
 @Transactional
@@ -90,13 +90,14 @@ class GalleryDlQueueOptionsIT
     }
 
     @Test
-    void shouldTakeTheGivenDefaultsForAFullQualityRedownload()
+    void shouldTakeTheGivenDefaultsForALosslessRedownload()
     {
         // GIVEN a waiting row with a paste's choices
         queueService.enqueue(List.of("hitomi:7105"), choices("firefox", true, "3"));
 
         // WHEN it is turned into a re-download with Settings' defaults
-        queueService.enqueueFullQuality("hitomi:7105", "hitomi:7105", new GalleryDlOptions(null, false, "0.4-0.65"));
+        queueService.enqueueRedownload("hitomi:7105", "hitomi:7105", BuiltInCompressionMode.LOSSLESS.getKey(),
+                new GalleryDlOptions(null, false, "0.4-0.65"));
 
         // THEN
         DownloadQueueItem item = queueRepository.findByLink("hitomi:7105").orElseThrow();

@@ -456,19 +456,19 @@ the pipeline hands it (gallery-dl's run folder, see "gallery-dl").
   duplicate when `rejected_duplicate` is set.
 - **`chapter.download_status` decides what a re-run may touch** — a page count cannot tell "download cut
   short" from "user deleted a page". Only `PENDING` lets the pipeline back in, and it fetches **only
-  absent page numbers**, never overwriting a file (except the full-quality re-download, see "Image
+  absent page numbers**, never overwriting a file (except the lossless re-download, see "Image
   compression"). `SUCCESSFUL` means the pages belong to the user — including a lenient retry that is
   missing pages on purpose — so re-queueing is a clean no-op. `NONE` never came from the pipeline and its
   images are never touched. Every skip path still calls `syncImageStats`. The status is **not** on
   `ChapterForm`: an edit must never promote a half-downloaded chapter.
   - **A chapter is `PENDING` before its first page lands**, also one filled from empty (`NONE`, or
     `SUCCESSFUL` with every page deleted). Otherwise a crash or a failed attempt would leave it half-filled for
-    good. The full-quality re-download is exempt: its queue row repeats the whole replacement.
+    good. The lossless re-download is exempt: its queue row repeats the whole replacement.
 - **Nothing becomes `SUCCESSFUL` without pages.** A source listing no pages is a **transient** failure (it
   may serve metadata before images), so the item ends in the Failed list with the chapter still
   `PENDING`, where the user can see and retry it.
 - **The worker owns the staging folder of the item it runs.** Remove goes through `DownloadWorker.remove`,
-  because only the worker knows what is in flight: an encoder may be reading a page there, and a full-quality
+  because only the worker knows what is in flight: an encoder may be reading a page there, and a lossless
   re-download keeps every page there until it publishes. For the in-flight item the folder is left alone, and
   `ChapterDownloadService` checks its row still exists **before each page** fetched one at a time (a gallery-dl
   run only once it ends) **and before finishing**: a download called off keeps what landed, but never finishes
@@ -492,9 +492,9 @@ the pipeline hands it (gallery-dl's run folder, see "gallery-dl").
   as fetched never touches staging; one to compress waits there only until its encoder is done, and moves in from
   the encoder's thread (`ImagePostProcessor.Processed`). So such an attempt discards staging before and after
   itself, looking in **every** folder staging could have used (`ScratchSpace.everyRoot`).
-  - **Only the full-quality re-download stages every page until the end** (see "Image compression"). Its folder
-    is kept in `StagedRun`, because the automatic choice follows RAM disk free space, and an in-process retry
-    inherits what it staged; its first attempt in a process discards staging, which a killed run may have torn.
+  - **Only a replacement (the lossless re-download, an upgrade) stages every page until the end** (see "Image
+    compression"). Its folder is kept in `StagedRun`, because the automatic choice follows RAM disk free space, and
+    an in-process retry inherits what it staged; its first attempt in a process discards staging, which a killed run may have torn.
   - **A page appears whole or not at all**, because the next run fetches only absent page *numbers*: a torn page
     under its own name would read as complete for ever. Fetched bytes are written as `<n>.<ext>.part` (no page
     name) and renamed; a file is moved by an `ATOMIC_MOVE` on the same filesystem, otherwise copied to a `.part`
@@ -550,7 +550,7 @@ the pipeline hands it (gallery-dl's run folder, see "gallery-dl").
     with the JVM (a daemon thread) and runs again on the next start. **Once `stop()` has run, a failure is
     not recorded**: the pools and the database close under the item, and counting that failure could use up
     the link's last attempt.
-- **The queue runs in `(priority, id)` order**: everything the user asked for (a paste, favourites, a full-quality
+- **The queue runs in `(priority, id)` order**: everything the user asked for (a paste, favourites, a lossless
   re-download) before what a subscription found, each oldest first. The waiting list shows that order. A paste
   of a gallery a subscription queued **claims** its row (priority 0, no subscription) along with the paste's
   choices; a retry keeps a row's priority. `gallery_id` is indexed: every enqueue looks its gallery up.
@@ -638,7 +638,7 @@ to repeat. **`GalleryDlTool` is the only class that starts it; `GalleryDl` is ho
   time there, and the next start kills a recorded run **only if the start time matches**, then empties the
   folder. A graceful stop kills running runs.
 - **The Download page's choices** (`GalleryDlOptions`): cookies (`--cookies-from-browser <browser>`), originals
-  and the delay, on the queue row like the compression mode (re-paste replaces, retry keeps; a full-quality
+  and the delay, on the queue row like the compression mode (re-paste replaces, retry keeps; a lossless
   re-download takes Settings' defaults). The form starts at Settings' defaults every visit; an unreadable delay
   is shown on the form with the links kept, never replaced. The Download page hides each of them (JS, hidden not
   disabled) until the pasted text contains a `GalleryDlDownloader.linkMarkers` of a source that reads it
@@ -737,7 +737,7 @@ only class that speaks HTTP to it; `NhentaiDownloader` turns the answers into `G
   time (see "Subscriptions"); times come from the galleries' own details, usually two requests a page.
 - **Page by page, against nhentai's advice.** nhentai offers whole-gallery archives
   (`POST /api/v2/galleries/{id}/download`, a few per 5 minutes) and asks apps not to rebuild galleries from
-  image-server pages. The pipeline works per page (absent pages only, lenient gaps, full-quality
+  image-server pages. The pipeline works per page (absent pages only, lenient gaps, page
   replacement), so this source does too, at a reader's pace. If nhentai starts enforcing it, the archive
   endpoint is the way out.
 
@@ -860,7 +860,7 @@ downloaded and uploaded images. Default mode is **None**: bytes are stored as th
     only by JS, and SQLite does not enforce `VARCHAR(n)`. Custom keys are canonicalized on the way in. A queue
     row may also hold `RULES` (`storableDownloadKey`), which is no mode (see "Image compression rules").
 - **`chapter.compression_mode` is the key of the mode that last re-encoded the chapter's pages; null while
-  the pages are original.** It drives the "Compressed: <mode>" label and the full-quality re-download
+  the pages are original.** It drives the "Compressed: <mode>" label and the lossless re-download
   offer. It is written **only when a run replaced a page** (`Summary.replaced() > 0`) by upload,
   per-chapter button and sweep; **anything new that re-encodes pages must record it**
   (`ChapterService.setCompressionMode`). A download records it **before fetching** and takes it back
@@ -870,19 +870,21 @@ downloaded and uploaded images. Default mode is **None**: bytes are stored as th
     encoded page, so a crash between the files and the label shows compressed pages as full quality for
     good. A download writes it before its first page could be re-encoded (the pages land from the encoder's
     thread, which never touches the database), the sweep after each chapter (not per slice). A label ahead of
-    its pages is harmless: a full-quality re-download clears it. A crash before a download re-encoded its first
+    its pages is harmless: a lossless re-download corrects it. A crash before a download re-encoded its first
     page leaves one.
-- **"Re-download in full quality" is a queue row with `replace_pages`**, offered only for a compressed
-  chapter whose gallery id names a known source. An upgrade (see "Image compression rules") runs the same
-  replacement with a mode; what follows holds for both unless it says full quality. `DataDownloaderRegistry.linkFor` rebuilds the link via
-  `DataDownloader.link` and returns it only if it parses back to the same gallery id. **A Lossless chapter
-  is not offered**: its pages already hold the source's pixels, so the download would only swap equivalent
-  files.
+- **"Re-download in lossless quality" is a queue row with `replace_pages`** in the Lossless mode, offered only
+  for a chapter whose recorded mode Lossless beats (`ImageCompressionModeService.isBetter`, as for an upgrade) and
+  whose gallery id names a known source. **Lossless, not None**: it keeps the source's pixels at a fraction of the
+  size, and None is rarely wanted (a paste in None with "upgrade" does it). An upgrade (see "Image compression
+  rules") runs the same replacement; what follows holds for both unless it says re-download.
+  `DataDownloaderRegistry.linkFor` rebuilds the link via `DataDownloader.link` and returns it only if it parses
+  back to the same gallery id. **A Lossless chapter is not offered**: the download would only swap equivalent
+  files. Rows queued in None before keep re-downloading in full quality.
   - **Only pages the chapter has, by canonical name** (`ImageDirectory.canonicalPageNumbers`: `3.jpg`, not
     `03.jpg`), so a deleted page stays deleted and no page ends up twice. A `PENDING` or empty chapter also
     gets its absent pages.
-  - **Full quality is always uncompressed and strict**; the gallery's existing row is re-used. Retry keeps the
-    flag; a paste clears it.
+  - **A re-download is always strict and replaces in the row's mode**, whatever the chapter's recorded one is by
+    then; the gallery's existing row is re-used. Retry keeps the flag; a paste clears it.
   - **Nothing is replaced before every page has arrived** (and been re-encoded, for an upgrade: in place in
     staging, which is the data folder's, never a RAM disk, since a whole gallery waits there), and **the new page
     goes in before the old comes out** (`ImageService.publishReplacingPages`) — a crash leaves both, which the
@@ -903,7 +905,7 @@ downloaded and uploaded images. Default mode is **None**: bytes are stored as th
   Upload, per-chapter button and sweep take the lock; a second one is **refused, never queued** (the pool
   is already full, and a sweep holds it for hours). The sweep holds it for the whole walk. A refused
   **upload still saves the images** uncompressed and says so. **Downloads don't take the lock**: they
-  compress staged files only, and every intermediate has its own name. (Exception: the full-quality
+  compress staged files only, and every intermediate has its own name. (Exception: the lossless
   re-download's publish.)
 - **Uploads use the Settings mode; downloads carry theirs on the queue row** (it runs later and must
   survive a restart), or "By rules" for the rules to decide. The download form **starts at the Settings mode**, never at the last paste's choice,
@@ -990,7 +992,7 @@ explains them.
   None, as every key that no longer resolves.
 - **Quality** (`image_compression_mode.quality`; the built-ins' in `image-compression-modes.properties`, None a
   constant 0): 0 is the best, like a priority. None and Lossless are 0, so a Lossless chapter is never upgraded to
-  None, for the reason it is not offered a full-quality re-download. A mode's quality is the user's judgement;
+  None, for the reason it is not offered a re-download. A mode's quality is the user's judgement;
   V7 gave existing modes 1, a new one's default.
 - **Decided after the import, from the chapter** (`ChapterDownloadService` step 5): its metadata are what the
   metadata rules and canonical names made of the source's, so a rule names what the library calls a value. The
@@ -1019,7 +1021,7 @@ explains them.
   row with a mode picked by hand its own `download_queue.allow_upgrade`, the Download page's checkbox (hidden for
   "By rules", and never stored on such a row). A `PENDING` chapter is never upgraded: it fills its gaps in the
   decided mode, as a resumed download does.
-- **It is the full-quality re-download's replacement with a mode** (see "Image compression"). An automatic upgrade
+- **It is the lossless re-download's replacement, in the mode the plan picked** (see "Image compression"). An automatic upgrade
   that finds no canonically named page to replace finishes quietly with a log line; failing would fill the Failed
   list with something nobody asked for by hand.
 - **Who queues one**: a subscription listing a gallery `IN_LIBRARY` (`wantsUpgrade`, from the stored mode and
@@ -1081,7 +1083,7 @@ choice. They are separate because they differ: staging only benefits from RAM fo
 intermediates always do, and the two caches live for weeks and need **their own size cap** each (a quarter
 of an automatic RAM disk each), so one cannot prune the other away.
 - **Automatic = a RAM disk if usable, else a dot-named folder in the data folder** — except **uncompressed
-  staging always stays in the data folder** (gallery-dl's folder, a full-quality re-download), so moving a page
+  staging always stays in the data folder** (gallery-dl's folder), and so does a replacement's, so moving a page
   on is a free atomic rename (whether `ImagePostProcessor.start` gives a run decides).
 - **RAM disk detection is Linux-only** (`RamDiskDetector`): only there is it standard, identifiable
   (`tmpfs`) and size-limited. Windows/macOS RAM disks look like NTFS/APFS; the user sets folders by hand.
@@ -1604,10 +1606,10 @@ stay. One submit creates all parts.
   copied (unique), so a part is `NONE` to the pipeline. `uploadDate` is today (`DATE` sorts by id). A part
   without a posted title (no JS) gets the original's; a blank one is refused.
 - **Remaining pages are never renamed; a part's pages are numbered from 1.** For a downloaded chapter the
-  names are the source's page numbers, which a full-quality re-download relies on. `ImageService.movePages`
+  names are the source's page numbers, which a lossless re-download relies on. `ImageService.movePages`
   never overwrites; it numbers after what the target holds.
 - **Refused before anything changes** (`refusal`, also shown before the form): a `PENDING` download (a
-  re-queue would fetch the moved pages again), a **waiting** queue row (a full-quality re-download works out
+  re-queue would fetch the moved pages again), a **waiting** queue row (a lossless re-download works out
   its pages at start), and an unknown language. Moves run under the **compression run lock**, refused if
   taken, so no encoder writes output back into the old folder. Superseded sources are removed first.
 - **Part by part, every page always in exactly one chapter.** Per part: create and **commit** the chapter

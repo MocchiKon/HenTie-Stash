@@ -34,7 +34,7 @@ public interface DataDownloader
 
     /**
      * The reverse of {@link #resourceId}: {@code resourceId(link(id))} must be {@code id}. Needed for a
-     * full-quality re-download, because the pasted link left with its queue row.
+     * lossless re-download, because the pasted link left with its queue row.
      */
     String link(String resourceId);
 

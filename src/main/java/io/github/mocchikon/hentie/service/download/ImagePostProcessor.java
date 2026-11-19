@@ -54,7 +54,8 @@ public class ImagePostProcessor
     }
 
     /**
-     * For a full-quality re-download, the one download that changes published pages a run may be encoding.
+     * For a page replacement (a re-download or an upgrade), the one download that changes published pages a run may
+     * be encoding.
      *
      * @throws ImageCompressionService.RunInProgress when a run is in progress; never waits for it
      */

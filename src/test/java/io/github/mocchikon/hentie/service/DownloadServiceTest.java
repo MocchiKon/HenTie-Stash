@@ -2,6 +2,7 @@ package io.github.mocchikon.hentie.service;
 
 import io.github.mocchikon.hentie.TestDownloads;
 import io.github.mocchikon.hentie.scrapper.DataDownloaderRegistry;
+import io.github.mocchikon.hentie.service.compress.ImageCompressionModeService;
 import io.github.mocchikon.hentie.service.download.DownloadChoices;
 import io.github.mocchikon.hentie.service.download.DownloadQueueService;
 import io.github.mocchikon.hentie.service.download.DownloadWorker;
@@ -21,7 +22,9 @@ class DownloadServiceTest
     private final DownloadWorker worker = mock(DownloadWorker.class);
     private final DataDownloaderRegistry registry = mock(DataDownloaderRegistry.class);
     private final SettingsService settingsService = mock(SettingsService.class);
-    private final DownloadService service = new DownloadService(queueService, worker, registry, settingsService);
+    private final ImageCompressionModeService modeService = mock(ImageCompressionModeService.class);
+    private final DownloadService service =
+            new DownloadService(queueService, worker, registry, settingsService, modeService);
 
     @Test
     void shouldReturnEmptyWhenInputIsNull()

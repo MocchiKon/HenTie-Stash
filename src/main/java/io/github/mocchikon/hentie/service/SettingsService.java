@@ -357,7 +357,7 @@ public class SettingsService
     }
 
     /**
-     * What the Download page starts at, and what a full-quality re-download uses. Stored values were checked on
+     * What the Download page starts at, and what a lossless re-download uses. Stored values were checked on
      * the way in; {@link GalleryDlOptions} checks them again, so a hand-edited row cannot reach the command line.
      */
     public GalleryDlOptions getGalleryDlDefaults()

@@ -1,6 +1,5 @@
 package io.github.mocchikon.hentie.service.download;
 
-import io.github.mocchikon.hentie.dto.BuiltInCompressionMode;
 import io.github.mocchikon.hentie.entity.DownloadQueueItem;
 import io.github.mocchikon.hentie.repository.DownloadQueueRepository;
 import io.github.mocchikon.hentie.scrapper.DataDownloaderRegistry;
@@ -238,12 +237,14 @@ public class DownloadQueueService
     }
 
     /**
-     * Always uncompressed and strict: a page that failed to arrive should be a visible failure, not a page
-     * silently left compressed. The gallery's existing row is reused rather than joined by a second. Its
-     * gallery-dl choices are Settings' defaults: the paste that once chose others is long gone.
+     * Always strict: a page that failed to arrive should be a visible failure, not a page silently left compressed.
+     * The gallery's existing row is reused rather than joined by a second. Its gallery-dl choices are Settings'
+     * defaults: the paste that once chose others is long gone.
+     *
+     * @param modeKey the mode the replaced pages get; a mode, never "By rules"
      */
     @Transactional
-    public void enqueueFullQuality(String link, String galleryId, GalleryDlOptions galleryDl)
+    public void enqueueRedownload(String link, String galleryId, String modeKey, GalleryDlOptions galleryDl)
     {
         DownloadQueueItem item = repository.findFirstByGalleryIdOrderByIdAsc(galleryId).orElseGet(() ->
         {
@@ -256,7 +257,7 @@ public class DownloadQueueService
         item.setError(null);
         item.setAttempts(0);
         item.setIgnoreImageErrors(false);
-        item.setCompressionMode(BuiltInCompressionMode.NONE.getKey());
+        item.setCompressionMode(modeKey);
         item.setAllowUpgrade(false);
         item.setAvoidDuplicateTitles(false);
         item.setRejectedDuplicate(false);
@@ -338,7 +339,7 @@ public class DownloadQueueService
     }
 
     /**
-     * Keeps the row when it was rewritten (a paste or {@link #enqueueFullQuality}) while running: deleting
+     * Keeps the row when it was rewritten (a paste or {@link #enqueueRedownload}) while running: deleting
      * it would drop that new request unseen.
      *
      * @return false when the row stays queued for the changed request

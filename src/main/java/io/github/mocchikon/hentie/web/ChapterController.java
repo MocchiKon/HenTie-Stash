@@ -500,22 +500,23 @@ public class ChapterController
         String compressionMode = vm.getChapter().getCompressionMode();
         model.addAttribute("compressedWith", compressionMode == null
                 ? null : compressionModeService.nameOf(compressionMode).orElse("a mode since deleted"));
-        model.addAttribute("canRedownloadFullQuality", downloadService.fullQualityLink(vm.getChapter()).isPresent());
+        model.addAttribute("canRedownloadLossless", downloadService.losslessRedownloadLink(vm.getChapter()).isPresent());
         model.addAttribute("sourcePageLink", downloadService.sourcePageLink(vm.getChapter()).orElse(null));
         return "chapter-view";
     }
 
     /**
+     * In Lossless, not None: full quality at a fraction of the size, which is what the user wants nearly always.
      * Refused for a chapter that is not compressed, is compressed losslessly, or has no known source. The
      * button is hidden then, but a page left open while the chapter changed can still post it.
      */
     @PostMapping("/{id:\\d+}/redownload")
-    public String redownloadFullQuality(@PathVariable int id, RedirectAttributes redirectAttributes)
+    public String redownloadLossless(@PathVariable int id, RedirectAttributes redirectAttributes)
     {
-        if (!downloadService.queueFullQuality(chapterService.get(id)))
+        if (!downloadService.queueLosslessRedownload(chapterService.get(id)))
         {
             redirectAttributes.addFlashAttribute("redownloadError", "This chapter cannot be downloaded again in "
-                    + "full quality: its pages are not compressed, were compressed losslessly, or it comes from "
+                    + "lossless quality: its pages are not compressed, were compressed losslessly, or it comes from "
                     + "no source this app can fetch from.");
             return REDIRECT_CHAPTER + id;
         }

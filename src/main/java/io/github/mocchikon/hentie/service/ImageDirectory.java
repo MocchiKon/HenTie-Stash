@@ -216,7 +216,7 @@ public class ImageDirectory
 
     /**
      * Pages named exactly as the download pipeline names them ({@code 3.jpg}, never {@code 03.jpg}): the only
-     * ones a full-quality re-download may replace, or {@code 03.png} would end up beside a second page 3.
+     * ones a re-download may replace, or {@code 03.png} would end up beside a second page 3.
      */
     public Set<Integer> canonicalPageNumbers(int chapterId)
     {

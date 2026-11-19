@@ -102,8 +102,9 @@ public class DownloadQueueItem
     private Integer duplicateChapterId;
 
     /**
-     * Full-quality re-download: replace the pages the chapter has, uncompressed. An ordinary download never
-     * overwrites a page, so it cannot undo a compression. Retry keeps it; a paste clears it.
+     * A re-download the user asked for (Lossless, from the chapter page): replace the pages the chapter has, in
+     * {@link #compressionMode}. An ordinary download never overwrites a page, so it cannot undo a compression.
+     * Retry keeps it; a paste clears it.
      */
     @Column(name = "replace_pages", nullable = false, columnDefinition = "boolean not null default 0")
     private boolean replacePages = false;

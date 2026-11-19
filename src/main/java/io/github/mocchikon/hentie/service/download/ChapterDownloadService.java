@@ -1,7 +1,6 @@
 package io.github.mocchikon.hentie.service.download;
 
 import io.github.mocchikon.hentie.config.AppProperties;
-import io.github.mocchikon.hentie.dto.BuiltInCompressionMode;
 import io.github.mocchikon.hentie.entity.DownloadQueueItem;
 import io.github.mocchikon.hentie.entity.DownloadStatus;
 import io.github.mocchikon.hentie.scrapper.DataDownloaderRegistry;
@@ -38,11 +37,11 @@ import java.util.function.Consumer;
  *
  * <p>Only a {@code PENDING} chapter (a download this app started and never finished) gets its absent pages
  * fetched. Any other chapter with images keeps them as they are, and nothing on disk is overwritten, except
- * by a full-quality re-download the user asks for, or an upgrade: a download in a mode better than the one that
+ * by a re-download the user asks for, or an upgrade: a download in a mode better than the one that
  * compressed the chapter's pages, which the row allows ({@link ImageCompressionRuleService#plan}).
  *
  * <p><b>A page lands in the chapter's folder as soon as it is whole</b>, so a crash, an abort or a failed attempt
- * loses only the pages in flight: the next attempt fetches what is still absent. Only a replacement (full quality or
+ * loses only the pages in flight: the next attempt fetches what is still absent. Only a replacement (a re-download or
  * an upgrade) keeps its pages back until every one has arrived.
  *
  * <p>Not transactional: it spans minutes of network and disk work, and holding SQLite's single write lock
@@ -120,7 +119,7 @@ public class ChapterDownloadService
             if (item.isReplacePages())
             {
                 throw new PermanentDownloadException("The chapter of " + link.galleryId()
-                        + " no longer exists, so there are no pages to download again in full quality.");
+                        + " no longer exists, so there are no pages to download again.");
             }
             // Only a new gallery is checked, so a re-run of one already here can always finish.
             if (item.isAvoidDuplicateTitles())
@@ -136,14 +135,15 @@ public class ChapterDownloadService
         importService.recordDownloaded(link.galleryId(), chapterId);
 
         // --- 5. which mode, and whether the chapter's pages are replaced ---------------------------
-        // A full-quality re-download is always uncompressed. Otherwise the row's mode, or for a row queued "By rules"
+        // A re-download replaces the pages in the row's mode whatever they were compressed with: the user asked for it.
+        // Otherwise the row's mode, or for a row queued "By rules"
         // the rules', which read the chapter's metadata, so they decide only now that the chapter is in the library.
         // An unfinished chapter is never upgraded: it gets its missing pages in the mode, as a resumed download does.
         String mode;
         boolean upgrade;
         if (item.isReplacePages())
         {
-            mode = BuiltInCompressionMode.NONE.getKey();
+            mode = item.getCompressionMode();
             upgrade = false;
         }
         else
@@ -220,7 +220,7 @@ public class ChapterDownloadService
             // Finishing quietly would leave a re-download button that can never do anything; say why instead.
             throw new PermanentDownloadException("None of the pages of chapter " + chapterId + " is one of the "
                     + pageCount + " the source lists, named the way this app names them (1.jpg, 2.jpg, ...), "
-                    + "so none could be downloaded again in full quality.");
+                    + "so none could be downloaded again.");
         }
         if (missing.isEmpty())
         {
@@ -377,7 +377,7 @@ public class ChapterDownloadService
     }
 
     /**
-     * Replaces the pages the chapter has: a full-quality re-download (None) or an upgrade to a better mode. Nothing is
+     * Replaces the pages the chapter has: a re-download the user asked for or an upgrade to a better mode. Nothing is
      * replaced before every page has arrived, re-encoded or kept by its encoder, so the pages wait in staging until
      * the end. Staging is the data folder's, never a RAM disk: a whole gallery waits there. A retry in the same
      * process keeps what an earlier attempt staged in the same mode.
@@ -974,7 +974,7 @@ public class ChapterDownloadService
 
     /**
      * "Not {@code SUCCESSFUL}" rather than "is {@code PENDING}": a {@code NONE} chapter whose pages a
-     * full-quality re-download replaced is a finished download too.
+     * re-download replaced is a finished download too.
      */
     private void markSuccessful(int chapterId, DownloadStatus status)
     {

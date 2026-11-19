@@ -3,6 +3,7 @@ package io.github.mocchikon.hentie.service;
 import io.github.mocchikon.hentie.dto.BuiltInCompressionMode;
 import io.github.mocchikon.hentie.entity.Chapter;
 import io.github.mocchikon.hentie.scrapper.DataDownloaderRegistry;
+import io.github.mocchikon.hentie.service.compress.ImageCompressionModeService;
 import io.github.mocchikon.hentie.service.download.DownloadChoices;
 import io.github.mocchikon.hentie.service.download.DownloadQueueService;
 import io.github.mocchikon.hentie.service.download.DownloadWorker;
@@ -26,6 +27,7 @@ public class DownloadService
     private final DownloadWorker worker;
     private final DataDownloaderRegistry registry;
     private final SettingsService settingsService;
+    private final ImageCompressionModeService modeService;
 
     public List<String> parseLinks(String raw)
     {
@@ -57,37 +59,50 @@ public class DownloadService
     }
 
     /**
-     * Empty when the chapter was never compressed, was compressed losslessly, or no source here can fetch its
-     * gallery id. Lossless already holds the source's pixels, so re-downloading its pages in full quality
-     * would only replace one equivalent copy with another.
+     * Empty unless Lossless is strictly better than the mode that compressed the chapter (a chapter never compressed,
+     * or compressed losslessly, has nothing to gain), or when no source here can fetch its gallery id. Lossless, not
+     * None: it keeps the source's pixels at a fraction of the size, and None is what an upgrade from a paste is for.
      */
-    public Optional<String> fullQualityLink(Chapter chapter)
+    public Optional<String> losslessRedownloadLink(Chapter chapter)
     {
-        String mode = chapter.getCompressionMode();
-        if (mode == null || BuiltInCompressionMode.LOSSLESS.getKey().equalsIgnoreCase(mode))
+        return redownloadLink(chapter, BuiltInCompressionMode.LOSSLESS.getKey());
+    }
+
+    /** @return false when {@link #losslessRedownloadLink} has nothing to offer */
+    public boolean queueLosslessRedownload(Chapter chapter)
+    {
+        return queueRedownload(chapter, BuiltInCompressionMode.LOSSLESS.getKey());
+    }
+
+    /** Empty unless the mode is strictly better than the chapter's recorded one, as for an upgrade. */
+    public Optional<String> redownloadLink(Chapter chapter, String modeKey)
+    {
+        String recorded = chapter.getCompressionMode();
+        if (recorded == null || !modeService.isBetter(modeKey, recorded))
         {
             return Optional.empty();
         }
         return registry.linkFor(chapter.getGalleryId());
     }
 
-    /** Empty for a chapter from no known source, or from one without a website. */
-    public Optional<String> sourcePageLink(Chapter chapter)
+    /** @return false when {@link #redownloadLink} has nothing to offer */
+    public boolean queueRedownload(Chapter chapter, String modeKey)
     {
-        return registry.pageLinkFor(chapter.getGalleryId(), chapter.getSourceSite());
-    }
-
-    /** @return false when {@link #fullQualityLink} has nothing to offer */
-    public boolean queueFullQuality(Chapter chapter)
-    {
-        Optional<String> link = fullQualityLink(chapter);
+        Optional<String> link = redownloadLink(chapter, modeKey);
         if (link.isEmpty())
         {
             return false;
         }
-        queueService.enqueueFullQuality(link.get(), chapter.getGalleryId(), settingsService.getGalleryDlDefaults());
-        log.info("Queued a full-quality re-download of chapter {} ({})", chapter.getId(), chapter.getGalleryId());
+        queueService.enqueueRedownload(link.get(), chapter.getGalleryId(), modeKey,
+                settingsService.getGalleryDlDefaults());
+        log.info("Queued a re-download of chapter {} ({}) in {}", chapter.getId(), chapter.getGalleryId(), modeKey);
         worker.kick();
         return true;
+    }
+
+    /** Empty for a chapter from no known source, or from one without a website. */
+    public Optional<String> sourcePageLink(Chapter chapter)
+    {
+        return registry.pageLinkFor(chapter.getGalleryId(), chapter.getSourceSite());
     }
 }

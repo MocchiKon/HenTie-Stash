@@ -296,7 +296,7 @@ public class DownloadWorker
 
     /**
      * Here rather than on {@link DownloadQueueService} because only the worker knows if the item is running.
-     * A running item's staging is left alone: its encoder may be reading a page there, and the full-quality
+     * A running item's staging is left alone: its encoder may be reading a page there, and the lossless
      * re-download keeps every page there until it publishes. The worker sees the row is gone, stops without
      * finishing the chapter, and discards staging itself.
      */

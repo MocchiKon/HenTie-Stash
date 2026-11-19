@@ -1060,14 +1060,15 @@ class DownloadQueueIT
     }
 
     @Test
-    void shouldGiveTheUserASubscriptionsRowForAFullQualityRedownload()
+    void shouldGiveTheUserASubscriptionsRowForALosslessRedownload()
     {
         // GIVEN
         queueService.queueForSubscription(subscription(), List.of("mock:900"),
                 TestDownloads.choices("LOSSLESS", false));
 
         // WHEN
-        queueService.enqueueFullQuality("mock:900", "mock:900", TestDownloads.PLAIN_GALLERY_DL);
+        queueService.enqueueRedownload("mock:900", "mock:900", BuiltInCompressionMode.LOSSLESS.getKey(),
+                TestDownloads.PLAIN_GALLERY_DL);
 
         // THEN
         assertThat(queueRepository.findByLink("mock:900")).get().satisfies(row ->

@@ -98,7 +98,7 @@ public class Chapter
     @Column(name = "download_status", nullable = false, columnDefinition = "tinyint not null default 0")
     private DownloadStatus downloadStatus = DownloadStatus.NONE;
 
-    // Mode key of the last run that replaced a page; null means full quality (decides whether a full-quality
+    // Mode key of the last run that replaced a page; null means full quality (decides whether a lossless
     // re-download is offered). Not on ChapterForm: it records what happened to the files.
     @Column(name = "compression_mode", length = 64)
     private String compressionMode;

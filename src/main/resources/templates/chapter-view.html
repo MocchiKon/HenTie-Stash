@@ -66,10 +66,10 @@
                 <a class="btn btn-accent" th:unless="${vm.hasSeries()}"
                    th:href="@{/chapter/{id}/add-to-series(id=${vm.chapter.id})}">Add to series</a>
                 <!-- Only for a compressed chapter from a source the app can fetch from; it lands on the queue. -->
-                <form th:if="${canRedownloadFullQuality}" class="inline-form" method="post"
+                <form th:if="${canRedownloadLossless}" class="inline-form" method="post"
                       th:action="@{/chapter/{id}/redownload(id=${vm.chapter.id})}">
                     <button type="submit" class="btn btn-ghost"
-                            title="Download this chapter's pages again from the source, uncompressed. The compressed pages are replaced only once the originals have arrived.">Re-download in full quality</button>
+                            title="Download this chapter's pages again from the source and store them in lossless quality. The current pages stay until the new ones have arrived.">Re-download in lossless quality</button>
                 </form>
             </div>
         </div>
