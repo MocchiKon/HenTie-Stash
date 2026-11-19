@@ -579,6 +579,74 @@ class ChapterServiceIT
         assertThat(chapter.isFavourite()).isTrue();
     }
 
+    /** Review mode's Favourite button: reviewed and a favourite in one step. */
+    @Test
+    void shouldReviewAndFavouriteAChapterWhenMarkedReviewedAsFavourite()
+    {
+        // GIVEN
+        int id = chapterService.create(minimalForm("mark-reviewed-as-favourite"));
+
+        // WHEN
+        chapterService.markReviewed(id, true);
+        em.flush();
+        em.clear();
+
+        // THEN
+        Chapter chapter = chapterRepository.findById(id).orElseThrow();
+        assertThat(chapter.getStatus()).isEqualTo(Status.REVIEWED);
+        assertThat(chapter.isFavourite()).isTrue();
+    }
+
+    /** Review mode's score stays on the item: the status is left alone, and the series' average follows. */
+    @Test
+    void shouldSetAChapterScoreAndRecomputeItsSeriesWithoutReviewingIt()
+    {
+        // GIVEN
+        int a = scoredChapter("review-score-a", 4);
+        int b = scoredChapter("review-score-b", 6);
+        int seriesId = seriesService.create(seriesForm("Review Score"));
+        seriesService.addChapters(seriesId, List.of(a, b));
+        em.flush();
+        em.clear();
+
+        // WHEN
+        chapterService.setScore(a, 10, false);   // (10 + 6) / 2 = 8
+        em.flush();
+        em.clear();
+
+        // THEN
+        Chapter chapter = chapterRepository.findById(a).orElseThrow();
+        assertThat(chapter.getScore()).isEqualTo((short) 10);
+        assertThat(chapter.getStatus()).isEqualTo(Status.NEW);
+        assertThat(seriesScore(seriesId)).isEqualTo((short) 8);
+    }
+
+    /** Review mode's digit keys: a score and reviewed together; a blank score clears it. */
+    @Test
+    void shouldSetAChapterScoreAndReviewItOrClearTheScore()
+    {
+        // GIVEN
+        int id = scoredChapter("review-score-key", 3);
+
+        // WHEN
+        chapterService.setScore(id, 9, true);
+        em.flush();
+        em.clear();
+
+        // THEN
+        Chapter chapter = chapterRepository.findById(id).orElseThrow();
+        assertThat(chapter.getScore()).isEqualTo((short) 9);
+        assertThat(chapter.getStatus()).isEqualTo(Status.REVIEWED);
+
+        // WHEN cleared
+        chapterService.setScore(id, null, false);
+        em.flush();
+        em.clear();
+
+        // THEN
+        assertThat(chapterRepository.findById(id).orElseThrow().getScore()).isNull();
+    }
+
     /** A chapter is never UPDATED: the forms do not offer it, and a hand-made request gets NEW. */
     @Test
     void shouldStoreNewForASeriesOnlyStatus()

@@ -43,6 +43,7 @@
             <li><a href="#incomplete-downloads">Incomplete downloads</a></li>
             <li><a href="#ehentai-account">e-hentai account</a></li>
             <li><a href="#statuses">Statuses and favourites</a></li>
+            <li><a href="#review-mode">Review mode</a></li>
         </ol>
     </nav>
 
@@ -555,6 +556,32 @@ exec python main.py --listen 127.0.0.1 --port 8188</pre>
             set none, its chapters' artists.</li>
         <li>Merging a favourite artist into another one makes that one a favourite too.</li>
     </ul>
+
+    <!-- ===================================================================================== -->
+    <h2 class="section-title" id="review-mode">Review mode</h2>
+    <p>On a page of search results, click <strong>Start review</strong> to go through the results one by one. A bar
+        at the top of each chapter or series page offers:</p>
+    <ul>
+        <li><strong>Score</strong>: pick the stars. This saves the score and keeps you on the same item, so you can
+            still mark it reviewed or favourite. On a series, it sets the series' own score;
+            <strong>Average of chapters</strong> goes back to the average of its chapters' scores.</li>
+        <li><strong>Mark as reviewed</strong>, then on to the next item.</li>
+        <li><strong>&#9829; Favourite</strong>: marks it reviewed and adds it to your favourites, then on to the next
+            item.</li>
+        <li><strong>Delete</strong> (it asks first). On a series this also deletes its chapters.</li>
+        <li><strong>Skip</strong> leaves the item as it is.</li>
+    </ul>
+    <p>Keyboard shortcuts:</p>
+    <table>
+        <tr><th>Key</th><th>Does</th></tr>
+        <tr><td><kbd>R</kbd></td><td>Mark as reviewed</td></tr>
+        <tr><td><kbd>F</kbd></td><td>Favourite</td></tr>
+        <tr><td><kbd>E</kbd></td><td>Delete (it asks first; <kbd>Enter</kbd> confirms)</td></tr>
+        <tr><td><kbd>S</kbd></td><td>Skip</td></tr>
+        <tr><td><kbd>1</kbd> to <kbd>9</kbd>, <kbd>0</kbd></td><td>Marks it reviewed and gives it that score, staying
+            on the item: <kbd>1</kbd> is &#189; star, <kbd>9</kbd> is 4&#189; stars and <kbd>0</kbd> is 5 stars.
+            Press <kbd>F</kbd> or <kbd>S</kbd> next to move on.</td></tr>
+    </table>
 </main>
 <script th:src="@{/js/app.js}"></script>
 </body>

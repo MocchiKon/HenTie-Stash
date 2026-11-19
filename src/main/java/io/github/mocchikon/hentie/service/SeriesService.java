@@ -243,19 +243,68 @@ public class SeriesService
         }
     }
 
-    /** Evicts only when the status really changed. */
     @Transactional
     public void markReviewed(int id)
     {
+        markReviewed(id, false);
+    }
+
+    /** See {@link ChapterService#markReviewed(int, boolean)}. */
+    @Transactional
+    public void markReviewed(int id, boolean favourite)
+    {
         Series series = get(id);
-        Status before = series.getStatus();
-        if (before != Status.REVIEWED)
+        boolean changed = markReviewed(series);
+        if (favourite && !series.isFavourite())
         {
-            series.setStatus(Status.REVIEWED);
+            series.setFavourite(true);
+            changed = true;
+        }
+        if (changed)
+        {
             seriesRepository.save(series);
-            reviewChaptersIfReviewed(series, before);
             searchCountCache.clear();
         }
+    }
+
+    /**
+     * See {@link ChapterService#setScore}. The score is the series' own, as on the edit form; a null one goes back
+     * to the chapters' average.
+     */
+    @Transactional
+    public void setScore(int id, Integer score, boolean markReviewed)
+    {
+        Series series = get(id);
+        Short scoreBefore = series.getScore();
+        ScoreSource sourceBefore = series.getScoreSource();
+        applyScore(series, score);
+        if (series.getScoreSource() != ScoreSource.USER_SET)
+        {
+            applyDerivedScore(series);
+        }
+        boolean changed = !Objects.equals(scoreBefore, series.getScore()) || sourceBefore != series.getScoreSource();
+        if (markReviewed && markReviewed(series))
+        {
+            changed = true;
+        }
+        if (changed)
+        {
+            seriesRepository.save(series);
+            searchCountCache.clear();
+        }
+    }
+
+    /** Returns whether the status changed. The caller saves the series and evicts the search count. */
+    private boolean markReviewed(Series series)
+    {
+        Status before = series.getStatus();
+        if (before == Status.REVIEWED)
+        {
+            return false;
+        }
+        series.setStatus(Status.REVIEWED);
+        reviewChaptersIfReviewed(series, before);
+        return true;
     }
 
     /**
@@ -556,13 +605,18 @@ public class SeriesService
     {
         if (series.getScoreSource() != ScoreSource.USER_SET)
         {
-            Double avg = chapterRepository.averageScoreBySeriesId(series.getId());
-            series.setScore(avg == null ? null : (short) Math.round(avg));
+            applyDerivedScore(series);
         }
         series.setPageNum((int) chapterRepository.sumPageNumBySeriesId(series.getId()));
         series.setDiskSize(chapterRepository.sumDiskSizeBySeriesId(series.getId()));
         recomputeEffectiveMetadata(series);
         seriesRepository.save(series);
+    }
+
+    private void applyDerivedScore(Series series)
+    {
+        Double avg = chapterRepository.averageScoreBySeriesId(series.getId());
+        series.setScore(avg == null ? null : (short) Math.round(avg));
     }
 
     private void recomputeEffectiveMetadata(Series series)

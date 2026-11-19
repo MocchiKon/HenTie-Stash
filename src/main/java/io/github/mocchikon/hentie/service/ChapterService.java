@@ -329,17 +329,65 @@ public class ChapterService
         }
     }
 
-    /** Evicts only when the status really changed. */
     @Transactional
     public void markReviewed(int id)
     {
+        markReviewed(id, false);
+    }
+
+    /**
+     * {@code favourite} only ever sets the mark: review mode's Favourite button, which a second press must not
+     * undo. Evicts only when something really changed.
+     */
+    @Transactional
+    public void markReviewed(int id, boolean favourite)
+    {
         Chapter chapter = get(id);
-        if (chapter.getStatus() == Status.NEW)
+        boolean changed = markReviewed(chapter);
+        if (favourite && !chapter.isFavourite())
         {
-            chapter.setStatus(Status.REVIEWED);
+            chapter.setFavourite(true);
+            changed = true;
+        }
+        if (changed)
+        {
             chapterRepository.save(chapter);
             searchCountCache.clear();
         }
+    }
+
+    /**
+     * Review mode sets a score without leaving the item, or marks it reviewed in the same step (its digit keys).
+     * A null score clears it. Evicts only when something really changed.
+     */
+    @Transactional
+    public void setScore(int id, Integer score, boolean markReviewed)
+    {
+        Chapter chapter = get(id);
+        Short dbScore = toDbScore(score);
+        boolean scoreChanged = !Objects.equals(chapter.getScore(), dbScore);
+        chapter.setScore(dbScore);
+        boolean changed = (markReviewed && markReviewed(chapter)) || scoreChanged;
+        if (changed)
+        {
+            chapterRepository.save(chapter);
+            searchCountCache.clear();
+        }
+        if (scoreChanged && chapter.getSeries() != null)
+        {
+            seriesService.recomputeDerived(chapter.getSeries().getId());
+        }
+    }
+
+    /** Returns whether the status changed. */
+    private static boolean markReviewed(Chapter chapter)
+    {
+        if (chapter.getStatus() != Status.NEW)
+        {
+            return false;
+        }
+        chapter.setStatus(Status.REVIEWED);
+        return true;
     }
 
     @CacheEvict(value = CacheConfig.SEARCH_COUNT, allEntries = true)

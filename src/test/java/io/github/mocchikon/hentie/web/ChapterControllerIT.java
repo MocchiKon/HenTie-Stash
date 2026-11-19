@@ -1362,7 +1362,78 @@ class ChapterControllerIT
                 .andExpect(content().string(containsString("action=\"/chapter/" + id + "/mark-reviewed\"")))
                 .andExpect(content().string(containsString("action=\"/chapter/" + id + "/delete\"")))
                 .andExpect(content().string(containsString("data-review-skip")))
-                .andExpect(content().string(containsString("data-review-exit")));
+                .andExpect(content().string(containsString("data-review-exit")))
+                .andExpect(content().string(containsString(">Mark as reviewed<")))
+                .andExpect(content().string(containsString("<input type=\"hidden\" name=\"favourite\" value=\"true\">")))
+                .andExpect(content().string(containsString("action=\"/chapter/" + id + "/score\"")));
+    }
+
+    @Test
+    void shouldSelectTheChapterScoreInTheReviewBar() throws Exception
+    {
+        // GIVEN
+        ChapterForm form = new ChapterForm();
+        form.setTitleFull("chw-review-score");
+        form.setLanguage("English");
+        form.setScore(7);
+        int id = chapterService.create(form);
+
+        // WHEN / THEN
+        mvc.perform(get("/chapter/" + id).with(user("user")).param("review", "true"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("<option value=\"7\" selected=\"selected\">3.5 ★</option>")))
+                .andExpect(content().string(containsString("<option value=\"8\">4 ★</option>")));
+    }
+
+    @Test
+    void shouldReviewAndFavouriteAChapterFromReviewModesFavouriteButton() throws Exception
+    {
+        // GIVEN
+        int id = newChapter("chw-review-favourite");
+
+        // WHEN
+        mvc.perform(post("/chapter/" + id + "/mark-reviewed").param("favourite", "true")
+                        .with(user("user")).with(csrf()))
+                .andExpect(status().is3xxRedirection());
+
+        // THEN
+        Chapter chapter = chapterRepository.findById(id).orElseThrow();
+        assertThat(chapter.getStatus()).isEqualTo(Status.REVIEWED);
+        assertThat(chapter.isFavourite()).isTrue();
+    }
+
+    @Test
+    void shouldSetAChapterScoreAndReviewItWhenAsked() throws Exception
+    {
+        // GIVEN
+        int id = newChapter("chw-review-set-score");
+
+        // WHEN the score alone
+        mvc.perform(post("/chapter/" + id + "/score").param("score", "6").with(user("user")).with(csrf()))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/chapter/" + id));
+
+        // THEN
+        Chapter chapter = chapterRepository.findById(id).orElseThrow();
+        assertThat(chapter.getScore()).isEqualTo((short) 6);
+        assertThat(chapter.getStatus()).isEqualTo(Status.NEW);
+
+        // WHEN a digit key: score and reviewed
+        mvc.perform(post("/chapter/" + id + "/score").param("score", "10").param("markReviewed", "true")
+                        .with(user("user")).with(csrf()))
+                .andExpect(status().is3xxRedirection());
+
+        // THEN
+        chapter = chapterRepository.findById(id).orElseThrow();
+        assertThat(chapter.getScore()).isEqualTo((short) 10);
+        assertThat(chapter.getStatus()).isEqualTo(Status.REVIEWED);
+
+        // WHEN the blank choice
+        mvc.perform(post("/chapter/" + id + "/score").param("score", "").with(user("user")).with(csrf()))
+                .andExpect(status().is3xxRedirection());
+
+        // THEN
+        assertThat(chapterRepository.findById(id).orElseThrow().getScore()).isNull();
     }
 
     @Test
@@ -1376,7 +1447,7 @@ class ChapterControllerIT
         mvc.perform(get("/chapter/" + id).with(user("user")).param("review", "true"))
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString("data-review-bar")))
-                .andExpect(content().string(not(containsString("/mark-reviewed"))));
+                .andExpect(content().string(not(containsString(">Mark as reviewed<"))));
     }
 
     @Test

@@ -1062,39 +1062,84 @@
         reviewBar.querySelector("[data-review-skip]").addEventListener("click", nextItem);
         reviewBar.querySelector("[data-review-exit]").addEventListener("click", finishReview);
 
-        // Registered after confirm-delete. Posted by fetch because only this page knows where to go next;
-        // following the server's redirect would only render a page nobody sees.
-        document.addEventListener("submit", function (e) {
-            var form = e.target;
-            if (e.defaultPrevented || !form.classList || !form.classList.contains("review-action")) { return; }
-            e.preventDefault();
-            var body = new URLSearchParams(new FormData(form));
-            var clicked = form.querySelector("button");
-            var spinner = document.createElement("span");
-            spinner.className = "spinner";
-            spinner.setAttribute("aria-hidden", "true");
-            clicked.insertBefore(spinner, clicked.firstChild);
-            reviewBar.querySelectorAll("button").forEach(function (b) { b.disabled = true; });
+        // One action at a time: the controls are disabled while one runs, and the keys wait the same way.
+        var reviewBusy = false;
+        var reviewControls = function (disabled) {
+            reviewBusy = disabled;
+            reviewBar.querySelectorAll("button, select").forEach(function (c) { c.disabled = disabled; });
+        };
+
+        // Posted by fetch because only this page knows where to go next; following the server's redirect would only
+        // render a page nobody sees. done() runs once the server took it.
+        var postReview = function (form, body, done, onBusy) {
+            reviewControls(true);
             fetch(form.action, { method: "POST", body: body, redirect: "manual", headers: JSON_ANSWER })
                 .then(function (r) {
                     // Busy: nothing was done, so the same item stays, ready for another press.
                     if (r.status === 503) {
                         return busyMessage(r).then(function (message) {
-                            spinner.remove();
-                            reviewBar.querySelectorAll("button").forEach(function (b) { b.disabled = false; });
+                            reviewControls(false);
+                            onBusy();
                             window.alert(message);
                         });
                     }
                     // 404: deleted meanwhile. Reloading would show an error page with no review bar, so move on.
-                    if (!r.ok && r.type !== "opaqueredirect" && r.status !== 404) {
+                    if (r.status === 404) {
+                        nextItem();
+                        return;
+                    }
+                    if (!r.ok && r.type !== "opaqueredirect") {
                         throw new Error("HTTP " + r.status);
                     }
-                    nextItem();
+                    done();
                 })
                 .catch(function (err) {
                     window.alert("That did not work (" + err.message + "). This item is reloaded as it is now.");
                     window.location.reload();
                 });
+        };
+
+        // Registered after confirm-delete.
+        document.addEventListener("submit", function (e) {
+            var form = e.target;
+            if (e.defaultPrevented || !form.classList || !form.classList.contains("review-action")) { return; }
+            e.preventDefault();
+            var clicked = form.querySelector("button");
+            var spinner = document.createElement("span");
+            spinner.className = "spinner";
+            spinner.setAttribute("aria-hidden", "true");
+            clicked.insertBefore(spinner, clicked.firstChild);
+            postReview(form, new URLSearchParams(new FormData(form)), nextItem, function () { spinner.remove(); });
+        });
+
+        // A score stays on the item, so the page is reloaded to show it (and the status, when a key marked it).
+        var scoreSelect = reviewBar.querySelector("[data-review-score]");
+        var savedScore = scoreSelect.value;
+        var postScore = function (markReviewed) {
+            var body = new URLSearchParams(new FormData(scoreSelect.form));
+            if (markReviewed) { body.append("markReviewed", "true"); }
+            postReview(scoreSelect.form, body, function () { window.location.reload(); },
+                function () { scoreSelect.value = savedScore; });
+        };
+        scoreSelect.addEventListener("change", function () { postScore(false); });
+
+        // Keys do what their button does, so "e" still asks before deleting. "1"-"9" are scores 1-9, "0" is 10.
+        document.addEventListener("keydown", function (e) {
+            if (e.defaultPrevented || e.repeat || e.ctrlKey || e.altKey || e.metaKey || reviewBusy) { return; }
+            var target = e.target;
+            if (target && (target.isContentEditable || /^(INPUT|SELECT|TEXTAREA)$/.test(target.tagName))) { return; }
+            var key = e.key.toLowerCase();
+            if (/^[0-9]$/.test(key)) {
+                e.preventDefault();
+                scoreSelect.value = key === "0" ? "10" : key;
+                postScore(true);
+                return;
+            }
+            var button = reviewBar.querySelector('[data-review-key="' + key + '"]');
+            if (button) {
+                e.preventDefault();
+                button.click();
+            }
         });
     }
 

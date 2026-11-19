@@ -556,11 +556,23 @@ public class ChapterController
         return ResponseEntity.noContent().build();
     }
 
-    /** Review mode posts this by fetch and moves on itself; the redirect is for a plain form post. */
+    /**
+     * Review mode posts this by fetch and moves on itself; the redirect is for a plain form post.
+     * {@code favourite} is review mode's Favourite button, which marks and never unmarks.
+     */
     @PostMapping("/{id:\\d+}/mark-reviewed")
-    public String markReviewed(@PathVariable int id)
+    public String markReviewed(@PathVariable int id, @RequestParam(defaultValue = "false") boolean favourite)
     {
-        chapterService.markReviewed(id);
+        chapterService.markReviewed(id, favourite);
+        return REDIRECT_CHAPTER + id;
+    }
+
+    /** Review mode's score, posted by fetch; a blank score clears it. See {@link #markReviewed}. */
+    @PostMapping("/{id:\\d+}/score")
+    public String score(@PathVariable int id, @RequestParam(required = false) Integer score,
+                        @RequestParam(defaultValue = "false") boolean markReviewed)
+    {
+        chapterService.setScore(id, score, markReviewed);
         return REDIRECT_CHAPTER + id;
     }
 

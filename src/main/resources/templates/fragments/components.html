@@ -14,19 +14,37 @@
 </div>
 
 <!-- Review mode's action bar. The server keeps no review state; the list lives in the browser (app.js).
-     Hidden until app.js finds this page in that list, so a bookmarked review URL shows no dead buttons. -->
-<div th:fragment="reviewBar(basePath, markable, deleteAction, deleteConfirm)" th:if="${review}"
+     Hidden until app.js finds this page in that list, so a bookmarked review URL shows no dead buttons.
+     score = the item's own score (null for none), noScore = what the blank choice means. The keys in the titles are
+     app.js's. -->
+<div th:fragment="reviewBar(basePath, markable, deleteAction, deleteConfirm, score, noScore)" th:if="${review}"
      class="review-bar" data-review-bar hidden>
     <span class="review-progress" data-review-progress>Review</span>
     <div class="btn-row">
+        <!-- Saved as soon as it is picked, without leaving the item. -->
+        <form method="post" th:action="${basePath + '/score'}" class="review-score">
+            <select name="score" class="star-select" aria-label="Score" title="Score (keys 1-9, 0 for 5 ★)"
+                    data-review-score>
+                <option value="" th:selected="${score == null}" th:text="${noScore}">No score</option>
+                <option th:each="n : ${#numbers.sequence(1, 10)}" th:value="${n}" th:selected="${score == n}"
+                        th:text="(${n % 2 == 0} ? ${n / 2} : ${n / 2.0}) + ' ★'">1 ★</option>
+            </select>
+        </form>
         <form th:if="${markable}" method="post" th:action="${basePath + '/mark-reviewed'}" class="review-action">
-            <button type="submit" class="btn btn-accent">Mark as reviewed</button>
+            <button type="submit" class="btn btn-accent" title="Mark as reviewed (R)"
+                    data-review-key="r">Mark as reviewed</button>
+        </form>
+        <form method="post" th:action="${basePath + '/mark-reviewed'}" class="review-action">
+            <input type="hidden" name="favourite" value="true">
+            <button type="submit" class="btn btn-ghost" title="Mark as reviewed and add to favourites (F)"
+                    data-review-key="f">&#9829; Favourite</button>
         </form>
         <form method="post" th:action="${deleteAction}" class="review-action review-delete confirm-delete"
               th:attr="data-confirm=${deleteConfirm}">
-            <button type="submit" class="btn btn-danger">Delete</button>
+            <button type="submit" class="btn btn-danger" title="Delete (E)" data-review-key="e">Delete</button>
         </form>
-        <button type="button" class="btn btn-ghost" data-review-skip>Skip</button>
+        <button type="button" class="btn btn-ghost" title="Skip (S)" data-review-key="s"
+                data-review-skip>Skip</button>
         <button type="button" class="btn btn-ghost" data-review-exit>Exit review</button>
     </div>
 </div>

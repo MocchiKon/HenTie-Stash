@@ -349,7 +349,14 @@ destructive button is one mis-tap from a navigation one.
   returns to the results URL. A **404** also moves on (the item was deleted elsewhere); any other failure
   reloads the item.
 - **"Mark as reviewed" sets `REVIEWED`** and leaves the favourite mark as it is. It evicts `searchCount` only
-  when the status really changed.
+  when something really changed. **"Favourite" is the same post with `favourite=true`**: reviewed and marked, never
+  unmarked, so a second press changes nothing.
+- **The score stays on the item** (`/score`, posted when picked; on a series it is the override, a blank one goes
+  back to `DERIVED`), so the user can still review or favourite it. The page is then **reloaded**, not patched:
+  the badges and the Mark-as-reviewed button would otherwise need the templates' logic again in JS.
+- **Keys do what their button does** (`data-review-key`; `e` still goes through `confirm-delete`). Digits post
+  the score with `markReviewed=true` and stay too (`0` is 10). Ignored with Ctrl/Alt/Meta, in a field, and
+  while an action runs.
 
 ## Chapter matching (`service/match`)
 Puts a chapter into a series automatically. **Two steps only**: the best existing series above the

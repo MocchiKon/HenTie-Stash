@@ -1165,6 +1165,67 @@ class SeriesServiceIT
         assertThat(statusOf(fresh)).isEqualTo(Status.REVIEWED);
     }
 
+    /** Review mode's Favourite button: reviewed, chapters included, and a favourite in one step. */
+    @Test
+    void shouldReviewAndFavouriteASeriesWhenMarkedReviewedAsFavourite()
+    {
+        // GIVEN
+        Chapter fresh = chapterWithStatus("Mark As Favourite 1", Status.NEW);
+        SeriesForm create = form("Mark As Favourite");
+        create.setStatus(Status.NEW);
+        create.setChapterIds(new ArrayList<>(List.of(fresh.getId())));
+        int id = seriesService.create(create);
+        em.flush();
+        em.clear();
+
+        // WHEN
+        seriesService.markReviewed(id, true);
+        em.flush();
+        em.clear();
+
+        // THEN
+        assertThat(seriesStatus(id)).isEqualTo(Status.REVIEWED);
+        assertThat(seriesRepository.findById(id).orElseThrow().isFavourite()).isTrue();
+        assertThat(statusOf(fresh)).isEqualTo(Status.REVIEWED);
+    }
+
+    /** Review mode's score is the series' own; a blank one goes back to the chapters' average. */
+    @Test
+    void shouldSetASeriesScoreAsItsOwnAndClearItBackToTheAverage()
+    {
+        // GIVEN a new series whose chapters average 4
+        Chapter scored = chapter("Review Series Score 1", "English", (short) 4, List.of());
+        SeriesForm create = form("Review Series Score");
+        create.setStatus(Status.NEW);
+        create.setChapterIds(new ArrayList<>(List.of(scored.getId())));
+        int id = seriesService.create(create);
+        em.flush();
+        em.clear();
+
+        // WHEN
+        seriesService.setScore(id, 9, false);
+        em.flush();
+        em.clear();
+
+        // THEN
+        Series series = seriesRepository.findById(id).orElseThrow();
+        assertThat(series.getScore()).isEqualTo((short) 9);
+        assertThat(series.getScoreSource()).isEqualTo(ScoreSource.USER_SET);
+        assertThat(series.getStatus()).isEqualTo(Status.NEW);
+
+        // WHEN cleared, by a digit key's request
+        seriesService.setScore(id, null, true);
+        em.flush();
+        em.clear();
+
+        // THEN
+        series = seriesRepository.findById(id).orElseThrow();
+        assertThat(series.getScore()).isEqualTo((short) 4);
+        assertThat(series.getScoreSource()).isEqualTo(ScoreSource.DERIVED);
+        assertThat(series.getStatus()).isEqualTo(Status.REVIEWED);
+        assertThat(statusOf(scored)).isEqualTo(Status.REVIEWED);
+    }
+
     /** Every way a chapter joins a series: by hand, and through matching. */
     @Test
     void shouldMarkAReviewedSeriesUpdatedWhenANewChapterJoins()

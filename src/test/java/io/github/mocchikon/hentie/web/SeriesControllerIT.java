@@ -393,7 +393,37 @@ class SeriesControllerIT
         // THEN
         result.andExpect(status().isOk())
                 .andExpect(content().string(containsString("data-review-bar")))
-                .andExpect(content().string(not(containsString("/mark-reviewed"))));
+                .andExpect(content().string(not(containsString(">Mark as reviewed<"))))
+                // the blank score choice says what it means for a series
+                .andExpect(content().string(containsString("<option value=\"\" selected=\"selected\">Average of chapters</option>")));
+    }
+
+    @Test
+    void shouldSetASeriesScoreAndFavouriteItFromReviewMode() throws Exception
+    {
+        // GIVEN
+        SeriesForm f = new SeriesForm();
+        f.setTitleFull("srw-review-score");
+        f.setStatus(Status.NEW);
+        int id = seriesService.create(f);
+
+        // WHEN
+        mvc.perform(post("/series/" + id + "/score").param("score", "8").with(user("user")).with(csrf()))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/series/" + id));
+        mvc.perform(post("/series/" + id + "/mark-reviewed").param("favourite", "true")
+                        .with(user("user")).with(csrf()))
+                .andExpect(status().is3xxRedirection());
+
+        // THEN
+        var series = seriesRepository.findById(id).orElseThrow();
+        assertThat(series.getScore()).isEqualTo((short) 8);
+        assertThat(series.getStatus()).isEqualTo(Status.REVIEWED);
+        assertThat(series.isFavourite()).isTrue();
+
+        // WHEN reviewed again, the page shows its own score in the bar
+        mvc.perform(get("/series/" + id).with(user("user")).param("review", "true"))
+                .andExpect(content().string(containsString("<option value=\"8\" selected=\"selected\">4 ★</option>")));
     }
 
     @Test

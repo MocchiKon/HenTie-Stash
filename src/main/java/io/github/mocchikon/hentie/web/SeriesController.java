@@ -66,9 +66,18 @@ public class SeriesController
 
     /** See {@link ChapterController#markReviewed}. */
     @PostMapping("/{id:\\d+}/mark-reviewed")
-    public String markReviewed(@PathVariable int id)
+    public String markReviewed(@PathVariable int id, @RequestParam(defaultValue = "false") boolean favourite)
     {
-        seriesService.markReviewed(id);
+        seriesService.markReviewed(id, favourite);
+        return REDIRECT_SERIES + id;
+    }
+
+    /** See {@link ChapterController#score}. */
+    @PostMapping("/{id:\\d+}/score")
+    public String score(@PathVariable int id, @RequestParam(required = false) Integer score,
+                        @RequestParam(defaultValue = "false") boolean markReviewed)
+    {
+        seriesService.setScore(id, score, markReviewed);
         return REDIRECT_SERIES + id;
     }
 

@@ -12,7 +12,7 @@
         <span th:text="'Divided: this chapter keeps its first part, and ' + ${#lists.size(divided)} + ' new chapter(s) hold the rest:'">Divided</span>
         <ul th:replace="~{fragments/components :: dividedParts(${divided})}"></ul>
     </div>
-    <div th:replace="~{fragments/components :: reviewBar(${'/chapter/' + vm.chapter.id}, ${vm.chapter.status != null and vm.chapter.status.name() == 'NEW'}, ${'/chapter/' + vm.chapter.id + '/delete'}, 'Delete this chapter and its page images on disk? This cannot be undone.')}"></div>
+    <div th:replace="~{fragments/components :: reviewBar(${'/chapter/' + vm.chapter.id}, ${vm.chapter.status != null and vm.chapter.status.name() == 'NEW'}, ${'/chapter/' + vm.chapter.id + '/delete'}, 'Delete this chapter and its page images on disk? This cannot be undone.', ${vm.chapter.score}, 'No score')}"></div>
     <section class="detail-block">
         <div class="detail-thumb">
             <img th:src="${vm.thumbnailUrl}" th:alt="${vm.chapter.titleFull}" loading="lazy">
