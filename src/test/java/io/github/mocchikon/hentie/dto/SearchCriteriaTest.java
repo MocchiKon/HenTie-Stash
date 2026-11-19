@@ -162,7 +162,7 @@ class SearchCriteriaTest
         var criteria = new SearchCriteria();
         criteria.getTagIds().add(1);
         criteria.getExcludedTagIds().addAll(List.of(1, 2));
-        criteria.getStatuses().addAll(List.of(Status.NEW, Status.REVIEWED));
+        criteria.getStatuses().add(Status.REVIEWED);
         criteria.getLanguages().add("English");
         criteria.setMinScore(4);
         criteria.setMinPages(5);
@@ -172,7 +172,7 @@ class SearchCriteriaTest
 
         // THEN only the included-and-excluded id goes; everything else still narrows the search
         assertThat(criteria.getExcludedTagIds()).containsExactly(2);
-        assertThat(criteria.getStatuses()).containsExactly(Status.NEW, Status.REVIEWED);
+        assertThat(criteria.getStatuses()).containsExactly(Status.REVIEWED);
         assertThat(criteria.getLanguages()).containsExactly("English");
         assertThat(criteria.getMinScore()).isEqualTo(4);
         assertThat(criteria.getMinPages()).isEqualTo(5);

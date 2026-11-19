@@ -153,6 +153,10 @@ public class SearchController
         {
             c.getStatuses().forEach(s -> sj.add("statuses=" + s.name()));
         }
+        if (c.isFavourite())
+        {
+            sj.add("favourite=true");
+        }
         if (c.getMinScore() != null)
         {
             sj.add("minScore=" + c.getMinScore());

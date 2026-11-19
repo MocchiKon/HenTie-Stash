@@ -1248,20 +1248,22 @@ class ChapterControllerIT
     }
 
     @Test
-    void shouldLeaveAFavouriteAloneWhenMarkedReviewed() throws Exception
+    void shouldKeepTheFavouriteMarkWhenMarkedReviewed() throws Exception
     {
-        // GIVEN a chapter made a favourite while a review page was still open on it
+        // GIVEN a new favourite
         ChapterForm form = new ChapterForm();
         form.setTitleFull("chw-mark-favourite");
         form.setLanguage("English");
-        form.setStatus(Status.REVIEWED_FAVOURITE);
+        form.setFavourite(true);
         int id = chapterService.create(form);
 
         // WHEN
         mvc.perform(post("/chapter/" + id + "/mark-reviewed").with(user("user")).with(csrf()))
                 .andExpect(status().is3xxRedirection());
 
-        // THEN it is not demoted
-        assertThat(chapterRepository.findById(id).orElseThrow().getStatus()).isEqualTo(Status.REVIEWED_FAVOURITE);
+        // THEN it is reviewed, and still a favourite
+        Chapter chapter = chapterRepository.findById(id).orElseThrow();
+        assertThat(chapter.getStatus()).isEqualTo(Status.REVIEWED);
+        assertThat(chapter.isFavourite()).isTrue();
     }
 }

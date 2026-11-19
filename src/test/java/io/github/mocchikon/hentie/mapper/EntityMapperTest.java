@@ -45,7 +45,8 @@ class EntityMapperTest
         c.setTitle("Pretty");
         c.setTitleFull("Full");
         c.setNativeTitle("Native");
-        c.setStatus(Status.REVIEWED_FAVOURITE);
+        c.setStatus(Status.REVIEWED);
+        c.setFavourite(true);
         c.setGalleryId("G-9");
         c.setLanguage("English");
         c.setScore((short) 8);
@@ -60,7 +61,8 @@ class EntityMapperTest
         assertThat(form.getTitle()).isEqualTo("Pretty");
         assertThat(form.getTitleFull()).isEqualTo("Full");
         assertThat(form.getNativeTitle()).isEqualTo("Native");
-        assertThat(form.getStatus()).isEqualTo(Status.REVIEWED_FAVOURITE);
+        assertThat(form.getStatus()).isEqualTo(Status.REVIEWED);
+        assertThat(form.isFavourite()).isTrue();
         assertThat(form.getGalleryId()).isEqualTo("G-9");
         assertThat(form.getLanguage()).isEqualTo("English");
         assertThat(form.getScore()).isEqualTo(8);

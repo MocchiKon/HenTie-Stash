@@ -90,6 +90,10 @@ public final class ChapterSpecifications
             {
                 predicates.add(root.get("status").in(c.getStatuses()));
             }
+            if (c.isFavourite())
+            {
+                predicates.add(FavouritePredicate.build(Chapter.class, driver, root, query, cb));
+            }
 
             Integer minScore = c.getMinScore();
             if (minScore != null && minScore > 0)

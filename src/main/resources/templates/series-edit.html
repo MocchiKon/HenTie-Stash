@@ -44,6 +44,13 @@
                 <span class="field-error" th:if="${#fields.hasErrors('status')}" th:errors="*{status}">error</span>
             </div>
             <div class="field">
+                <label>Favourite</label>
+                <label class="checkbox">
+                    <input type="checkbox" name="favourite" value="true" th:checked="${form.favourite}">
+                    <span>Mark as favourite</span>
+                </label>
+            </div>
+            <div class="field">
                 <label>Rating</label>
                 <div th:replace="~{fragments/components :: starSelect('score', ${form.score})}"></div>
             </div>

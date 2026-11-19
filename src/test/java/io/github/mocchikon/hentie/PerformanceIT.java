@@ -65,7 +65,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  *       (the test profile pins auto-linking off), or its numbers would not be comparable.</li>
  * </ul>
  * <p>
- * The data has a real collection's shape: status 80% {@code NEW} / 18% {@code REVIEWED} / 2% favourite and
+ * The data has a real collection's shape: status 80% {@code NEW} / 20% {@code REVIEWED} / 2% favourite and
  * scores skewed toward 7-9 (see {@link #statusOrdinalFor}/{@link #humanScore}), so status/score filters
  * and sorts behave as in production.
  * <p>
@@ -719,7 +719,7 @@ class PerformanceIT
         sweepFacet(results, "name (matches all)", SearchType.CHAPTER, (c, r) -> c.setTitle(CHAPTER_TERMS.get(r % CHAPTER_TERMS.size())));
         sweepFacet(results, "name (matches few)", SearchType.CHAPTER, (c, r) -> c.setTitle("Perf Chapter " + (chapterCount - r)));
         sweepFacet(results, "language (single)", SearchType.CHAPTER, (c, r) -> c.setLanguages(List.of(LANGUAGES.get(r % LANGUAGES.size()))));
-        sweepFacet(results, "status", SearchType.CHAPTER, (c, r) -> c.setStatuses(List.of(Status.values()[r % Status.values().length])));
+        sweepFacet(results, "status", SearchType.CHAPTER, (c, r) -> c.setStatuses(List.of(Status.CHAPTER_VALUES.get(r % Status.CHAPTER_VALUES.size()))));
         sweepFacet(results, "minScore", SearchType.CHAPTER, (c, r) -> c.setMinScore(4 + r % 6));
         sweepFacet(results, "date range (1 year)", SearchType.CHAPTER, (c, r) ->
         {
@@ -1067,13 +1067,36 @@ class PerformanceIT
 
     @Test
     @Timeout(value = 30, unit = TimeUnit.MINUTES)
-    void benchmarkPagedMultiStatusScoreSort()   // "everything I haven't marked Favourite", sorted by score
+    void benchmarkPagedMultiStatusScoreSort()   // every status a chapter can have, sorted by score
     {
         pagedPattern("NEW+REVIEWED (multi-status) + score DESC", (c, r, half, type) ->
         {
             c.setStatuses(List.of(Status.NEW, Status.REVIEWED));
             c.setSortBy(SortBy.SCORE);
             c.setSortDir(Sort.Direction.DESC);
+        });
+    }
+
+    @Test
+    @Timeout(value = 30, unit = TimeUnit.MINUTES)
+    void benchmarkPagedFavouritesScoreSort()   // "my favourites, best first"
+    {
+        pagedPattern("favourites (2%) + score DESC", (c, r, half, type) ->
+        {
+            c.setFavourite(true);
+            c.setSortBy(SortBy.SCORE);
+            c.setSortDir(Sort.Direction.DESC);
+        });
+    }
+
+    @Test
+    @Timeout(value = 30, unit = TimeUnit.MINUTES)
+    void benchmarkPagedFavouritesAndHalfTag()   // favourites carrying a common tag, newest first
+    {
+        pagedPattern("favourites (2%) + 50% tag", (c, r, half, type) ->
+        {
+            c.setFavourite(true);
+            c.setTagIds(List.of(half));
         });
     }
 
@@ -1928,6 +1951,7 @@ class PerformanceIT
             s.setTitle(titleFull);
             SeriesService.applyMatchKeys(s);   // match_key, exactly as every series title write fills it
             s.setStatus(Status.values()[statusOrdinalFor(i)]);
+            s.setFavourite(favouriteFor(i));
             s.setCreatedDate(dateFor(familyStart[i]));   // created when its first chapter arrived
             s.setScore(humanScore(i));
             s.setScoreSource(ScoreSource.DERIVED);
@@ -1943,8 +1967,8 @@ class PerformanceIT
     private void seedChapters()
     {
         String sql = "INSERT INTO chapter " +
-                "(id, title_pretty, title_full, native_title, upload_date, status, gallery_id, language, score, chapter_num, page_num, disk_size, series_id, match_key) " +
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+                "(id, title_pretty, title_full, native_title, upload_date, status, favourite, gallery_id, language, score, chapter_num, page_num, disk_size, series_id, match_key) " +
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
         List<Object[]> chunk = new ArrayList<>(JDBC_CHUNK);
         for (int i = 1; i <= chapterCount; i++)
         {
@@ -1961,7 +1985,8 @@ class PerformanceIT
                     titleFull,
                     "ネイティブ " + i,
                     Date.valueOf(dateFor(i)),
-                    statusOrdinalFor(i),         // 80% NEW(0), 18% REVIEWED(1), 2% REVIEWED_FAVOURITE(2)
+                    statusOrdinalFor(i),         // 80% NEW(0), 20% REVIEWED(1)
+                    favouriteFor(i) ? 1 : 0,     // 2%
                     "perf-g-" + i,
                     LANGUAGES.get(i % LANGUAGES.size()),
                     score,
@@ -2142,13 +2167,16 @@ class PerformanceIT
         return FIRST_DAY.plusDays((long) (chapter - 1) * DATE_SPAN_DAYS / chapterCount);
     }
 
-    /** 80% NEW / 18% REVIEWED / 2% favourite, on {@code i % 100} so the fractions are exact. */
+    /** 80% NEW / 20% REVIEWED, on {@code i % 100} so the fractions are exact. */
     private int statusOrdinalFor(int i)
     {
-        int bucket = i % 100;
-        if (bucket < 2)  return Status.REVIEWED_FAVOURITE.ordinal();   // 2%  (buckets 0-1)
-        if (bucket < 20) return Status.REVIEWED.ordinal();            // 18% (buckets 2-19)
-        return Status.NEW.ordinal();                                  // 80% (buckets 20-99)
+        return i % 100 < 20 ? Status.REVIEWED.ordinal() : Status.NEW.ordinal();
+    }
+
+    /** 2%, all of them reviewed (buckets 0-1 of {@link #statusOrdinalFor}). */
+    private static boolean favouriteFor(int i)
+    {
+        return i % 100 < 2;
     }
 
     // Scores as humans give them, mostly 7-9: score->count = 1:2 2:3 3:4 4:6 5:10 6:12 7:17 8:19 9:14 10:10

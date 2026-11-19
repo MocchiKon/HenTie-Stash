@@ -103,7 +103,7 @@ class SearchBulkDeleteWebIT
         // WHEN a delete-all arrives carrying only values that look like filters but match every row
         ResultActions result = mvc.perform(post("/search/results/delete-all").with(user("user")).with(csrf())
                 .queryParam("type", "CHAPTER").queryParam("minScore", "0").queryParam("minPages", "0")
-                .queryParam("tagIds", "").queryParam("statuses", "NEW", "REVIEWED", "REVIEWED_FAVOURITE"));
+                .queryParam("tagIds", "").queryParam("statuses", "NEW", "REVIEWED"));
 
         // THEN it is refused as the unfiltered search it is, and the search it lands on carries none of them
         result.andExpect(status().is3xxRedirection())

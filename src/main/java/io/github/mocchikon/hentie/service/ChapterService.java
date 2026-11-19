@@ -179,6 +179,7 @@ public class ChapterService
         chapter.setTitle(prettyTitle(form, key));
         chapter.setUploadDate(LocalDate.now());   // never user-editable
         chapter.setStatus(chapterStatus(form.getStatus()));
+        chapter.setFavourite(form.isFavourite());
         chapter.setGalleryId(galleryId);
         chapter.setLanguage(LanguageService.canonical(form.getLanguage()));
         chapter.setScore(toDbScore(form.getScore()));
@@ -214,6 +215,7 @@ public class ChapterService
         // A cleared pretty title is re-derived, not blanked: the column is NOT NULL.
         chapter.setTitle(prettyTitle(form, applyMatchKeys(chapter)));
         chapter.setStatus(chapterStatus(form.getStatus()));
+        chapter.setFavourite(form.isFavourite());
         chapter.setGalleryId(galleryId);
         chapter.setLanguage(LanguageService.canonical(form.getLanguage()));
         chapter.setScore(toDbScore(form.getScore()));
@@ -311,10 +313,7 @@ public class ChapterService
         return status != null && Status.CHAPTER_VALUES.contains(status) ? status : Status.NEW;
     }
 
-    /**
-     * Only ever promotes {@code NEW}: a review page left open in another tab must not demote a chapter
-     * meanwhile made a favourite. Evicts only when the status really changed.
-     */
+    /** Evicts only when the status really changed. */
     @Transactional
     public void markReviewed(int id)
     {

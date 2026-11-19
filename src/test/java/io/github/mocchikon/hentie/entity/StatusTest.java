@@ -14,10 +14,9 @@ class StatusTest
         // WHEN + THEN
         assertThat(Status.NEW.ordinal()).isZero();
         assertThat(Status.REVIEWED.ordinal()).isEqualTo(1);
-        assertThat(Status.REVIEWED_FAVOURITE.ordinal()).isEqualTo(2);
-        assertThat(Status.UPDATED.ordinal()).isEqualTo(3);
-        assertThat(Status.values()).containsExactly(
-                Status.NEW, Status.REVIEWED, Status.REVIEWED_FAVOURITE, Status.UPDATED);
+        // 2 was the favourite until V8 moved it into a column of its own.
+        assertThat(Status.UPDATED.ordinal()).isEqualTo(2);
+        assertThat(Status.values()).containsExactly(Status.NEW, Status.REVIEWED, Status.UPDATED);
     }
 
     @Test
@@ -26,12 +25,11 @@ class StatusTest
         // WHEN
         String newName = Status.NEW.getDisplayName();
         String reviewedName = Status.REVIEWED.getDisplayName();
-        String favouriteName = Status.REVIEWED_FAVOURITE.getDisplayName();
+        String updatedName = Status.UPDATED.getDisplayName();
 
         // THEN
         assertThat(newName).isEqualTo("New");
         assertThat(reviewedName).isEqualTo("Reviewed");
-        // Not derivable from the constant name.
-        assertThat(favouriteName).isEqualTo("Favourite");
+        assertThat(updatedName).isEqualTo("Updated");
     }
 }

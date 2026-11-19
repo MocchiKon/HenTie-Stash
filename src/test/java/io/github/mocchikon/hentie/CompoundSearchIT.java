@@ -169,6 +169,22 @@ class CompoundSearchIT
                 {
                     c.setTitle("zzkey");
                     c.setTagIds(ids(f.tagC()));
+                }),
+                search("favourites only", (f, c) -> c.setFavourite(true)),
+                search("favourites and tag", (f, c) ->
+                {
+                    c.setFavourite(true);
+                    c.setTagIds(ids(f.tagA()));
+                }),
+                search("favourites, one status", (f, c) ->
+                {
+                    c.setFavourite(true);
+                    c.setStatuses(List.of(Status.NEW));
+                }),
+                search("favourites minus a tag", (f, c) ->
+                {
+                    c.setFavourite(true);
+                    c.setExcludedTagIds(ids(f.tagExcluded()));
                 }));
     }
 
@@ -211,6 +227,17 @@ class CompoundSearchIT
                 {
                     c.setTitle("zzkey");
                     c.setTagIds(ids(f.tagB()));
+                }),
+                search("favourites only", (f, c) -> c.setFavourite(true)),
+                search("favourites and language", (f, c) ->
+                {
+                    c.setFavourite(true);
+                    c.setLanguages(List.of("English"));
+                }),
+                search("favourites, one status", (f, c) ->
+                {
+                    c.setFavourite(true);
+                    c.setStatuses(List.of(Status.UPDATED));
                 }));
     }
 
@@ -356,7 +383,8 @@ class CompoundSearchIT
         chapter.setNativeTitle(i % 8 == 0 ? "zzkey native" : null);   // the term also matches native titles
         chapter.setUploadDate(LocalDate.of(2021, 1, 1).plusDays(i % 6));
         chapter.setLanguage(i % 2 == 0 ? "English" : "Japanese");
-        chapter.setStatus(Status.values()[i % 3]);
+        chapter.setStatus(Status.CHAPTER_VALUES.get(i % 2));
+        chapter.setFavourite(i % 4 == 1);
         chapter.setScore(i % 6 == 0 ? null : (short) (i % 10 + 1));
         chapter.setPageNum(5 + (i % 4) * 10);
         chapter.setDiskSize(1000L * (i % 5));
@@ -374,6 +402,7 @@ class CompoundSearchIT
         series.setTitle(series.getTitleFull());
         series.setCreatedDate(LocalDate.of(2021, 1, 1).plusDays(i % 5));
         series.setStatus(Status.values()[i % 3]);
+        series.setFavourite(i % 3 == 1);
         series.setScore(i % 5 == 0 ? null : (short) (i % 10 + 1));
         series.setScoreSource(i % 5 == 0 ? ScoreSource.DERIVED : ScoreSource.USER_SET);
         series.setPageNum(10 + (i % 3) * 10);

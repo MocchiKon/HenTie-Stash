@@ -36,6 +36,8 @@ public class SeriesForm
     @NotNull(message = "Status is required.")
     private Status status;
 
+    private boolean favourite;
+
     private List<Integer> tagIds = new ArrayList<>();
     private List<Integer> artistIds = new ArrayList<>();
     private List<Integer> characterIds = new ArrayList<>();

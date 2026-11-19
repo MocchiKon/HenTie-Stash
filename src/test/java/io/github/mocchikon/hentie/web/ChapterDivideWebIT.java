@@ -87,17 +87,17 @@ class ChapterDivideWebIT
     @Test
     void shouldPreselectTheChaptersOwnStatusForTheNewChapters() throws Exception
     {
-        // GIVEN a favourite.
+        // GIVEN a reviewed chapter.
         int id = chapterWithPages("Divide Web Status Vol 1", "1.jpg", "2.jpg");
         var form = chapterService.toForm(id);
-        form.setStatus(Status.REVIEWED_FAVOURITE);
+        form.setStatus(Status.REVIEWED);
         chapterService.update(form);
 
         // WHEN / THEN the new chapters' status starts at the compilation's.
         mvc.perform(get("/chapter/" + id + "/divide").with(user("user")))
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString("name=\"partStatus\"")))
-                .andExpect(content().string(containsString("value=\"REVIEWED_FAVOURITE\" selected=\"selected\"")))
+                .andExpect(content().string(containsString("value=\"REVIEWED\" selected=\"selected\"")))
                 .andExpect(content().string(not(containsString("value=\"NEW\" selected=\"selected\""))));
     }
 

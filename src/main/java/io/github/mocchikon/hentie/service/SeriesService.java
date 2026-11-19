@@ -230,13 +230,13 @@ public class SeriesService
         return chapters;
     }
 
-    /** Only promotes NEW and UPDATED, so a review page left open in another tab cannot demote a favourite. */
+    /** Evicts only when the status really changed. */
     @Transactional
     public void markReviewed(int id)
     {
         Series series = get(id);
         Status before = series.getStatus();
-        if (before == Status.NEW || before == Status.UPDATED)
+        if (before != Status.REVIEWED)
         {
             series.setStatus(Status.REVIEWED);
             seriesRepository.save(series);
@@ -247,9 +247,8 @@ public class SeriesService
 
     /**
      * Reviewing a series reviews the chapters it holds, or they would stay in every search for new chapters
-     * after the user has seen them. Only {@code NEW} chapters are promoted, so a favourite stays one. Runs only
-     * when the series <i>becomes</i> reviewed: saving a reviewed series again (a new title) touches no chapter.
-     * The caller evicts the search count.
+     * after the user has seen them. Runs only when the series <i>becomes</i> reviewed: saving a reviewed series
+     * again (a new title) touches no chapter. The caller evicts the search count.
      */
     private void reviewChaptersIfReviewed(Series series, Status before)
     {
@@ -260,10 +259,9 @@ public class SeriesService
     }
 
     /**
-     * A reviewed series that a new chapter joins has something to review again. Only {@code REVIEWED}: a
-     * favourite keeps its mark and a new series is not reviewed yet. Not when the series form changes the
-     * status in the same request that links the chapters: the status the user picked wins. The caller saves the
-     * series and evicts the search count.
+     * A reviewed series that a new chapter joins has something to review again; a new one is not reviewed yet.
+     * Not when the series form changes the status in the same request that links the chapters: the status the
+     * user picked wins. The caller saves the series and evicts the search count.
      */
     private static void markUpdatedIfNewJoined(Series series, Collection<Chapter> joined)
     {
@@ -414,6 +412,7 @@ public class SeriesService
         applyMatchKeys(series);
         applyScore(series, form.getScore());
         series.setStatus(form.getStatus());
+        series.setFavourite(form.isFavourite());
         series.setTags(tagRepository.findAllById(metadataService.withPlainTags(form.getTagIds())));
         series.setArtists(artistRepository.findAllById(form.getArtistIds()));
         series.setCharacters(characterRepository.findAllById(form.getCharacterIds()));

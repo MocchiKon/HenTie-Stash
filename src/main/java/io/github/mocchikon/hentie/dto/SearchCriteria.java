@@ -39,6 +39,9 @@ public class SearchCriteria
     private List<String> languages = new ArrayList<>();
     private List<Status> statuses = new ArrayList<>();
 
+    /** Favourites only; false means any, never "not a favourite". */
+    private boolean favourite;
+
     /** 1-10; the half-star UI shows it as 0.5-5. */
     private Integer minScore;
 
@@ -87,6 +90,7 @@ public class SearchCriteria
                 .append("|-categories=").append(excludedCategoryIds)
                 .append("|languages=").append(languages)
                 .append("|statuses=").append(statuses)
+                .append("|favourite=").append(favourite)
                 .append("|minScore=").append(minScore)
                 .append("|minPages=").append(minPages)
                 .append("|maxPages=").append(maxPages)
@@ -109,7 +113,7 @@ public class SearchCriteria
                 || notEmpty(groupIds) || notEmpty(categoryIds) || notEmpty(excludedTagIds)
                 || notEmpty(excludedArtistIds) || notEmpty(excludedCharacterIds) || notEmpty(excludedParodyIds)
                 || notEmpty(excludedGroupIds) || notEmpty(excludedCategoryIds)
-                || notEmpty(languages) || notEmpty(statuses)
+                || notEmpty(languages) || notEmpty(statuses) || favourite
                 || minScore != null || minPages != null || maxPages != null || uploadFrom != null || uploadTo != null;
     }
 

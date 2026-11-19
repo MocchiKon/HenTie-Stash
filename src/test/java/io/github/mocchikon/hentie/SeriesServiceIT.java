@@ -1040,14 +1040,16 @@ class SeriesServiceIT
         return seriesRepository.findById(id).orElseThrow().getStatus();
     }
 
-    /** Reviewing a series reviews its new chapters; a favourite chapter is no "new" one and is left alone. */
+    /** Reviewing a series reviews its new chapters, favourites among them, which stay favourites. */
     @Test
-    void shouldReviewNewChaptersButKeepFavouritesWhenSeriesBecomesReviewed()
+    void shouldReviewNewChaptersAndKeepFavouriteMarksWhenSeriesBecomesReviewed()
     {
-        // GIVEN a new series with a new, a reviewed and a favourite chapter, and a new chapter elsewhere.
+        // GIVEN a new series with a new, a reviewed and a new favourite chapter, and a new chapter elsewhere.
         Chapter fresh = chapterWithStatus("Review Cascade 1", Status.NEW);
         Chapter seen = chapterWithStatus("Review Cascade 2", Status.REVIEWED);
-        Chapter favourite = chapterWithStatus("Review Cascade 3", Status.REVIEWED_FAVOURITE);
+        Chapter favourite = chapterWithStatus("Review Cascade 3", Status.NEW);
+        favourite.setFavourite(true);
+        chapterRepository.save(favourite);
         Chapter elsewhere = chapterWithStatus("Review Cascade Other", Status.NEW);
         SeriesForm create = form("Review Cascade");
         create.setStatus(Status.NEW);
@@ -1067,7 +1069,8 @@ class SeriesServiceIT
         assertThat(seriesStatus(id)).isEqualTo(Status.REVIEWED);
         assertThat(statusOf(fresh)).isEqualTo(Status.REVIEWED);
         assertThat(statusOf(seen)).isEqualTo(Status.REVIEWED);
-        assertThat(statusOf(favourite)).isEqualTo(Status.REVIEWED_FAVOURITE);
+        assertThat(statusOf(favourite)).isEqualTo(Status.REVIEWED);
+        assertThat(chapterRepository.findById(favourite.getId()).orElseThrow().isFavourite()).isTrue();
         assertThat(statusOf(elsewhere)).isEqualTo(Status.NEW);
     }
 
@@ -1137,14 +1140,15 @@ class SeriesServiceIT
         assertThat(statusOf(joined)).isEqualTo(Status.REVIEWED);
     }
 
-    /** A favourite is never demoted by a review page left open in another tab. */
+    /** Favourite is a mark of its own: a new favourite series is reviewed like any other and stays a favourite. */
     @Test
-    void shouldKeepAFavouriteSeriesAndItsChaptersWhenMarkedReviewed()
+    void shouldReviewANewFavouriteSeriesAndKeepItsMarkWhenMarkedReviewed()
     {
         // GIVEN
         Chapter fresh = chapterWithStatus("Mark Favourite 1", Status.NEW);
         SeriesForm create = form("Mark Favourite");
-        create.setStatus(Status.REVIEWED_FAVOURITE);
+        create.setStatus(Status.NEW);
+        create.setFavourite(true);
         create.setChapterIds(new ArrayList<>(List.of(fresh.getId())));
         int id = seriesService.create(create);
         em.flush();
@@ -1156,8 +1160,9 @@ class SeriesServiceIT
         em.clear();
 
         // THEN
-        assertThat(seriesStatus(id)).isEqualTo(Status.REVIEWED_FAVOURITE);
-        assertThat(statusOf(fresh)).isEqualTo(Status.NEW);
+        assertThat(seriesStatus(id)).isEqualTo(Status.REVIEWED);
+        assertThat(seriesRepository.findById(id).orElseThrow().isFavourite()).isTrue();
+        assertThat(statusOf(fresh)).isEqualTo(Status.REVIEWED);
     }
 
     /** Every way a chapter joins a series: by hand, and through matching. */
@@ -1183,14 +1188,17 @@ class SeriesServiceIT
         assertThat(statusOf(first)).isEqualTo(Status.NEW);
     }
 
-    /** Only a new chapter makes news, and only a reviewed series is waiting for it. */
+    /**
+     * Only a new chapter makes news, and only a reviewed series is waiting for it - a favourite one too, which
+     * stays a favourite.
+     */
     @Test
-    void shouldKeepTheStatusWhenTheChapterIsNotNewOrTheSeriesNotReviewed()
+    void shouldUpdateOnlyAReviewedSeriesThatANewChapterJoins()
     {
-        // GIVEN a reviewed series, a favourite one and a new one
+        // GIVEN a reviewed series, a reviewed favourite one and a new one
         int reviewed = seriesService.create(form("Kept Reviewed"));
         SeriesForm favouriteForm = form("Kept Favourite");
-        favouriteForm.setStatus(Status.REVIEWED_FAVOURITE);
+        favouriteForm.setFavourite(true);
         int favourite = seriesService.create(favouriteForm);
         SeriesForm newForm = form("Kept New");
         newForm.setStatus(Status.NEW);
@@ -1209,7 +1217,8 @@ class SeriesServiceIT
 
         // THEN
         assertThat(seriesStatus(reviewed)).isEqualTo(Status.REVIEWED);
-        assertThat(seriesStatus(favourite)).isEqualTo(Status.REVIEWED_FAVOURITE);
+        assertThat(seriesStatus(favourite)).isEqualTo(Status.UPDATED);
+        assertThat(seriesRepository.findById(favourite).orElseThrow().isFavourite()).isTrue();
         assertThat(seriesStatus(fresh)).isEqualTo(Status.NEW);
     }
 

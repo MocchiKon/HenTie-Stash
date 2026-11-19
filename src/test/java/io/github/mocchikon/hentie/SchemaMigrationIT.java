@@ -68,6 +68,7 @@ class SchemaMigrationIT
                 "ix_series__score_id_status", "ix_series__page_num_id_status", "ix_series__disk_size_id_status",
                 "ix_chapter__language", "ix_chapter__language_score", "ix_chapter__language_page_num",
                 "ix_chapter__language_disk_size", "ix_chapter__id", "ix_series__id",
+                "ix_chapter__favourite", "ix_series__favourite",
                 "ix_series_eff_languages__language_series",
                 "ix_chapter_tags__tag_chapter", "ix_chapter_tags__chapter_tag",
                 "ix_series_eff_tags__tag_series", "ix_series_eff_tags__series_tag",

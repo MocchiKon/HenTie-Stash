@@ -34,6 +34,8 @@ import java.util.List;
         @Index(name = "ix_series__status_disk_size", columnList = "status, disk_size"),
         // The ids alone, far smaller than the table: what an exclusion-only search subtracts from.
         @Index(name = "ix_series__id", columnList = "id"),
+        // (favourite, id): the favourites in id order, read by search like a tag's list.
+        @Index(name = "ix_series__favourite", columnList = "favourite"),
         // Candidate seeks for matching; without them lookup would load every series. The nearest-title walk uses
         // ix_series__condensed_match_key (V1), an expression index @Index cannot declare.
         @Index(name = "ix_series__match_key", columnList = "match_key, id")
@@ -73,6 +75,10 @@ public class Series
     @Enumerated(EnumType.ORDINAL)
     @Column(name = "status", nullable = false)
     private Status status = Status.NEW;
+
+    /** The user's mark, apart from the status: a favourite can still be new. */
+    @Column(name = "favourite", nullable = false, columnDefinition = "boolean not null default 0")
+    private boolean favourite = false;
 
     // Always the sum over the chapters (no override), materialized for search.
     @Column(name = "page_num", nullable = false, columnDefinition = "integer not null default 0")

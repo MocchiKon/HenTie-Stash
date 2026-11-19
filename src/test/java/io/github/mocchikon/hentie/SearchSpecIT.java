@@ -1,5 +1,6 @@
 package io.github.mocchikon.hentie;
 
+import io.github.mocchikon.hentie.dto.MetadataType;
 import io.github.mocchikon.hentie.dto.SearchCriteria;
 import io.github.mocchikon.hentie.dto.SearchType;
 import io.github.mocchikon.hentie.entity.*;
@@ -8,6 +9,7 @@ import io.github.mocchikon.hentie.repository.ChapterRepository;
 import io.github.mocchikon.hentie.repository.SeriesRepository;
 import io.github.mocchikon.hentie.repository.TagRepository;
 import io.github.mocchikon.hentie.repository.spec.ChapterSpecifications;
+import io.github.mocchikon.hentie.repository.spec.OperandKey;
 import io.github.mocchikon.hentie.repository.spec.SeriesSpecifications;
 import io.github.mocchikon.hentie.service.SeriesService;
 import jakarta.persistence.EntityManager;
@@ -19,6 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -378,18 +381,52 @@ class SearchSpecIT
     {
         // GIVEN
         withStatus("st-new", Status.NEW);
-        withStatus("st-fav", Status.REVIEWED_FAVOURITE);
+        withStatus("st-reviewed", Status.REVIEWED);
         em.flush();
 
         SearchCriteria sc = new SearchCriteria();
         sc.setTitle("st-");
-        sc.setStatuses(List.of(Status.REVIEWED_FAVOURITE));
+        sc.setStatuses(List.of(Status.REVIEWED));
 
         // WHEN
         List<Chapter> result = chapterRepository.findAll(ChapterSpecifications.from(sc));
 
         // THEN
-        assertThat(result).extracting(Chapter::getTitleFull).containsExactly("st-fav");
+        assertThat(result).extracting(Chapter::getTitleFull).containsExactly("st-reviewed");
+    }
+
+    /** The same favourites whichever value the query starts from. */
+    @Test
+    void shouldMatchOnlyFavouritesWhenFavouriteFilterSet()
+    {
+        // GIVEN two tagged chapters, one a favourite, and an untagged favourite
+        Tag tag = tag("fav-tag");
+        Chapter tagged = chapter("fav-tagged", "x", "English", List.of(tag));
+        tagged.setFavourite(true);
+        chapter("fav-not", "x", "English", List.of(tag));
+        Chapter untagged = chapter("fav-untagged", "x", "English", List.of());
+        untagged.setFavourite(true);
+        em.flush();
+
+        SearchCriteria favourites = new SearchCriteria();
+        favourites.setFavourite(true);
+        SearchCriteria taggedFavourites = new SearchCriteria();
+        taggedFavourites.setFavourite(true);
+        taggedFavourites.setTagIds(List.of(tag.getId()));
+
+        // WHEN + THEN
+        for (OperandKey driver : Arrays.asList(null, OperandKey.FAVOURITE))
+        {
+            assertThat(chapterRepository.findAll(ChapterSpecifications.from(favourites, null, driver)))
+                    .as("driver %s", driver).extracting(Chapter::getTitleFull)
+                    .containsExactlyInAnyOrder("fav-tagged", "fav-untagged");
+        }
+        for (OperandKey driver : Arrays.asList(null, OperandKey.FAVOURITE,
+                OperandKey.of(MetadataType.TAG, tag.getId())))
+        {
+            assertThat(chapterRepository.findAll(ChapterSpecifications.from(taggedFavourites, null, driver)))
+                    .as("driver %s", driver).extracting(Chapter::getTitleFull).containsExactly("fav-tagged");
+        }
     }
 
     @Test

@@ -131,7 +131,8 @@ class ChapterDivisionServiceIT
         int id = chapterWithPages("Divide Meta Vol 1", "1.jpg", "2.jpg");
         var form = chapterService.toForm(id);
         form.setNativeTitle("Divide Meta native");
-        form.setStatus(Status.REVIEWED_FAVOURITE);
+        form.setStatus(Status.REVIEWED);
+        form.setFavourite(true);
         form.setScore(8);
         form.setLanguage("Japanese");
         form.setGalleryId("divide-test:1");
@@ -146,11 +147,12 @@ class ChapterDivisionServiceIT
         // WHEN it is divided with no status picked for the part.
         var outcome = divide(id, new NewPart("2.jpg", "Divide Meta 2 [Digital]"));
 
-        // THEN the part carries the compilation's metadata, its status included...
+        // THEN the part carries the compilation's metadata, its status and favourite mark included...
         int part = track(outcome.created().getFirst().chapterId());
         ChapterForm copied = chapterService.toForm(part);
         assertThat(copied.getNativeTitle()).isEqualTo("Divide Meta native");
-        assertThat(copied.getStatus()).isEqualTo(Status.REVIEWED_FAVOURITE);
+        assertThat(copied.getStatus()).isEqualTo(Status.REVIEWED);
+        assertThat(copied.isFavourite()).isTrue();
         assertThat(copied.getScore()).isEqualTo(8);
         assertThat(copied.getLanguage()).isEqualTo("Japanese");
         assertThat(copied.getTagIds()).isEqualTo(form.getTagIds());
@@ -175,7 +177,8 @@ class ChapterDivisionServiceIT
         // GIVEN a compilation marked as a favourite.
         int id = chapterWithPages("Divide Status Vol 1", "1.jpg", "2.jpg", "3.jpg");
         var form = chapterService.toForm(id);
-        form.setStatus(Status.REVIEWED_FAVOURITE);
+        form.setStatus(Status.REVIEWED);
+        form.setFavourite(true);
         chapterService.update(form);
 
         // WHEN it is divided into three, the new chapters to be looked at again.
@@ -189,7 +192,8 @@ class ChapterDivisionServiceIT
             track(part.chapterId());
             assertThat(chapter(part.chapterId()).getStatus()).isEqualTo(Status.NEW);
         }
-        assertThat(chapter(id).getStatus()).isEqualTo(Status.REVIEWED_FAVOURITE);
+        assertThat(chapter(id).getStatus()).isEqualTo(Status.REVIEWED);
+        assertThat(chapter(id).isFavourite()).isTrue();
     }
 
     @Test

@@ -157,7 +157,8 @@ class ChapterServiceIT
         ChapterForm form = minimalForm("Explicit Chapter");
         form.setTitle("Pretty");
         form.setNativeTitle("ネイティブ");
-        form.setStatus(Status.REVIEWED_FAVOURITE);
+        form.setStatus(Status.REVIEWED);
+        form.setFavourite(true);
         form.setGalleryId("GID-1");
         form.setScore(8);
 
@@ -170,7 +171,8 @@ class ChapterServiceIT
         Chapter c = chapterRepository.findById(id).orElseThrow();
         assertThat(c.getTitle()).isEqualTo("Pretty");
         assertThat(c.getNativeTitle()).isEqualTo("ネイティブ");
-        assertThat(c.getStatus()).isEqualTo(Status.REVIEWED_FAVOURITE);
+        assertThat(c.getStatus()).isEqualTo(Status.REVIEWED);
+        assertThat(c.isFavourite()).isTrue();
         assertThat(c.getGalleryId()).isEqualTo("GID-1");
         assertThat(c.getScore()).isEqualTo((short) 8);
     }
@@ -556,24 +558,41 @@ class ChapterServiceIT
         assertThat(seriesRepository.findById(s2)).isEmpty();
     }
 
+    /** Favourite is a mark of its own, which reviewing leaves as it is. */
     @Test
-    void shouldPromoteOnlyANewChapterWhenMarkedReviewed()
+    void shouldReviewANewChapterAndKeepItsFavouriteMarkWhenMarkedReviewed()
     {
         // GIVEN
-        int fresh = chapterService.create(minimalForm("mark-reviewed-new"));
         ChapterForm favouriteForm = minimalForm("mark-reviewed-favourite");
-        favouriteForm.setStatus(Status.REVIEWED_FAVOURITE);
+        favouriteForm.setFavourite(true);
         int favourite = chapterService.create(favouriteForm);
 
         // WHEN
-        chapterService.markReviewed(fresh);
         chapterService.markReviewed(favourite);
         em.flush();
         em.clear();
 
-        // THEN NEW moves on, a favourite is never demoted
-        assertThat(chapterRepository.findById(fresh).orElseThrow().getStatus()).isEqualTo(Status.REVIEWED);
-        assertThat(chapterRepository.findById(favourite).orElseThrow().getStatus()).isEqualTo(Status.REVIEWED_FAVOURITE);
+        // THEN
+        Chapter chapter = chapterRepository.findById(favourite).orElseThrow();
+        assertThat(chapter.getStatus()).isEqualTo(Status.REVIEWED);
+        assertThat(chapter.isFavourite()).isTrue();
+    }
+
+    /** A chapter is never UPDATED: the forms do not offer it, and a hand-made request gets NEW. */
+    @Test
+    void shouldStoreNewForASeriesOnlyStatus()
+    {
+        // GIVEN
+        ChapterForm form = minimalForm("chapter-updated-status");
+        form.setStatus(Status.UPDATED);
+
+        // WHEN
+        int id = chapterService.create(form);
+        em.flush();
+        em.clear();
+
+        // THEN
+        assertThat(chapterRepository.findById(id).orElseThrow().getStatus()).isEqualTo(Status.NEW);
     }
 
     @Test

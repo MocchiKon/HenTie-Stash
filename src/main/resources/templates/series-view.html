@@ -23,6 +23,7 @@
 
             <div class="detail-meta">
                 <span th:if="${vm.series.status != null}" class="badge" th:text="${vm.series.status.displayName}">Status</span>
+                <span th:if="${vm.series.favourite}" class="badge">Favourite</span>
                 <span class="badge" th:text="${vm.chapterCount} + ' chapter(s)'">0 chapters</span>
                 <span th:if="${vm.pageCount > 0}" class="badge" th:text="${vm.diskSizeDisplay}">0 B</span>
                 <span th:if="${vm.score != null}" class="badge stars"

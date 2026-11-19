@@ -7,7 +7,7 @@
 <main class="container narrow guide">
     <h1>Guide</h1>
     <p class="hint">How to reach HenTie from other devices, how to set up ComfyUI, how image compression rules
-        work, and what the statuses mean.</p>
+        work, and what statuses and favourites mean.</p>
 
     <nav class="guide-toc" aria-label="Contents">
         <ol>
@@ -39,7 +39,7 @@
                     <li><a href="#compression-rules-values">Renaming, merging or deleting</a></li>
                 </ol>
             </li>
-            <li><a href="#statuses">Statuses</a></li>
+            <li><a href="#statuses">Statuses and favourites</a></li>
         </ol>
     </nav>
 
@@ -492,17 +492,18 @@ exec python main.py --listen 127.0.0.1 --port 8188</pre>
         stops the rules that list it; the rules page marks them so you can fix them.</p>
 
     <!-- ===================================================================================== -->
-    <h2 class="section-title" id="statuses">Statuses</h2>
-    <p>Every chapter and series is <strong>New</strong>, <strong>Reviewed</strong> or <strong>Favourite</strong>.
-        A series can also be <strong>Updated</strong>.</p>
+    <h2 class="section-title" id="statuses">Statuses and favourites</h2>
+    <p>Every chapter and series is <strong>New</strong> or <strong>Reviewed</strong>. A series can also be
+        <strong>Updated</strong>.</p>
     <ul>
-        <li>Marking a series <strong>Reviewed</strong> also marks its <strong>New</strong> chapters Reviewed.
-            Favourite chapters stay Favourite.</li>
+        <li>Marking a series <strong>Reviewed</strong> also marks its <strong>New</strong> chapters Reviewed.</li>
         <li>When a <strong>New</strong> chapter is added to a <strong>Reviewed</strong> series, the series becomes
             <strong>Updated</strong>, so you can find series with chapters you have not seen yet. Search for
             series with the status Updated.</li>
         <li>Marking an Updated series Reviewed again also marks its new chapters Reviewed.</li>
     </ul>
+    <p><strong>Favourite</strong> is a separate mark, set on the edit page. A favourite keeps its mark whatever its
+        status is. Tick <strong>Favourites only</strong> on the search page to find them.</p>
 </main>
 <script th:src="@{/js/app.js}"></script>
 </body>

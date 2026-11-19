@@ -329,6 +329,7 @@ public class ChapterDivisionService
         form.setTitleFull(titleFull);
         form.setNativeTitle(shared.getNativeTitle());
         form.setStatus(shared.getStatus());
+        form.setFavourite(shared.isFavourite());
         form.setLanguage(shared.getLanguage());
         form.setScore(shared.getScore());
         form.setTagIds(new ArrayList<>(shared.getTagIds()));

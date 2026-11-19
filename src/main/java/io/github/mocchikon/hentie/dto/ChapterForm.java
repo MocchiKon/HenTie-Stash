@@ -29,6 +29,8 @@ public class ChapterForm
 
     private Status status;
 
+    private boolean favourite;
+
     @Size(max = 255, message = TOO_LONG)
     private String galleryId;
 

@@ -91,9 +91,9 @@ Flyway history.
   `ImageCompressionMode.encoder` (`ImageEncoder`). Existing rows hold the integer. `NONE` is first in
   `DownloadStatus` so the column's `DEFAULT 0` means "not from a download". **A new `Status` goes last and
   needs a migration**: `chapter.status` and `series.status` are `CHECK`ed (`between 0 and <last>`), which
-  `ddl-auto=validate` does not see (`SchemaMigrationIT` does). V8 widened it in place, editing the definitions in
-  `sqlite_schema` (a wider CHECK changes nothing stored); rebuilding `chapter` would copy every row and needs
-  `foreign_keys=OFF`, impossible inside Flyway's transaction.
+  `ddl-auto=validate` does not see (`SchemaMigrationIT` does). SQLite cannot alter a CHECK: rebuilding `chapter`
+  copies every row and needs `foreign_keys=OFF`, impossible inside Flyway's transaction. V8 moved status 2
+  (favourite) into its own column and gave 2 to `UPDATED`.
 - **`status` is `NOT NULL`** on `Chapter` and `Series` (field default `NEW`; services coalesce null).
 - **`download_queue.priority` values are never renumbered**: 0 = the user asked for it, 1 = a subscription queued
   it; lower runs first (see "Chapter downloading").
@@ -225,7 +225,7 @@ Flyway history.
 
 ## Search (`repository/spec`, `service/SearchService`)
 - **Facets are AND-ed, and so are several values of one facet.** How each included value (a metadata
-  value, the title term, series languages) is checked depends on its size. `SearchService.plan` probes
+  value, the title term, favourites only, series languages) is checked depends on its size. `SearchService.plan` probes
   each with a `LIMIT`ed count (well under 1 ms a tag) before the page runs; **never a full count first**,
   which would run before the page instead of beside it.
   - **Some value is small** (under `app.search.large-list-rows`, 30k, where both plans cost the same on
@@ -348,8 +348,8 @@ destructive button is one mis-tap from a navigation one.
   `redirect: "manual"` and move on with `location.replace`, so Back returns to the results. The last item
   returns to the results URL. A **404** also moves on (the item was deleted elsewhere); any other failure
   reloads the item.
-- **"Mark as reviewed" only promotes `NEW`** (and a series' `UPDATED`), so a stale tab cannot demote a
-  favourite. It evicts `searchCount` only when the status really changed.
+- **"Mark as reviewed" sets `REVIEWED`** and leaves the favourite mark as it is. It evicts `searchCount` only
+  when the status really changed.
 
 ## Chapter matching (`service/match`)
 Puts a chapter into a series automatically. **Two steps only**: the best existing series above the
@@ -1256,18 +1256,23 @@ newer than the running version. The Guide's Updates section explains it.
 - **Score is an integer 1–10 end to end** (DB `Short`, form/search `Integer`); the backend only narrows and
   clamps, never scales. The 0.5–5 half-star UI is presentation only: `<select>` values are 1–10 and views
   divide by 2. "Minimum rating" is `score >= minScore`.
-- `Status.REVIEWED_FAVOURITE` displays as **"Favourite"**.
+- **Favourite is a flag, not a status** (`favourite` on `Chapter` and `Series`, on both forms): a favourite is
+  still new, reviewed or updated, and no status change touches the flag.
+- **"Favourites only" is an included value to search, like a tag** (`OperandKey.FAVOURITE`): its list is
+  `ix_<owner>__favourite`, `(favourite, id)`, so the planner probes it, starts from it when it is small
+  (`FavouritePredicate`), merges it as a stream when it is broad, and walks it alone by date. It is no row filter:
+  favourites are usually few, and a row filter would have the native page walk the whole sort index for them.
 - **`status` is required on `Series`** (no "None" in the UI, `@NotNull` on the form). The new-series form
   preselects `REVIEWED`; auto-created series get `NEW`.
 - **`UPDATED` is for series only** (`Status.CHAPTER_VALUES` is what chapter forms offer, and `ChapterService`
   stores `NEW` in its place). It marks a reviewed series that a new chapter joined since.
 - **A series becoming `REVIEWED` promotes its `NEW` chapters to `REVIEWED`** (`SeriesService`: create, update,
   "Mark as reviewed"), one bulk `UPDATE` on `chapter (series_id, …)`. Only on the change: saving a reviewed
-  series again touches no chapter. Favourite chapters stay.
+  series again touches no chapter.
 - **A `NEW` chapter joining a `REVIEWED` series makes it `UPDATED`**, in `addChapters`/`addChaptersDeferred`, so
-  linking by hand and matching alike. Only `REVIEWED`: a favourite keeps its mark. On the series form the picked
-  status wins: changing it in the same save that links chapters decides for them; leaving it as it was lets
-  them join like anywhere else. **Anything new that links chapters to a series must go through these.**
+  linking by hand and matching alike. A new series is not reviewed yet, so it stays `NEW`. On the series form
+  the picked status wins: changing it in the same save that links chapters decides for them; leaving it as it
+  was lets them join like anywhere else. **Anything new that links chapters to a series must go through these.**
 
 ## Writes and SQLite's lock (`config/WriteGate`)
 SQLite has one writer. **No user action may end in a 500 because the write lock was taken**, whoever holds it
