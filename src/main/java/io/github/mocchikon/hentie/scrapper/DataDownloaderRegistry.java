@@ -58,6 +58,12 @@ public class DataDownloaderRegistry
         this.searchSourcesBySite = Map.copyOf(bySite);
     }
 
+    /** Each source asks its site whether it accepts the account from Settings ({@link DataDownloader#checkLogin}). */
+    public void checkLogins()
+    {
+        downloaders.forEach(DataDownloader::checkLogin);
+    }
+
     public Optional<ResourceLink> parse(String link)
     {
         String trimmed = StringUtils.trimToEmpty(link);

@@ -1,6 +1,5 @@
 package io.github.mocchikon.hentie.scrapper;
 
-import io.github.mocchikon.hentie.scrapper.gallerydl.GalleryDlOptions;
 
 import java.util.List;
 import java.util.Optional;
@@ -31,12 +30,6 @@ public interface SearchSource extends DataDownloader
 
     /** What the site needs before it can be searched, worded for the user (exhentai: the account cookies). */
     Optional<String> notReady(String site);
-
-    /** What the queueing choices lack for the site's galleries to download, worded for the user; empty when nothing. */
-    default Optional<String> choicesProblem(String site, GalleryDlOptions galleryDl)
-    {
-        return Optional.empty();
-    }
 
     /**
      * One page of the search, newest first, holding only galleries listed after {@code after}. Paced to the site's

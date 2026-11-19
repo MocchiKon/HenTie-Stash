@@ -8,7 +8,7 @@ import io.github.mocchikon.hentie.service.download.DownloadChoices;
 public final class TestDownloads
 {
     /** No cookies, resampled images, no delay: what a paste for a source other than gallery-dl's carries. */
-    public static final GalleryDlOptions PLAIN_GALLERY_DL = new GalleryDlOptions(null, false, "0");
+    public static final GalleryDlOptions PLAIN_GALLERY_DL = new GalleryDlOptions(false, "0");
 
     private TestDownloads()
     {

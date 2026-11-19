@@ -140,7 +140,6 @@ public class ChapterController
         model.addAttribute("links", links);
         model.addAttribute("linkExamples", downloaderRegistry.linkExamples());
         model.addAttribute("galleryDlLinkMarkers", linkMarkers(downloader -> true));
-        model.addAttribute("cookiesLinkMarkers", linkMarkers(GalleryDlDownloader::readsCookies));
         model.addAttribute("originalsLinkMarkers", linkMarkers(GalleryDlDownloader::offersOriginals));
         model.addAttribute("galleryDlDefaultDelay", settingsService.getGalleryDlDefaults().delay());
         model.addAttribute("galleryDlFastDelay", GalleryDlOptions.DEFAULT_DELAY_WITHOUT_EHENTAI);
@@ -155,8 +154,6 @@ public class ChapterController
                 .collect(Collectors.joining(" ")));
         model.addAttribute("allowUpgrade", allowUpgrade);
         model.addAttribute("avoidDuplicateTitles", avoidDuplicateTitles);
-        model.addAttribute("browserGroups", GalleryDlOptions.BROWSER_GROUPS);
-        model.addAttribute("cookiesBrowser", StringUtils.defaultString(galleryDl.cookiesBrowser()));
         model.addAttribute("downloadOriginals", galleryDl.originals());
         model.addAttribute("requestDelay", requestDelay == null ? galleryDl.delay() : requestDelay);
         model.addAttribute("delayError", delayError);
@@ -182,7 +179,6 @@ public class ChapterController
                                  @RequestParam(name = "allowUpgrade", defaultValue = "false") boolean allowUpgrade,
                                  @RequestParam(name = "avoidDuplicateTitles", defaultValue = "false")
                                  boolean avoidDuplicateTitles,
-                                 @RequestParam(name = "cookiesBrowser", required = false) String cookiesBrowser,
                                  @RequestParam(name = "downloadOriginals", defaultValue = "false")
                                  boolean downloadOriginals,
                                  @RequestParam(name = "requestDelay", required = false) String requestDelay,
@@ -191,11 +187,11 @@ public class ChapterController
         List<String> parsed = downloadService.parseLinks(links);
         boolean usesGalleryDl = usesGalleryDl(parsed);
         Optional<DownloadChoices> choices = downloadChoices(compressionMode, allowUpgrade, avoidDuplicateTitles,
-                cookiesBrowser, downloadOriginals, requestDelay, usesGalleryDl, usesSlowDelaySource(parsed));
+                downloadOriginals, requestDelay, usesGalleryDl, usesSlowDelaySource(parsed));
         if (choices.isEmpty())
         {
             return downloadFormWithDelayError(model, links, compressionMode, allowUpgrade, avoidDuplicateTitles,
-                    cookiesBrowser, downloadOriginals, requestDelay);
+                    downloadOriginals, requestDelay);
         }
         var result = downloadService.queue(parsed, choices.get());
         redirectAttributes.addFlashAttribute("enqueued", result);
@@ -221,8 +217,8 @@ public class ChapterController
 
     /** Empty when the delay is refused (see {@link #delayOrDefault}). */
     private Optional<DownloadChoices> downloadChoices(String compressionMode, boolean allowUpgrade,
-                                                      boolean avoidDuplicateTitles, String cookiesBrowser,
-                                                      boolean downloadOriginals, String requestDelay,
+                                                      boolean avoidDuplicateTitles, boolean downloadOriginals,
+                                                      String requestDelay,
                                                       boolean usesGalleryDl, boolean sourceNeedsSlowDelay)
     {
         // Without a source that needs it (e-hentai), a paste starts at the faster delay. A typed one is never replaced.
@@ -231,7 +227,7 @@ public class ChapterController
                 : settingsService.getGalleryDlDefaults().delay();
         return delayOrDefault(requestDelay, usesGalleryDl, defaultDelay)
                 .map(d -> new DownloadChoices(compressionMode, allowUpgrade, avoidDuplicateTitles,
-                        new GalleryDlOptions(cookiesBrowser, downloadOriginals, d)));
+                        new GalleryDlOptions(downloadOriginals, d)));
     }
 
     /**
@@ -248,11 +244,11 @@ public class ChapterController
 
     private String downloadFormWithDelayError(Model model, String links, String compressionMode,
                                               boolean allowUpgrade, boolean avoidDuplicateTitles,
-                                              String cookiesBrowser, boolean downloadOriginals, String requestDelay)
+                                              boolean downloadOriginals, String requestDelay)
     {
         addDownloadModel(model, StringUtils.defaultString(links),
                 compressionModeService.storableDownloadKey(compressionMode), allowUpgrade, avoidDuplicateTitles,
-                new GalleryDlOptions(cookiesBrowser, downloadOriginals, "0"),
+                new GalleryDlOptions(downloadOriginals, "0"),
                 StringUtils.abbreviate(StringUtils.defaultString(requestDelay), 100),
                 delayProblem(requestDelay));
         return "chapter-download";
@@ -276,7 +272,6 @@ public class ChapterController
                                      @RequestParam(name = "allowUpgrade", defaultValue = "false") boolean allowUpgrade,
                                      @RequestParam(name = "avoidDuplicateTitles", defaultValue = "false")
                                      boolean avoidDuplicateTitles,
-                                     @RequestParam(name = "cookiesBrowser", required = false) String cookiesBrowser,
                                      @RequestParam(name = "downloadOriginals", defaultValue = "false")
                                      boolean downloadOriginals,
                                      @RequestParam(name = "requestDelay", required = false) String requestDelay,
@@ -289,11 +284,11 @@ public class ChapterController
                 .map(GalleryDlDownloader::needsSlowDelay)
                 .orElse(false);
         Optional<DownloadChoices> choices = downloadChoices(compressionMode, allowUpgrade, avoidDuplicateTitles,
-                cookiesBrowser, downloadOriginals, requestDelay, usesGalleryDl, needsSlowDelay);
+                downloadOriginals, requestDelay, usesGalleryDl, needsSlowDelay);
         if (choices.isEmpty())
         {
             return downloadFormWithDelayError(model, links, compressionMode, allowUpgrade, avoidDuplicateTitles,
-                    cookiesBrowser, downloadOriginals, requestDelay);
+                    downloadOriginals, requestDelay);
         }
         var outcome = favouritesDownloadService.queueAll(source, choices.get());
         if (outcome.isRefused())

@@ -58,20 +58,21 @@ class GalleryDlWebIT
     void shouldStartTheDownloadFormAtTheSettingsDefaults() throws Exception
     {
         // GIVEN
-        settingsService.setGalleryDlDefaults(new GalleryDlOptions("librewolf", true, "1.5-2"));
+        settingsService.setGalleryDlDefaults(new GalleryDlOptions(true, "1.5-2"));
 
         // WHEN + THEN
         mvc.perform(get("/chapter/download").with(user("user")))
                 .andExpect(status().isOk())
-                .andExpect(model().attribute("cookiesBrowser", "librewolf"))
                 .andExpect(model().attribute("downloadOriginals", true))
                 .andExpect(model().attribute("requestDelay", "1.5-2"))
-                .andExpect(content().string(containsString("Use cookies when downloading")))
+                .andExpect(content().string(containsString("e-hentai account from Settings")))
                 .andExpect(content().string(containsString(
                         "data-shown-for-links=\"e-hentai.org ehentai: exhentai.org hitomi.la hitomi:\"")))
-                // hitomi reads neither cookies nor originals, so only e-hentai's links show those two.
+                // hitomi has no originals and no login, so only e-hentai's links show those.
                 .andExpect(content().string(containsString(
                         "<div class=\"field\" data-shown-for-links=\"e-hentai.org ehentai: exhentai.org\">")))
+                .andExpect(content().string(containsString(
+                        "<p class=\"hint\" data-shown-for-links=\"e-hentai.org ehentai: exhentai.org\">")))
                 .andExpect(content().string(containsString("https://hitomi.la/doujinshi/title-english-123456.html")))
                 // app.js starts a paste without an e-hentai link lower, and a typed delay is never replaced.
                 .andExpect(content().string(containsString("data-delay-default=\"1.5-2\"")))
@@ -90,7 +91,6 @@ class GalleryDlWebIT
         mvc.perform(post("/chapter/download").with(user("user")).with(csrf())
                         .param("links", "hitomi:7201")
                         .param("compressionMode", "NONE")
-                        .param("cookiesBrowser", "Firefox")
                         .param("downloadOriginals", "true")
                         .param("requestDelay", " 0.5 - 1 "))
                 .andExpect(status().is3xxRedirection())
@@ -98,7 +98,6 @@ class GalleryDlWebIT
 
         // THEN
         DownloadQueueItem item = queueRepository.findByLink("hitomi:7201").orElseThrow();
-        assertThat(item.getCookiesBrowser()).isEqualTo("firefox");
         assertThat(item.isDownloadOriginals()).isTrue();
         assertThat(item.getRequestDelay()).isEqualTo("0.5-1");
     }
@@ -126,7 +125,7 @@ class GalleryDlWebIT
     void shouldStartAPasteWithoutAnEHentaiLinkAtTheFasterDelay() throws Exception
     {
         // GIVEN Settings' slower default, which e-hentai needs
-        settingsService.setGalleryDlDefaults(new GalleryDlOptions(null, false, "1.5-2"));
+        settingsService.setGalleryDlDefaults(new GalleryDlOptions(false, "1.5-2"));
 
         // WHEN only a hitomi link is pasted, with no delay typed
         mvc.perform(post("/chapter/download").with(user("user")).with(csrf())
@@ -144,7 +143,7 @@ class GalleryDlWebIT
     void shouldStartAPasteWithAnEHentaiLinkAtTheSettingsDelay() throws Exception
     {
         // GIVEN
-        settingsService.setGalleryDlDefaults(new GalleryDlOptions(null, false, "1.5-2"));
+        settingsService.setGalleryDlDefaults(new GalleryDlOptions(false, "1.5-2"));
 
         // WHEN an e-hentai link is pasted, with no delay typed
         mvc.perform(post("/chapter/download").with(user("user")).with(csrf())
@@ -161,7 +160,7 @@ class GalleryDlWebIT
     void shouldQueueLinksThatIgnoreTheDelayWhateverItSays() throws Exception
     {
         // GIVEN Settings' default delay
-        settingsService.setGalleryDlDefaults(new GalleryDlOptions(null, false, "1.5-2"));
+        settingsService.setGalleryDlDefaults(new GalleryDlOptions(false, "1.5-2"));
 
         // WHEN only an nhentai link is pasted, with a delay gallery-dl could not read
         mvc.perform(post("/chapter/download").with(user("user")).with(csrf())
@@ -178,13 +177,12 @@ class GalleryDlWebIT
     void shouldSaveTheDefaultsInSettings() throws Exception
     {
         // WHEN
-        mvc.perform(settingsPost().param("galleryDlCookiesBrowser", "chrome")
-                        .param("galleryDlOriginals", "true")
+        mvc.perform(settingsPost().param("galleryDlOriginals", "true")
                         .param("galleryDlDelay", "3"))
                 .andExpect(redirectedUrl("/settings?saved"));
 
         // THEN
-        assertThat(settingsService.getGalleryDlDefaults()).isEqualTo(new GalleryDlOptions("chrome", true, "3"));
+        assertThat(settingsService.getGalleryDlDefaults()).isEqualTo(new GalleryDlOptions(true, "3"));
         assertThat(settingsService.isSystemGalleryDlEnabled()).isTrue();
     }
 
@@ -192,15 +190,15 @@ class GalleryDlWebIT
     void shouldKeepTheDefaultDelayAndSayWhyWhenItIsUnreadable() throws Exception
     {
         // GIVEN
-        settingsService.setGalleryDlDefaults(new GalleryDlOptions(null, false, "2"));
+        settingsService.setGalleryDlDefaults(new GalleryDlOptions(false, "2"));
 
         // WHEN
-        mvc.perform(settingsPost().param("galleryDlCookiesBrowser", "firefox").param("galleryDlDelay", "-5"))
+        mvc.perform(settingsPost().param("galleryDlDelay", "-5"))
                 .andExpect(redirectedUrl("/settings"))
                 .andExpect(flash().attribute("galleryDlError", containsString("is not a delay gallery-dl understands")));
 
         // THEN the delay stays, the rest is saved.
-        assertThat(settingsService.getGalleryDlDefaults()).isEqualTo(new GalleryDlOptions("firefox", false, "2"));
+        assertThat(settingsService.getGalleryDlDefaults()).isEqualTo(new GalleryDlOptions(false, "2"));
     }
 
     @Test

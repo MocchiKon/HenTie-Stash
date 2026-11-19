@@ -124,7 +124,7 @@ public class SubscriptionController
         {
             result.rejectValue("requestDelay", "invalid", ChapterController.delayProblem(form.getRequestDelay()));
         }
-        return new GalleryDlOptions(form.getCookiesBrowser(), form.isDownloadOriginals(), delay.orElse(defaultDelay));
+        return new GalleryDlOptions(form.isDownloadOriginals(), delay.orElse(defaultDelay));
     }
 
     /** Each subscription's own pause is left as it is, so turning them on again resumes only the ones not paused. */
@@ -209,7 +209,6 @@ public class SubscriptionController
         model.addAttribute("sites", registry.searchSites());
         // Space-separated, as the form's show-and-hide reads it.
         model.addAttribute("galleryDlSites", String.join(" ", subscriptionService.galleryDlSites()));
-        model.addAttribute("browserGroups", GalleryDlOptions.BROWSER_GROUPS);
         model.addAttribute("minPollMinutes", SubscriptionForm.MIN_POLL_MINUTES);
         var notReady = new LinkedHashMap<String, String>();
         for (SearchSource.SearchSite site : registry.searchSites())

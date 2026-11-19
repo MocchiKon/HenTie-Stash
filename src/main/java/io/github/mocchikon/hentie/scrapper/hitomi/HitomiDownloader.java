@@ -25,8 +25,7 @@ import static io.github.mocchikon.hentie.scrapper.JsonFields.text;
  * hitomi.la, entirely through gallery-dl: hitomi computes its image addresses from a script that changes every few
  * hours ({@code gg.js}), and gallery-dl follows it.
  * <p>
- * <b>hitomi serves no originals</b>, only webp (or avif) re-encodes, so "Download originals" means nothing here,
- * and there is no login, so no cookies are read: reading a browser's cookie store can fail, for nothing.
+ * <b>hitomi serves no originals</b>, only webp (or avif) re-encodes, so "Download originals" means nothing here.
  */
 @Component
 @RequiredArgsConstructor
@@ -97,12 +96,6 @@ public class HitomiDownloader implements GalleryDlDownloader
     public Set<String> linkMarkers()
     {
         return Set.of("hitomi.la", PREFIX + ":");
-    }
-
-    @Override
-    public boolean readsCookies()
-    {
-        return false;
     }
 
     @Override

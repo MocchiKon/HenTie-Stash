@@ -22,15 +22,9 @@ public interface GalleryDlDownloader extends DataDownloader
     Set<String> linkMarkers();
 
     /**
-     * Whether {@link GalleryDlOptions#cookiesBrowser} reaches the site. The Download page offers the choice only for
+     * Whether {@link GalleryDlOptions#originals} changes what is fetched. The Download page offers the choice only for
      * links of sources that read it; true by default, since a source wrongly saying false hides it from the user.
      */
-    default boolean readsCookies()
-    {
-        return true;
-    }
-
-    /** Whether {@link GalleryDlOptions#originals} changes what is fetched; as {@link #readsCookies}, for its choice. */
     default boolean offersOriginals()
     {
         return true;

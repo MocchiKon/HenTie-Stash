@@ -7,7 +7,8 @@
 <main class="container narrow guide">
     <h1>Guide</h1>
     <p class="hint">How to reach HenTie from other devices, how to set up ComfyUI, how image compression rules
-        work, how to finish an incomplete download, and what statuses and favourites mean.</p>
+        work, how to finish an incomplete download, how to set up your e-hentai account, and what statuses and
+        favourites mean.</p>
 
     <nav class="guide-toc" aria-label="Contents">
         <ol>
@@ -40,6 +41,7 @@
                 </ol>
             </li>
             <li><a href="#incomplete-downloads">Incomplete downloads</a></li>
+            <li><a href="#ehentai-account">e-hentai account</a></li>
             <li><a href="#statuses">Statuses and favourites</a></li>
         </ol>
     </nav>
@@ -506,6 +508,26 @@ exec python main.py --listen 127.0.0.1 --port 8188</pre>
         <li>If the download failed, it is on the queue page's Failed list. Download again retries it; a subscription
             leaves it there for you.</li>
     </ul>
+
+    <!-- ===================================================================================== -->
+    <h2 class="section-title" id="ehentai-account">e-hentai account</h2>
+    <p>e-hentai and exhentai downloads, and exhentai subscriptions, use the e-hentai account you enter in
+        <a th:href="@{/settings#ehentai-account}">Settings</a>. With it, galleries are downloaded from exhentai, which
+        also has the galleries e-hentai hides. Without it, they come from e-hentai, and exhentai subscriptions cannot
+        search.</p>
+    <p>To copy the account's cookies:</p>
+    <ol>
+        <li>Log in to e-hentai.org in your browser, then open exhentai.org once.</li>
+        <li>Open the browser's developer tools (F12), then <strong>Storage</strong> (Firefox) or
+            <strong>Application</strong> (Chrome, Edge), then <strong>Cookies</strong>.</li>
+        <li>Under e-hentai.org, copy <code>ipb_member_id</code> and <code>ipb_pass_hash</code> into Settings.</li>
+        <li>Optionally, under exhentai.org, copy <code>igneous</code>. Without it the app gets one the way your
+            browser did; enter it if exhentai still refuses the account.</li>
+    </ol>
+    <p>Some galleries are shown only to a logged-in account. If the account is missing, or exhentai stops accepting
+        it (the cookies expired), such a download lands on the queue page's Failed list saying so. You do not need to
+        retry it: once you save working cookies in Settings, the app checks them, and those downloads start again by
+        themselves.</p>
 
     <!-- ===================================================================================== -->
     <h2 class="section-title" id="statuses">Statuses and favourites</h2>

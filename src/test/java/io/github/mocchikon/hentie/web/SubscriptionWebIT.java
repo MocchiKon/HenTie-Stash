@@ -128,18 +128,17 @@ class SubscriptionWebIT
     void shouldStartTheFormAtTheSettingsChoices() throws Exception
     {
         // GIVEN
-        settingsService.setGalleryDlDefaults(new GalleryDlOptions("librewolf", true, "1.5"));
+        settingsService.setGalleryDlDefaults(new GalleryDlOptions(true, "1.5"));
 
         // WHEN + THEN
         mvc.perform(get("/subscriptions/new").with(user("user")))
                 .andExpect(status().isOk())
-                .andExpect(model().attributeExists("sites", "browserGroups"))
+                .andExpect(model().attributeExists("sites"))
                 .andExpect(model().attributeDoesNotExist("compressionModes"))
                 // The rules decide each gallery's mode, so the form only points there.
                 .andExpect(content().string(containsString("href=\"/compression-rules\"")))
                 .andExpect(model().attribute("galleryDlSites", "e-hentai exhentai"))
                 .andExpect(content().string(containsString("data-shown-for=\"e-hentai exhentai\"")))
-                .andExpect(content().string(containsString("value=\"librewolf\" selected")))
                 .andExpect(content().string(containsString("value=\"1.5\"")))
                 .andExpect(content().string(containsString("needs your e-hentai account&#39;s cookies")));
     }
@@ -243,23 +242,19 @@ class SubscriptionWebIT
     }
 
     @Test
-    void shouldRefuseExhentaiWithoutTheAccountOrABrowsersCookies() throws Exception
+    void shouldRefuseExhentaiWithoutTheAccount() throws Exception
     {
         // WHEN + THEN no account in Settings
-        mvc.perform(subscriptionPost().param("source", "exhentai").param("query", "f_search=x")
-                        .param("cookiesBrowser", "firefox"))
+        mvc.perform(subscriptionPost().param("source", "exhentai").param("query", "f_search=x"))
                 .andExpect(model().attributeHasFieldErrors("form", "source"));
 
-        // WHEN + THEN no browser to download with
+        // WHEN + THEN with one, nothing else is needed: downloads use the same account
         settingsService.setEhentaiMemberId("123");
         settingsService.setEhentaiPassHash("0123456789abcdef0123456789abcdef");
         mvc.perform(subscriptionPost().param("source", "exhentai").param("query", "f_search=x"))
-                .andExpect(model().attributeHasFieldErrors("form", "cookiesBrowser"));
-        mvc.perform(subscriptionPost().param("source", "exhentai").param("query", "f_search=x")
-                        .param("cookiesBrowser", "firefox"))
                 .andExpect(status().is3xxRedirection());
         assertThat(subscriptionRepository.findAll()).singleElement()
-                .extracting(Subscription::getCookiesBrowser).isEqualTo("firefox");
+                .extracting(Subscription::getSource).isEqualTo("exhentai");
     }
 
     @Test

@@ -128,26 +128,13 @@
         </p>
 
         <p class="hint">What the Download page starts at, and what a re-download in lossless quality uses:</p>
-        <div class="field">
-            <label for="galleryDlCookiesBrowser">Use cookies when downloading</label>
-            <select id="galleryDlCookiesBrowser" name="galleryDlCookiesBrowser" class="capped-select">
-                <option value="" th:selected="${galleryDlDefaults.cookiesBrowser() == null}">No cookies</option>
-                <optgroup th:each="group : ${browserGroups}" th:label="${group.label()}">
-                    <option th:each="browser : ${group.browsers()}" th:value="${browser}" th:text="${browser}"
-                            th:selected="${browser == galleryDlDefaults.cookiesBrowser()}">firefox</option>
-                </optgroup>
-            </select>
-        </div>
-        <p class="hint">
-            The browser gallery-dl reads your e-hentai/exhentai login from. Firefox works best: on Windows, Chrome,
-            Edge and Brave encrypt their cookies in a way gallery-dl cannot read.
-        </p>
         <label class="checkbox big">
             <input type="checkbox" name="galleryDlOriginals" value="true" th:checked="${galleryDlDefaults.originals()}">
             <span>Download originals</span>
         </label>
         <p class="hint">
-            e-hentai/exhentai only. Originals need a logged-in account and use up its image limit far sooner (1 point
+            e-hentai/exhentai only. Originals need the <a href="#ehentai-account">e-hentai account</a> and use up
+            its image limit far sooner (1 point
             plus 1 per 0.1 MB of each file, against 1 per resampled page), and can cost GP.
         </p>
         <div class="field">
@@ -160,11 +147,11 @@
             banned by e-hentai.
         </p>
 
-        <h2 class="section-title" id="ehentai-account">e-hentai account (exhentai subscriptions)</h2>
+        <h2 class="section-title" id="ehentai-account">e-hentai account</h2>
         <p class="hint">
-            Exhentai shows its search only to a logged-in account, so an exhentai subscription sends your e-hentai
-            account's cookies with each search. Copy them from your browser while you are logged in to e-hentai: open
-            its developer tools (F12), then Storage (Firefox) or Application (Chrome), Cookies, e-hentai.org.
+            Used for e-hentai downloads and exhentai subscriptions. With it, galleries come from exhentai, which also
+            has the ones e-hentai hides. Copy the cookies from your browser while logged in to e-hentai:
+            <a th:href="@{/guide#ehentai-account}">see Guide → e-hentai account</a>.
         </p>
         <div class="field">
             <label for="ehentaiMemberId">ipb_member_id</label>

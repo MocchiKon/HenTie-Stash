@@ -96,6 +96,14 @@ public interface DataDownloader
         return Optional.empty();
     }
 
+    /**
+     * Asks the site in the background whether it accepts the account from Settings, unless it is known to; an
+     * acceptance is published as {@link LoginAccepted}. A source without an account does nothing.
+     */
+    default void checkLogin()
+    {
+    }
+
     /** Namespaced, so two sources both numbering from 1 never collide on the unique {@code chapter.gallery_id}. Never override. */
     default String galleryId(String resourceId)
     {

@@ -358,9 +358,9 @@ class RedownloadIT
         // GIVEN a row for the gallery that failed under a compressing, lenient, title-checking paste.
         queueService.enqueue(List.of("mock:8406"), TestDownloads.choices(LOSSLESS, true));
         DownloadQueueItem row = queueRepository.findByLink("mock:8406").orElseThrow();
-        queueService.recordFailure(row, "boom", null, true, false, null, 3);
+        queueService.recordFailure(row, "boom", null, true, false, null, false, 3);
         queueService.retry(row.getId(), true, false);
-        queueService.recordFailure(row, "boom again", null, true, false, null, 3);
+        queueService.recordFailure(row, "boom again", null, true, false, null, false, 3);
 
         // WHEN a full-quality re-download is queued for it.
         queueService.enqueueRedownload("mock:8406", "mock:8406", NONE, TestDownloads.PLAIN_GALLERY_DL);
@@ -390,7 +390,7 @@ class RedownloadIT
         queueService.enqueueRedownload("mock:8410", "mock:8410", NONE, TestDownloads.PLAIN_GALLERY_DL);
 
         // WHEN + THEN - the attempt failing records nothing on the row...
-        assertThat(queueService.recordFailure(attempted, "boom", null, true, false, null, 3))
+        assertThat(queueService.recordFailure(attempted, "boom", null, true, false, null, false, 3))
                 .isEqualTo(DownloadQueueService.FailureOutcome.SUPERSEDED);
         // ...and the attempt finishing does not delete it.
         assertThat(queueService.complete(attempted)).isFalse();
@@ -414,7 +414,7 @@ class RedownloadIT
         queueService.enqueue(List.of("mock:8413"), TestDownloads.choices(LOSSLESS, false));
 
         // WHEN + THEN - neither the failure nor the success of that attempt touches the row...
-        assertThat(queueService.recordFailure(attempted, "boom", null, false, false, null, 3))
+        assertThat(queueService.recordFailure(attempted, "boom", null, false, false, null, false, 3))
                 .isEqualTo(DownloadQueueService.FailureOutcome.SUPERSEDED);
         assertThat(queueService.complete(attempted)).isFalse();
         em.flush();

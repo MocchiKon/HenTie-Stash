@@ -112,10 +112,9 @@
             </p>
         </div>
 
-        <p class="field-error" th:if="${#fields.hasErrors('cookiesBrowser')}" th:errors="*{cookiesBrowser}">error</p>
         <fieldset th:replace="~{fragments/components :: galleryDlOptions(legend='gallery-dl (e-hentai/exhentai)',
                 intro='e-hentai and exhentai galleries are downloaded by gallery-dl, with these choices. They start at the defaults from Settings.',
-                cookiesBrowser=${form.cookiesBrowser}, downloadOriginals=${form.downloadOriginals},
+                downloadOriginals=${form.downloadOriginals},
                 requestDelay=${form.requestDelay},
                 delayError=${#fields.hasErrors('requestDelay')} ? ${#fields.errors('requestDelay')[0]} : null,
                 shownFor=${galleryDlSites})}"></fieldset>

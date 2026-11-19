@@ -540,7 +540,8 @@ the pipeline hands it (gallery-dl's run folder, see "gallery-dl").
   compare the same title. V4 fills them from the chapter for rows that already existed.
 - **Failures**: `app.download.max-attempts` attempts with growing backoff, staying at the queue head.
   `PermanentDownloadException` / `GalleryNotFoundException` skip the remaining attempts. Successful rows
-  are **deleted**; `downloaded_gallery` is the permanent record.
+  are **deleted**; `downloaded_gallery` is the permanent record. A `LoginRequiredException` marks the row
+  `needs_login`, which puts it back to waiting once the site accepts the account (see "The e-hentai source").
 - **A page that fails is fetched again before the attempt fails** (`app.download.page-retries`, 5, every
   `page-retry-backoff-millis`, 1 s), in `ChapterDownloadService`, the same for every source. A source never
   retries on its own, except to sit out its site's 429. Without it one dropped connection would cost an
@@ -647,15 +648,19 @@ to repeat. **`GalleryDlTool` is the only class that starts it; `GalleryDl` is ho
   Its temp folder is the app's own (`<data>/.gallery-dl`, via `TMP`/`TMPDIR`); each run records pid + start
   time there, and the next start kills a recorded run **only if the start time matches**, then empties the
   folder. A graceful stop kills running runs.
-- **The Download page's choices** (`GalleryDlOptions`): cookies (`--cookies-from-browser <browser>`), originals
-  and the delay, on the queue row like the compression mode (re-paste replaces, retry keeps; a lossless
-  re-download takes Settings' defaults). The form starts at Settings' defaults every visit; an unreadable delay
-  is shown on the form with the links kept, never replaced. The Download page hides each of them (JS, hidden not
-  disabled) until the pasted text contains a `GalleryDlDownloader.linkMarkers` of a source that reads it
-  (`readsCookies`, `offersOriginals`; the delay every source), **which every link it accepts must hold**, or its
-  choices are hidden from it. **The delay maps per source**: e-hentai gets
+- **The Download page's choices** (`GalleryDlOptions`): originals and the delay, on the queue row like the
+  compression mode (re-paste replaces, retry keeps; a lossless re-download takes Settings' defaults). The form
+  starts at Settings' defaults every visit; an unreadable delay is shown on the form with the links kept, never
+  replaced. The Download page hides each of them (JS, hidden not disabled) until the pasted text contains a
+  `GalleryDlDownloader.linkMarkers` of a source that reads it (`offersOriginals`; the delay every source), **which
+  every link it accepts must hold**, or its choices are hidden from it. **The delay maps per source**: e-hentai gets
   `--sleep-request` (each image needs one page/API request there, which its ban counts), hitomi `--sleep`
   (its extractor makes one request per gallery, so a request delay would never fall between images).
+- **A login reaches gallery-dl only as a cookies file** (`GalleryDl.cookiesFile`, `--cookies`, with
+  `cookies-update=false`), owner-only in its temp folder and deleted after the run, never on the command line, where
+  other programs and the debug log would see it. **No browser's cookie store is read**: it would be a second login
+  the app cannot check, Chromium browsers on Windows encrypt it beyond gallery-dl's reach, and gallery-dl quietly
+  falls back to e-hentai.org when it holds no exhentai login, where a gallery e-hentai hides looks missing.
 
 ### The e-hentai source (`scrapper/ehentai`)
 e-hentai.org and exhentai.org are **one source**: a gallery has the same gid and token on both, so a link from
@@ -666,12 +671,23 @@ either is `ehentai:<gid>/<token>`. The token is in the id because nothing can be
   entities. **A gallery without a `language:` tag is Japanese** (e-hentai's convention, `EhTags`, shared with
   chaika); `cosplayer:` counts as an artist, `reclass:` is dropped, and tag namespaces are left for
   `MetadataService.canonical`.
-- **Pages through gallery-dl, on the domain the cookies decide**, not the pasted one: with cookies
-  exhentai.org (it also has what e-hentai hides), falling back **once** to e-hentai.org when exhentai refuses
-  the account; without them e-hentai.org. `link()` is always e-hentai.org.
+- **Pages through gallery-dl with the e-hentai account from Settings**, the one exhentai subscriptions search
+  with, so a subscription queues only while exhentai accepts what its downloads will send. **The account decides the
+  domain**, not the pasted link: with it exhentai.org (it also has what e-hentai hides), falling back **once** to
+  e-hentai.org when exhentai refuses it; without it e-hentai.org. `link()` is always e-hentai.org. `igneous` goes to
+  exhentai only when Settings has one; otherwise exhentai sends gallery-dl through the forums for it, as a browser.
+- **A gallery only an accepted account may see fails as `LoginRequiredException`**: e-hentai.org refuses it without
+  the account, or hides it after exhentai refused the account. The row is marked `needs_login` (its Failed-list
+  message says to fix the account in Settings) and **goes back to waiting by itself** once exhentai accepts the
+  account: `EhentaiDownloader` publishes `LoginAccepted` the first time a search or download is accepted after none
+  was (one per account; in memory), and `DownloadWorker` revives the source's marked rows. When nothing else would
+  ask exhentai (no subscription running), `DataDownloader.checkLogin` asks for its front page once, in the
+  background: after a Settings save and at startup while marked rows exist. Never during a cooldown. Marked rows
+  still count against a subscription's failed limit: they are failures until the account works, and revived they
+  free the limit.
 - **The chapter page links to the domain the pages came from** (`chapter.source_site`, from `GalleryDl.Outcome.site`,
   through `DataDownloader.pageLinkTemplate(site)`): a gallery from exhentai may be hidden on e-hentai, and one from
-  e-hentai (no cookies, or exhentai refused the account) may not open on exhentai. Written by the pipeline whenever
+  e-hentai (no account, or exhentai refused it) may not open on exhentai. Written by the pipeline whenever
   a run delivered pages, so it follows the last fetch; not on `ChapterForm`. A subscription's head and tail link to
   its own site.
 - **A ban or a used-up image limit starts a cooldown** (`app.download.ehentai.cooldown-minutes`, in memory):
@@ -687,9 +703,8 @@ either is `ehentai:<gid>/<token>`. The token is in the id because nothing can be
 ### The hitomi source (`scrapper/hitomi`)
 Entirely through gallery-dl: hitomi computes image addresses from a script that changes every few hours.
 `link()` is `/galleries/<id>.html`. **hitomi serves no originals** (webp/avif only, `-o format=webp`), so
-"Download originals" means nothing here; no login, so **no cookies are read** (reading a browser's store can
-fail, for nothing). Its type maps to the categories the other sources use (`artistcg` → `artist cg`); an
-`anime` gallery is a video and refused. gallery-dl already formats its tags (`Big Breasts ♀`). **A gallery
+"Download originals" means nothing here; it has no login. Its type maps to the categories the other sources use
+(`artistcg` → `artist cg`); an `anime` gallery is a video and refused. gallery-dl already formats its tags (`Big Breasts ♀`). **A gallery
 without a language is Japanese**, as on e-hentai; game CGs and image sets often have none, so it is said here rather
 than logged by the import as a language it does not know.
 
@@ -819,7 +834,7 @@ decides** — a `SearchSource` never touches the database. Manage → Chapters �
 - **Listing follows the downloads**: beyond its check a subscription lists only while fewer than
   `app.subscriptions.queue-ahead` (50) of its rows wait and fewer than `failed-limit` (50) failed. A broad search
   would otherwise fill the queue with rows chosen before an edit, and downloads that fail at once (no gallery-dl,
-  unreadable cookies) would page a whole site into the Failed list. Edited choices apply to what is queued from
+  an account the site refuses) would page a whole site into the Failed list. Edited choices apply to what is queued from
   then on.
 - **Re-checks catch tags added after upload**: every `recheck_every_hours` a check stops not at the head but at the
   head as it was `recheck_depth_hours` ago. The search lists no upload times, so `subscription_checkpoint` keeps
@@ -845,9 +860,8 @@ decides** — a `SearchSource` never touches the database. Manage → Chapters �
     is not ready (exhentai without the account) is said once, not written every round, and such an uncounted problem
     is cleared once over even when no step is due.
 - **exhentai searches with the e-hentai account's cookies from Settings** (`ipb_member_id`, `ipb_pass_hash`,
-  optionally `igneous`); its downloads still read the browser's cookies through gallery-dl, so the form requires a
-  cookies browser for it (`SearchSource.choicesProblem`). exhentai sends a visitor without `igneous` through the
-  forums to get one: `EhentaiSearchPages` follows redirects by hand, only between e-hentai's own hosts, keeps what
+  optionally `igneous`), which its downloads send too (see "The e-hentai source"). exhentai sends a visitor
+  without `igneous` through the forums to get one: `EhentaiSearchPages` follows redirects by hand, only between e-hentai's own hosts, keeps what
   they set in memory per account, and asks for the search again. Search pages go out with a browser User-Agent
   (`app.download.ehentai.browser-user-agent`) and one pacer for both domains (`search-request-interval-millis`,
   5 s, as gallery-dl paces e-hentai).
@@ -1535,9 +1549,10 @@ is ticked (default on; clearing it makes a rename a one-off).
   one whatever the setting says. Ticking "Require login" without a password shows password fields; the
   save takes the password from them, or keeps login off and says why, without "Settings saved.". Every
   password form has a repeat field; BCrypt's 72-byte limit is refused, not truncated.
-- **The e-hentai account's cookies** (Settings, for exhentai subscriptions) are kept in the database like the
-  nhentai API key, checked field by field (they go into a request header), and sent only to e-hentai's own
-  hosts: redirects are followed by hand, never off them, and nothing logs them.
+- **The e-hentai account's cookies** (Settings, for exhentai subscriptions and e-hentai downloads) are kept in the
+  database like the nhentai API key, checked field by field (they go into a request header and a cookies file), and
+  sent only to e-hentai's own hosts: the app's searches follow redirects by hand, never off them, gallery-dl gets
+  them in a file scoped to e-hentai's domains, and nothing logs them.
 - **Too many wrong passwords in a row shut the app down** (`FailedLoginGuard`, `app.security.max-failed-logins`, 3;
   0 never; a Settings checkbox, on by default). The count is in memory and a login resets it: a restart is what a
   guesser must wait for, and the user's own typos never add up. Counted only while login is required. The login
@@ -1738,10 +1753,12 @@ for good coverage.
 - ⚠️ **`app.gallery-dl.command` starts `FakeGalleryDl`** (a `main` in the test classes, run by this JVM's
   `java`), so no suite starts the real gallery-dl or reaches a site through it. It behaves as the fixture a
   suite writes says (`FakeGalleryDl.set`: pages, failures, exit status, stderr, `-j` output, per host) and
-  records every call's arguments (`FakeGalleryDl.calls`). A suite calls `FakeGalleryDl.reset()` first.
+  records every call's arguments (`FakeGalleryDl.calls`) and the cookies file it got (`cookiesOfCall`). A suite
+  calls `FakeGalleryDl.reset()` first.
 - ⚠️ **`app.download.ehentai.api-url` and `app.download.chaika.base-url` point nowhere, unpaced** — suites point
   them at a fake API and **`FakeChaika`** (which answers byte ranges and records them) and restore them. A
-  suite that starts e-hentai's cooldown clears it (`EhentaiDownloader.clearCooldown`).
+  suite that starts e-hentai's cooldown clears it (`EhentaiDownloader.clearCooldown`). Which account exhentai last
+  accepted is remembered too, so a test that needs `LoginAccepted` uses a member id no other test uses.
 - ⚠️ **`app.subscriptions.enabled=false`**, so no runner races the suites; they call
   `SubscriptionRunner.runNext()`, and a failed step may be tried again at once (`retry-after-failure-seconds=0`).
   The search limits are off, and **e-hentai's search addresses point nowhere**: suites point them at

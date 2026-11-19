@@ -49,9 +49,6 @@ public class SubscriptionForm
 
     private boolean avoidDuplicateTitles;
 
-    @Size(max = 32, message = "Choose one of the browsers offered")
-    private String cookiesBrowser;
-
     private boolean downloadOriginals;
 
     @Size(max = 20, message = "The delay must be at most 20 characters")

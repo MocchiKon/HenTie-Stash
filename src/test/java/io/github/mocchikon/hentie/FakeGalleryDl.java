@@ -12,7 +12,8 @@ import java.util.stream.Stream;
 /**
  * Stands in for gallery-dl in every suite (the test profile's {@code app.gallery-dl.command}): a separate process,
  * started the way the real one is, that behaves as the fixture a suite writes says. Only the JDK, so it runs from the
- * test classes alone. Every call's arguments are recorded, so a suite can check what the app asked for.
+ * test classes alone. Every call's arguments are recorded, and the cookies file it was given, so a suite can check
+ * what the app asked for.
  * <p>
  * Fixture keys ({@code <host>.<key>} wins over {@code <key>}, so one domain can behave differently):
  * <ul>
@@ -80,6 +81,13 @@ public final class FakeGalleryDl
             }
         }
         return calls;
+    }
+
+    /** The lines of the cookies file the {@code number}th call (from 1) was given, empty when it got none. */
+    public static List<String> cookiesOfCall(int number) throws IOException
+    {
+        Path file = DIR.resolve("cookies-" + number + ".txt");
+        return Files.isRegularFile(file) ? Files.readAllLines(file, StandardCharsets.UTF_8) : List.of();
     }
 
     /** The value following {@code option} in a call, or null. */
@@ -209,6 +217,12 @@ public final class FakeGalleryDl
         }
         Path file = dir.resolve("call-" + (count + 1) + "." + ProcessHandle.current().pid() + ".args");
         Files.write(file, args, StandardCharsets.UTF_8);
+        // The app deletes its cookies file when the run ends, so what it held is kept here.
+        String cookies = option(args, "--cookies");
+        if (cookies != null)
+        {
+            Files.copy(Path.of(cookies), dir.resolve("cookies-" + (count + 1) + ".txt"));
+        }
     }
 
     private static List<Integer> range(String spec)

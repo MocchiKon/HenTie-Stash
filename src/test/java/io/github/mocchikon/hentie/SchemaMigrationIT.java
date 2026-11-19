@@ -31,7 +31,7 @@ class SchemaMigrationIT
     void shouldMatchTheEntityMappingsWhenSchemaComesFromMigrations()
     {
         // Starting the context is the real check; this assertion keeps the test from passing vacuously.
-        assertThat(appliedMigrations()).containsExactly("1", "2", "3", "4", "5", "6", "7", "8", "9");
+        assertThat(appliedMigrations()).containsExactly("1", "2", "3", "4", "5", "6", "7", "8", "9", "10");
     }
 
     /** Status is ORDINAL and the column is CHECKed, which validation does not see: a new value needs a migration. */

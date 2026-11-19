@@ -645,13 +645,13 @@ class SubscriptionRunnerIT
         settingsService.setEhentaiMemberId("123");
         settingsService.setEhentaiPassHash("0123456789abcdef0123456789abcdef");
         ehentai.galleries(7000, 3).exhentaiRequires("ipb_member_id=123");
-        int id = subscribe("exhentai", "f_search=x", new GalleryDlOptions("firefox", false, "0.5"));
+        int id = subscribe("exhentai", "f_search=x", new GalleryDlOptions(false, "0.5"));
 
         // WHEN
         runAll();
 
         // THEN
-        assertThat(rowsOf(id)).hasSize(3).allSatisfy(row -> assertThat(row.getCookiesBrowser()).isEqualTo("firefox"));
+        assertThat(rowsOf(id)).hasSize(3);
         assertThat(ehentai.requests()).singleElement().satisfies(request ->
         {
             assertThat(request.path()).isEqualTo("/ex/");
@@ -686,7 +686,7 @@ class SubscriptionRunnerIT
         settingsService.setEhentaiMemberId("999");
         settingsService.setEhentaiPassHash("0123456789abcdef0123456789abcdef");
         ehentai.galleries(7000, 3).exhentaiRequires("ipb_member_id=123");
-        int id = subscribe("exhentai", "f_search=x", new GalleryDlOptions("firefox", false, "0.5"));
+        int id = subscribe("exhentai", "f_search=x", new GalleryDlOptions(false, "0.5"));
 
         // WHEN
         assertThat(runner.runNext()).isTrue();
@@ -696,6 +696,74 @@ class SubscriptionRunnerIT
         assertThat(refused.getLastError()).contains("did not accept the account");
         assertThat(refused.getFailedSteps()).isOne();
         assertThat(rowsOf(id)).isEmpty();
+    }
+
+    /** A download that failed for want of the account, as the worker records one. */
+    private int failedForLogin(String galleryId)
+    {
+        var row = new DownloadQueueItem();
+        row.setLink(galleryId);
+        row.setGalleryId(galleryId);
+        row.setRequestDelay("0");
+        row.setAttempts(1);
+        row.setError("e-hentai shows this gallery only to logged-in users.");
+        row.setNeedsLogin(true);
+        return queueRepository.save(row).getId();
+    }
+
+    @Test
+    void shouldRetryDownloadsThatNeededTheAccountOnceAnExhentaiSearchAcceptsIt()
+    {
+        // GIVEN a download of each source that failed for want of a login
+        int ehentaiRow = failedForLogin(FakeEhentai.galleryId(5));
+        int otherRow = failedForLogin("hitomi:5");
+        settingsService.setEhentaiMemberId("125");
+        settingsService.setEhentaiPassHash("0123456789abcdef0123456789abcdef");
+        ehentai.galleries(7000, 3).exhentaiRequires("ipb_member_id=125");
+        subscribe("exhentai", "f_search=x");
+
+        // WHEN
+        runAll();
+
+        // THEN only e-hentai's waits again.
+        DownloadQueueItem revived = queueRepository.findById(ehentaiRow).orElseThrow();
+        assertThat(revived.getError()).isNull();
+        assertThat(revived.getAttempts()).isZero();
+        assertThat(revived.isNeedsLogin()).isFalse();
+        assertThat(queueRepository.findById(otherRow).orElseThrow().getError()).isNotNull();
+    }
+
+    /** Saving the account in Settings asks exhentai once; nothing else might ask it while no subscription runs. */
+    @Test
+    void shouldRetryDownloadsThatNeededTheAccountOnceACheckFindsItAccepted() throws InterruptedException
+    {
+        // GIVEN
+        int row = failedForLogin(FakeEhentai.galleryId(6));
+        settingsService.setEhentaiMemberId("126");
+        settingsService.setEhentaiPassHash("0123456789abcdef0123456789abcdef");
+        ehentai.exhentaiRequires("ipb_member_id=126");
+
+        // WHEN
+        registry.checkLogins();
+
+        // THEN one request for exhentai's front page, and the row waits again
+        long until = System.currentTimeMillis() + 10_000;
+        while (queueRepository.findById(row).orElseThrow().getError() != null && System.currentTimeMillis() < until)
+        {
+            Thread.sleep(50);
+        }
+        assertThat(queueRepository.findById(row).orElseThrow().getError()).isNull();
+        assertThat(ehentai.requests()).singleElement().satisfies(request ->
+        {
+            assertThat(request.path()).isEqualTo("/ex/");
+            assertThat(request.cookie()).contains("ipb_member_id=126");
+        });
+
+        // WHEN asked again with the same account
+        registry.checkLogins();
+
+        // THEN it is known to be accepted, so the site is not asked.
+        assertThat(ehentai.requests()).hasSize(1);
     }
 
     // ---- fixture ----------------------------------------------------------------------------------------------

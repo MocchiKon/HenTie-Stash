@@ -85,8 +85,8 @@ public class AppProperties
 
         /**
          * A subscription stops listing while this many of its downloads have failed: downloads that fail at once
-         * (gallery-dl missing, unreadable cookies) would otherwise page a whole site into the Failed list. Checking
-         * for new galleries goes on. Rejected duplicates are not failures and are not counted.
+         * (gallery-dl missing, an account the site refuses) would otherwise page a whole site into the Failed list.
+         * Checking for new galleries goes on. Rejected duplicates are not failures and are not counted.
          */
         private int failedLimit = 50;
 

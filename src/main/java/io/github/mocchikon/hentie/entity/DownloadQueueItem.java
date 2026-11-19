@@ -110,13 +110,17 @@ public class DownloadQueueItem
     private boolean replacePages = false;
 
     /**
-     * The browser gallery-dl reads cookies from, null for none. Like the two below: picked on the paste form,
-     * replaced by a re-paste, kept by retries, and read only by gallery-dl sources.
+     * The failure is a site showing the gallery only to an account it accepts, and it accepted none
+     * ({@link io.github.mocchikon.hentie.service.download.LoginRequiredException}). Such a row goes back to waiting by
+     * itself once the site accepts the account. Read only on a failed row; each recorded failure assigns it.
      */
-    @Column(name = "cookies_browser", length = 32)
-    private String cookiesBrowser;
+    @Column(name = "needs_login", nullable = false, columnDefinition = "boolean not null default 0")
+    private boolean needsLogin = false;
 
-    /** e-hentai's original files: they cost far more of the account's image limit. */
+    /**
+     * e-hentai's original files: they cost far more of the account's image limit. Like the delay below: picked on
+     * the paste form, replaced by a re-paste, kept by retries, and read only by gallery-dl sources.
+     */
     @Column(name = "download_originals", nullable = false, columnDefinition = "boolean not null default 0")
     private boolean downloadOriginals = false;
 

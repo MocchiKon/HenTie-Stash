@@ -11,10 +11,14 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import java.io.Closeable;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Duration;
 import java.util.*;
 import java.util.regex.Matcher;
@@ -296,6 +300,75 @@ public class GalleryDl
         catch (IOException e)
         {
             log.debug("Could not delete {}: {}", file, e.toString());
+        }
+    }
+
+    /**
+     * A cookies file for one run, so an account's login reaches gallery-dl without standing on its command line, where
+     * other programs on the machine can read it and the debug log would keep it. It lies in gallery-dl's own temp
+     * folder, readable by this user only where the file system has permissions; one a killed app leaves is removed
+     * with that folder at the next start.
+     *
+     * @param byDomain cookie names and values per domain ({@code .exhentai.org}); no value may hold a tab or a line
+     *                 break
+     */
+    public CookiesFile cookiesFile(Map<String, Map<String, String>> byDomain) throws IOException
+    {
+        var lines = new StringBuilder("# Netscape HTTP Cookie File\n");
+        byDomain.forEach((domain, cookies) -> cookies.forEach((name, value) ->
+        {
+            if (StringUtils.containsAny(domain + name + value, '\t', '\n', '\r'))
+            {
+                throw new IllegalArgumentException("A cookie for gallery-dl holds a tab or a line break: " + name);
+            }
+            lines.append(domain).append("\tTRUE\t/\tTRUE\t0\t").append(name).append('\t').append(value)
+                    .append('\n');
+        }));
+        Path temp = tool.tempDir();
+        Files.createDirectories(temp);
+        Path file = temp.resolve("cookies-" + UUID.randomUUID() + ".txt");
+        if (FileSystems.getDefault().supportedFileAttributeViews().contains("posix"))
+        {
+            Files.createFile(file, PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------")));
+        }
+        else
+        {
+            Files.createFile(file);
+        }
+        try
+        {
+            Files.writeString(file, lines, StandardCharsets.UTF_8);
+        }
+        catch (IOException | RuntimeException e)
+        {
+            Files.deleteIfExists(file);
+            throw e;
+        }
+        return new CookiesFile(file);
+    }
+
+    /**
+     * The cookies of one run, deleted on close. {@code cookies-update} is off: gallery-dl would otherwise write what
+     * the site set back into the file, which is deleted anyway.
+     */
+    public record CookiesFile(Path file) implements Closeable
+    {
+        public List<String> args()
+        {
+            return List.of("--cookies", file.toString(), "-o", "cookies-update=false");
+        }
+
+        @Override
+        public void close()
+        {
+            try
+            {
+                Files.deleteIfExists(file);
+            }
+            catch (IOException e)
+            {
+                log.warn("Could not delete gallery-dl's cookies file {}: {}", file, e.toString());
+            }
         }
     }
 

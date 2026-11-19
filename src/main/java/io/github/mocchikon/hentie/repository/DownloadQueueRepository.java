@@ -89,6 +89,17 @@ public interface DownloadQueueRepository extends JpaRepository<DownloadQueueItem
             + "i.ignoreImageErrors = :ignoreImageErrors where i.error is not null and i.rejectedDuplicate = false")
     int retryFailed(@Param("ignoreImageErrors") boolean ignoreImageErrors);
 
+    /**
+     * The rows of one source that failed for want of a login, now that its site accepts the account. Their own
+     * choices are kept, as a retry keeps them.
+     */
+    @Modifying
+    @Query("update DownloadQueueItem i set i.error = null, i.attempts = 0, i.needsLogin = false "
+            + "where i.error is not null and i.needsLogin = true and locate(:prefix, i.galleryId) = 1")
+    int retryNeedingLogin(@Param("prefix") String galleryIdPrefix);
+
+    boolean existsByErrorIsNotNullAndNeedsLoginTrue();
+
     /** Read before "Delete all failed" removes the rows, so their staging can be discarded. */
     @Query("select i.chapterId from DownloadQueueItem i where i.error is not null "
             + "and i.rejectedDuplicate = false and i.chapterId is not null")

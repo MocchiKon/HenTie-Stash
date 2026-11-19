@@ -23,7 +23,7 @@ import java.util.Locale;
  * mean is {@link EhentaiDownloader}'s business.
  * <p>
  * <b>One pacer for every call</b>, at the rate the API's documentation allows ({@link EhentaiProperties}). It sends
- * no cookies: metadata needs none, and the user's cookies stay in their browser, read only by gallery-dl.
+ * no cookies: metadata needs none, so the account's login goes out only where a page needs it.
  */
 final class EhentaiApi
 {

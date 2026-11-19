@@ -7,6 +7,7 @@ import io.github.mocchikon.hentie.dto.JxlDelivery;
 import io.github.mocchikon.hentie.dto.ScratchFolderView;
 import io.github.mocchikon.hentie.dto.TitleDisplayMode;
 import io.github.mocchikon.hentie.entity.ViewMode;
+import io.github.mocchikon.hentie.scrapper.DataDownloaderRegistry;
 import io.github.mocchikon.hentie.scrapper.gallerydl.GalleryDlOptions;
 import io.github.mocchikon.hentie.scrapper.gallerydl.GalleryDlTool;
 import io.github.mocchikon.hentie.service.AppShutdown;
@@ -61,6 +62,7 @@ public class SettingsController
     private final WriteGate writeGate;
     private final GalleryDlTool galleryDlTool;
     private final SubscriptionRunner subscriptionRunner;
+    private final DataDownloaderRegistry downloaderRegistry;
 
     @GetMapping("/settings")
     public String index(Model model) throws InterruptedException
@@ -89,7 +91,6 @@ public class SettingsController
         model.addAttribute("systemImageTools", settingsService.isSystemImageToolsEnabled());
         model.addAttribute("systemGalleryDl", settingsService.isSystemGalleryDlEnabled());
         model.addAttribute("galleryDlDefaults", settingsService.getGalleryDlDefaults());
-        model.addAttribute("browserGroups", GalleryDlOptions.BROWSER_GROUPS);
         model.addAttribute("galleryDlStatus", galleryDlTool.status());
         model.addAttribute("jxlDelivery", settingsService.getJxlDelivery());
         model.addAttribute("jxlDeliveries", JxlDelivery.values());
@@ -204,8 +205,10 @@ public class SettingsController
         List<String> accountRefusals = saveEhentaiAccount(params);
         List<String> comfyRefusals = saveComfyUi(params, comfyAutostart);
         Optional<String> refusal = saveScratchFolders(params);
-        // An API key or account cookies may be what a subscription waited for.
+        // An API key or account cookies may be what a subscription waited for, and new cookies what a download that
+        // needs the account waits for; those go on by themselves once the site accepts them.
         subscriptionRunner.kick();
+        downloaderRegistry.checkLogins();
         if (loginRefusal.isPresent() || refusal.isPresent() || !comfyRefusals.isEmpty() || galleryDlRefusal.isPresent()
                 || !accountRefusals.isEmpty())
         {
@@ -248,7 +251,7 @@ public class SettingsController
         }
         GalleryDlOptions before = settingsService.getGalleryDlDefaults();
         Optional<String> delay = GalleryDlOptions.normalizedDelay(params.get("galleryDlDelay"));
-        settingsService.setGalleryDlDefaults(new GalleryDlOptions(params.get("galleryDlCookiesBrowser"),
+        settingsService.setGalleryDlDefaults(new GalleryDlOptions(
                 Boolean.parseBoolean(params.get("galleryDlOriginals")), delay.orElse(before.delay())));
         return delay.isPresent() ? Optional.empty() : Optional.of("The other settings were saved, but "
                 + ChapterController.delayProblem(params.get("galleryDlDelay")) + " The default delay was not changed.");

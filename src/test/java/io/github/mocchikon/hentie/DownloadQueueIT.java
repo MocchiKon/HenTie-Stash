@@ -911,7 +911,8 @@ class DownloadQueueIT
         try
         {
             queueService.retry(id, true, false);
-            queueService.recordFailure(queueRepository.findById(id).orElseThrow(), "something else", null, true, false, null, 3);
+            queueService.recordFailure(queueRepository.findById(id).orElseThrow(), "something else", null, true, false,
+                    null, false, 3);
             em.flush();
             em.clear();
             assertThat(queueRepository.findById(id).orElseThrow().isIgnoreImageErrors()).isTrue();

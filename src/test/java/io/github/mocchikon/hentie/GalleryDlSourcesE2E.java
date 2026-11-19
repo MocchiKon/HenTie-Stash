@@ -49,7 +49,7 @@ import static org.assertj.core.api.Assumptions.assumeThat;
 @Transactional
 class GalleryDlSourcesE2E
 {
-    private static final GalleryDlOptions NO_COOKIES = new GalleryDlOptions(null, false, "0.4-0.65");
+    private static final GalleryDlOptions PLAIN_OPTIONS = new GalleryDlOptions(false, "0.4-0.65");
 
     @Autowired GalleryDlTool tool;
     @Autowired HitomiDownloader hitomi;
@@ -69,7 +69,7 @@ class GalleryDlSourcesE2E
         // WHEN
         GalleryData data = hitomi.downloadGalleryInfo("1000000");
         List<Integer> received = new ArrayList<>();
-        GalleryDl.Outcome outcome = hitomi.downloadPages("1000000", NO_COOKIES, new TreeSet<>(List.of(1, 2)),
+        GalleryDl.Outcome outcome = hitomi.downloadPages("1000000", PLAIN_OPTIONS, new TreeSet<>(List.of(1, 2)),
                 folder.resolve("run"), (page, file) -> received.add(page));
 
         // THEN
@@ -102,7 +102,7 @@ class GalleryDlSourcesE2E
 
         // WHEN
         GalleryData data = ehentai.downloadGalleryInfo("618395/0439fa3666");
-        GalleryDl.Outcome outcome = ehentai.downloadPages("618395/0439fa3666", NO_COOKIES, new TreeSet<>(List.of(1, 2)),
+        GalleryDl.Outcome outcome = ehentai.downloadPages("618395/0439fa3666", PLAIN_OPTIONS, new TreeSet<>(List.of(1, 2)),
                 folder.resolve("run"), (page, file) -> { });
 
         // THEN
@@ -117,7 +117,7 @@ class GalleryDlSourcesE2E
         assertThat(data.getTags()).contains("other:artbook", "other:full color");
         assertThat(data.getPageCount()).isEqualTo(20);
         assertThat(outcome.received()).containsExactlyInAnyOrder(1, 2);
-        // Without cookies from e-hentai.org, so the chapter would link there.
+        // Without the account from e-hentai.org, so the chapter would link there.
         assertThat(outcome.site()).isNull();
 
         // ...and saved without e-hentai's namespaces.

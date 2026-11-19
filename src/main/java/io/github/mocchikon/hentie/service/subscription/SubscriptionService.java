@@ -95,7 +95,6 @@ public class SubscriptionService
         form.setSource(registry.searchSites().stream().findFirst().map(SearchSource.SearchSite::key).orElse(null));
         form.setPriority(Subscription.DEFAULT_PRIORITY);
         GalleryDlOptions galleryDl = settingsService.getGalleryDlDefaults();
-        form.setCookiesBrowser(galleryDl.cookiesBrowser());
         form.setDownloadOriginals(galleryDl.originals());
         form.setRequestDelay(galleryDl.delay());
         return form;
@@ -116,7 +115,6 @@ public class SubscriptionService
             form.setRecheckEveryHours(subscription.getRecheckEveryHours());
             form.setRecheckDepthHours(subscription.getRecheckDepthHours());
             form.setAvoidDuplicateTitles(subscription.isAvoidDuplicateTitles());
-            form.setCookiesBrowser(subscription.getCookiesBrowser());
             form.setDownloadOriginals(subscription.isDownloadOriginals());
             form.setRequestDelay(subscription.getRequestDelay());
             return form;
@@ -167,11 +165,6 @@ public class SubscriptionService
         {
             throw new Refused("source", notReady.get());
         }
-        Optional<String> choicesProblem = source.choicesProblem(site, galleryDl);
-        if (choicesProblem.isPresent())
-        {
-            throw new Refused("cookiesBrowser", choicesProblem.get());
-        }
 
         Subscription subscription = form.getId() == null ? new Subscription()
                 : repository.findById(form.getId()).orElseThrow(() -> new NoSuchElementException(
@@ -186,7 +179,6 @@ public class SubscriptionService
         subscription.setRecheckEveryHours(form.getRecheckEveryHours());
         subscription.setRecheckDepthHours(form.getRecheckDepthHours());
         subscription.setAvoidDuplicateTitles(form.isAvoidDuplicateTitles());
-        subscription.setCookiesBrowser(galleryDl.cookiesBrowser());
         subscription.setDownloadOriginals(galleryDl.originals());
         subscription.setRequestDelay(galleryDl.delay());
         if (subscription.getId() == null)
@@ -432,8 +424,6 @@ public class SubscriptionService
         }
         if (usesGalleryDl(subscription.getSource()))
         {
-            parts.add(subscription.getCookiesBrowser() == null ? "no cookies"
-                    : "cookies from " + subscription.getCookiesBrowser());
             if (subscription.isDownloadOriginals())
             {
                 parts.add("originals");
@@ -713,12 +703,11 @@ public class SubscriptionService
         GalleryDlOptions galleryDl;
         try
         {
-            galleryDl = new GalleryDlOptions(subscription.getCookiesBrowser(), subscription.isDownloadOriginals(),
-                    subscription.getRequestDelay());
+            galleryDl = new GalleryDlOptions(subscription.isDownloadOriginals(), subscription.getRequestDelay());
         }
         catch (IllegalArgumentException e)
         {
-            galleryDl = new GalleryDlOptions(subscription.getCookiesBrowser(), subscription.isDownloadOriginals(),
+            galleryDl = new GalleryDlOptions(subscription.isDownloadOriginals(),
                     settingsService.getGalleryDlDefaults().delay());
         }
         return new DownloadChoices(BuiltInCompressionMode.RULES_KEY, false, subscription.isAvoidDuplicateTitles(),

@@ -8,19 +8,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 class GalleryDlOptionsTest
 {
     @Test
-    void shouldKeepOnlyBrowsersGalleryDlKnowsWhenStoringTheCookiesChoice()
-    {
-        // WHEN + THEN
-        assertThat(GalleryDlOptions.storableBrowser(" Firefox ")).isEqualTo("firefox");
-        assertThat(GalleryDlOptions.storableBrowser("edge")).isEqualTo("edge");
-        assertThat(GalleryDlOptions.storableBrowser("")).isNull();
-        assertThat(GalleryDlOptions.storableBrowser(null)).isNull();
-        assertThat(GalleryDlOptions.storableBrowser("firefox --exec rm")).isNull();
-        assertThat(GalleryDlOptions.storableBrowser("firefox:profile")).isNull();
-        assertThat(new GalleryDlOptions("netscape", false, "1").cookiesBrowser()).isNull();
-    }
-
-    @Test
     void shouldNormalizeADelayGalleryDlCanRead()
     {
         // WHEN + THEN

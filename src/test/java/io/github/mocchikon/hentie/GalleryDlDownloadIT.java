@@ -12,6 +12,7 @@ import io.github.mocchikon.hentie.scrapper.ehentai.EhentaiProperties;
 import io.github.mocchikon.hentie.scrapper.gallerydl.GalleryDlOptions;
 import io.github.mocchikon.hentie.service.DownloadService;
 import io.github.mocchikon.hentie.service.ImageService;
+import io.github.mocchikon.hentie.service.SettingsService;
 import io.github.mocchikon.hentie.service.compress.ImageCompressionModeService;
 import io.github.mocchikon.hentie.service.compress.ImageToolLocator;
 import io.github.mocchikon.hentie.service.download.DownloadChoices;
@@ -71,6 +72,7 @@ class GalleryDlDownloadIT
     @Autowired SubscriptionRepository subscriptionRepository;
     @Autowired ImageCompressionModeService modeService;
     @Autowired ImageToolLocator toolLocator;
+    @Autowired SettingsService settingsService;
     @PersistenceContext EntityManager em;
 
     private HttpServer api;
@@ -109,14 +111,17 @@ class GalleryDlDownloadIT
         ehentaiProperties.setApiUrl(apiUrlBefore);
         ehentaiProperties.setCooldownMinutes(cooldownBefore);
         ehentaiDownloader.clearCooldown();
+        settingsService.setEhentaiMemberId("");
+        settingsService.setEhentaiPassHash("");
+        settingsService.setEhentaiIgneous("");
         appProperties.getGalleryDl().setIdleTimeoutSeconds(idleTimeoutBefore);
         appProperties.getGalleryDl().setMetadataTimeoutSeconds(metadataTimeoutBefore);
         api.stop(0);
     }
 
-    private static DownloadChoices choices(String browser, boolean originals, String delay)
+    private static DownloadChoices choices(boolean originals, String delay)
     {
-        return new DownloadChoices(NO_COMPRESSION, false, false, new GalleryDlOptions(browser, originals, delay));
+        return new DownloadChoices(NO_COMPRESSION, false, false, new GalleryDlOptions(originals, delay));
     }
 
     // ---- hitomi --------------------------------------------------------------------------------------------
@@ -124,11 +129,11 @@ class GalleryDlDownloadIT
     @Test
     void shouldFetchMetadataOnceAndThePagesInOneRunWhenDownloadingAHitomiGallery() throws IOException
     {
-        // GIVEN a gallery of three pages; the paste asked for cookies and originals, which hitomi ignores.
+        // GIVEN a gallery of three pages; the paste asked for originals, which hitomi ignores.
         FakeGalleryDl.set("json", HITOMI_JSON);
         FakeGalleryDl.set("pages", "3");
         queueService.enqueue(List.of("https://hitomi.la/doujinshi/hitomi-gallery-english-9001.html"),
-                choices("firefox", true, "0.5"));
+                choices(true, "0.5"));
         Integer chapterId = null;
         try
         {
@@ -162,7 +167,7 @@ class GalleryDlDownloadIT
             assertThat(FakeGalleryDl.option(pages, "--range")).isEqualTo("1-3");
             assertThat(FakeGalleryDl.option(pages, "--sleep")).isEqualTo("0.5");
             assertThat(FakeGalleryDl.option(pages, "-f")).isEqualTo("{num}.{extension}");
-            assertThat(pages).contains("format=webp").doesNotContain("--cookies-from-browser", "--sleep-request")
+            assertThat(pages).contains("format=webp").doesNotContain("--cookies", "--sleep-request")
                     .noneMatch(arg -> arg.startsWith("original="));
             // AND its folder inside staging was removed with the rest of staging.
             assertThat(FakeGalleryDl.option(pages, "-D")).contains(".gallery-dl-");
@@ -182,7 +187,7 @@ class GalleryDlDownloadIT
         FakeGalleryDl.set("json", HITOMI_JSON);
         FakeGalleryDl.set("pages", "3");
         FakeGalleryDl.set("fail", "2");
-        queueService.enqueue(List.of("hitomi:9001"), choices(null, false, "0"));
+        queueService.enqueue(List.of("hitomi:9001"), choices(false, "0"));
         Integer chapterId = null;
         try
         {
@@ -266,7 +271,7 @@ class GalleryDlDownloadIT
         FakeGalleryDl.set("json", HITOMI_JSON);
         FakeGalleryDl.set("pages", "3");
         FakeGalleryDl.set("fail", "2");
-        queueService.enqueue(List.of("hitomi:9001"), choices(null, false, "0"));
+        queueService.enqueue(List.of("hitomi:9001"), choices(false, "0"));
         DownloadQueueItem item = queueRepository.findByLink("hitomi:9001").orElseThrow();
         item.setIgnoreImageErrors(true);
         queueRepository.save(item);
@@ -296,7 +301,7 @@ class GalleryDlDownloadIT
         // GIVEN every page fails, in lenient mode
         FakeGalleryDl.set("json", HITOMI_JSON);
         FakeGalleryDl.set("pages", "0");
-        queueService.enqueue(List.of("hitomi:9001"), choices(null, false, "0"));
+        queueService.enqueue(List.of("hitomi:9001"), choices(false, "0"));
         DownloadQueueItem item = queueRepository.findByLink("hitomi:9001").orElseThrow();
         item.setIgnoreImageErrors(true);
         queueRepository.save(item);
@@ -328,7 +333,7 @@ class GalleryDlDownloadIT
         FakeGalleryDl.set("fail", "3");
         FakeGalleryDl.set("exit", "128");
         FakeGalleryDl.set("stderr", "[download][error] Unable to download data:  OSError: [Errno 28] No space left");
-        queueService.enqueue(List.of("hitomi:9001"), choices(null, false, "0"));
+        queueService.enqueue(List.of("hitomi:9001"), choices(false, "0"));
         DownloadQueueItem item = queueRepository.findByLink("hitomi:9001").orElseThrow();
         item.setIgnoreImageErrors(true);
         queueRepository.save(item);
@@ -358,7 +363,7 @@ class GalleryDlDownloadIT
         // GIVEN gallery-dl's answer for a gallery that does not exist
         FakeGalleryDl.set("json",
                 "[[-1, {\"error\": \"NotFoundError\", \"message\": \"Requested gallery could not be found\"}]]");
-        queueService.enqueue(List.of("hitomi:404"), choices(null, false, "0"));
+        queueService.enqueue(List.of("hitomi:404"), choices(false, "0"));
 
         // WHEN
         assertThat(worker.processNext()).isTrue();
@@ -377,7 +382,7 @@ class GalleryDlDownloadIT
         FakeGalleryDl.set("hang", "true");
         appProperties.getGalleryDl().setIdleTimeoutSeconds(2);
         appProperties.getGalleryDl().setMetadataTimeoutSeconds(60);
-        queueService.enqueue(List.of("hitomi:9002"), choices(null, false, "0"));
+        queueService.enqueue(List.of("hitomi:9002"), choices(false, "0"));
 
         // WHEN
         long start = System.nanoTime();
@@ -392,12 +397,22 @@ class GalleryDlDownloadIT
 
     // ---- e-hentai ------------------------------------------------------------------------------------------
 
+    /** Each test its own account: which one exhentai accepted is remembered, and only a new one is announced. */
+    private void account(String memberId)
+    {
+        settingsService.setEhentaiMemberId(memberId);
+        settingsService.setEhentaiPassHash("0123456789abcdef0123456789abcdef");
+        settingsService.setEhentaiIgneous("");
+    }
+
     @Test
-    void shouldTakeMetadataFromTheApiAndPagesFromExhentaiWithCookies() throws IOException
+    void shouldTakeMetadataFromTheApiAndPagesFromExhentaiWithTheAccount() throws IOException
     {
         // GIVEN
+        account("1001");
+        settingsService.setEhentaiIgneous("abc123");
         FakeGalleryDl.set("pages", "2");
-        queueService.enqueue(List.of("https://e-hentai.org/g/618395/0439fa3666/"), choices("firefox", true, "0.4-0.65"));
+        queueService.enqueue(List.of("https://e-hentai.org/g/618395/0439fa3666/"), choices(true, "0.4-0.65"));
         Integer chapterId = null;
         try
         {
@@ -419,15 +434,25 @@ class GalleryDlDownloadIT
             assertThat(chapter.getDownloadStatus()).isEqualTo(DownloadStatus.SUCCESSFUL);
             assertThat(imageService.pageUrls(chapterId)).hasSize(2);
 
-            // ...and the pages from exhentai, since cookies were chosen, with the paste's choices.
+            // ...and the pages from exhentai with the account, and the paste's choices...
             List<List<String>> calls = FakeGalleryDl.calls();
             assertThat(calls).hasSize(1);
             List<String> run = calls.getFirst();
             assertThat(run.getLast()).isEqualTo("https://exhentai.org/g/618395/0439fa3666/");
-            assertThat(FakeGalleryDl.option(run, "--cookies-from-browser")).isEqualTo("firefox");
             assertThat(FakeGalleryDl.option(run, "--sleep-request")).isEqualTo("0.4-0.65");
-            assertThat(run).contains("original=true").doesNotContain("--sleep");
+            assertThat(run).contains("original=true", "cookies-update=false")
+                    .doesNotContain("--sleep", "--cookies-from-browser");
             assertThat(FakeGalleryDl.option(run, "--range")).isEqualTo("1-2");
+            // ...sent in a file, never on the command line, which is gone once the run ended.
+            assertThat(String.join(" ", run)).doesNotContain("0123456789abcdef0123456789abcdef");
+            assertThat(Path.of(FakeGalleryDl.option(run, "--cookies"))).doesNotExist();
+            assertThat(FakeGalleryDl.cookiesOfCall(1)).contains(
+                    ".exhentai.org\tTRUE\t/\tTRUE\t0\tipb_member_id\t1001",
+                    ".exhentai.org\tTRUE\t/\tTRUE\t0\tipb_pass_hash\t0123456789abcdef0123456789abcdef",
+                    ".exhentai.org\tTRUE\t/\tTRUE\t0\tigneous\tabc123",
+                    ".e-hentai.org\tTRUE\t/\tTRUE\t0\tipb_member_id\t1001",
+                    ".e-hentai.org\tTRUE\t/\tTRUE\t0\tipb_pass_hash\t0123456789abcdef0123456789abcdef")
+                    .noneMatch(line -> line.startsWith(".e-hentai.org") && line.contains("igneous"));
 
             // ...so the chapter links to exhentai, which may have galleries e-hentai hides.
             assertThat(chapter.getSourceSite()).isEqualTo("exhentai");
@@ -440,11 +465,11 @@ class GalleryDlDownloadIT
     }
 
     @Test
-    void shouldUseEhentaiWithoutCookies() throws IOException
+    void shouldUseEhentaiWithoutTheAccount() throws IOException
     {
         // GIVEN
         FakeGalleryDl.set("pages", "2");
-        queueService.enqueue(List.of("https://exhentai.org/g/618395/0439fa3666/"), choices(null, false, "1"));
+        queueService.enqueue(List.of("https://exhentai.org/g/618395/0439fa3666/"), choices(false, "1"));
         Integer chapterId = null;
         try
         {
@@ -457,7 +482,7 @@ class GalleryDlDownloadIT
             chapterId = chapter.getId();
             List<String> run = FakeGalleryDl.calls().getFirst();
             assertThat(run.getLast()).isEqualTo("https://e-hentai.org/g/618395/0439fa3666/");
-            assertThat(run).contains("original=false").doesNotContain("--cookies-from-browser");
+            assertThat(run).contains("original=false").doesNotContain("--cookies");
             // ...and the chapter links there.
             assertThat(chapter.getSourceSite()).isNull();
             assertThat(downloadService.sourcePageLink(chapter)).contains("https://e-hentai.org/g/618395/0439fa3666/");
@@ -472,10 +497,11 @@ class GalleryDlDownloadIT
     void shouldFallBackToEhentaiOnceWhenExhentaiRefusesTheAccount() throws IOException
     {
         // GIVEN exhentai shows this account nothing
+        account("1002");
         FakeGalleryDl.set("pages", "2");
         FakeGalleryDl.set("exhentai.org.exit", "16");
         FakeGalleryDl.set("exhentai.org.stderr", "[exhentai][error] AuthorizationError: Insufficient privileges");
-        queueService.enqueue(List.of("ehentai:618395/0439fa3666"), choices("firefox", false, "0"));
+        queueService.enqueue(List.of("ehentai:618395/0439fa3666"), choices(false, "0"));
         Integer chapterId = null;
         try
         {
@@ -483,14 +509,92 @@ class GalleryDlDownloadIT
             assertThat(worker.processNext()).isTrue();
             em.flush();
 
-            // THEN the pages came from e-hentai.org on a second run.
+            // THEN the pages came from e-hentai.org on a second run, with the account too.
             Chapter chapter = chapterRepository.findByGalleryId("ehentai:618395/0439fa3666").orElseThrow();
             chapterId = chapter.getId();
             assertThat(chapter.getDownloadStatus()).isEqualTo(DownloadStatus.SUCCESSFUL);
             assertThat(FakeGalleryDl.calls()).extracting(List::getLast).containsExactly(
                     "https://exhentai.org/g/618395/0439fa3666/", "https://e-hentai.org/g/618395/0439fa3666/");
+            assertThat(FakeGalleryDl.cookiesOfCall(2)).contains(".e-hentai.org\tTRUE\t/\tTRUE\t0\tipb_member_id\t1002");
             // The account cannot see exhentai, so the chapter links to e-hentai.
             assertThat(downloadService.sourcePageLink(chapter)).contains("https://e-hentai.org/g/618395/0439fa3666/");
+        }
+        finally
+        {
+            cleanUp(chapterId);
+        }
+    }
+
+    /**
+     * A gallery e-hentai hides fails for want of the account, and goes back to waiting by itself once exhentai accepts
+     * one: here, as a download from exhentai succeeds.
+     */
+    @Test
+    void shouldRetryADownloadThatNeededTheAccountOnceExhentaiAcceptsIt() throws IOException
+    {
+        // GIVEN e-hentai.org hides the gallery, and there is no account
+        FakeGalleryDl.set("pages", "2");
+        FakeGalleryDl.set("e-hentai.org.exit", "16");
+        FakeGalleryDl.set("e-hentai.org.stderr", "[exhentai][error] AuthorizationError: ");
+        queueService.enqueue(List.of("ehentai:618395/0439fa3666"), choices(false, "0"));
+        Integer chapterId = null;
+        try
+        {
+            // WHEN
+            assertThat(worker.processNext()).isTrue();
+            em.flush();
+            chapterId = chapterRepository.findByGalleryId("ehentai:618395/0439fa3666").map(Chapter::getId).orElse(null);
+
+            // THEN it failed at once, saying what to do
+            DownloadQueueItem failed = queueRepository.findByLink("ehentai:618395/0439fa3666").orElseThrow();
+            assertThat(failed.getError()).contains("logged-in", "Settings");
+            assertThat(failed.isNeedsLogin()).isTrue();
+            assertThat(failed.getAttempts()).isOne();
+
+            // WHEN the account is added and another gallery downloads from exhentai
+            account("1003");
+            queueService.enqueue(List.of("ehentai:1/0123456789"), choices(false, "0"));
+            assertThat(worker.processNext()).isTrue();
+            em.flush();
+            em.clear();
+
+            // THEN the first waits again, to be downloaded with the account.
+            DownloadQueueItem waiting = queueRepository.findByLink("ehentai:618395/0439fa3666").orElseThrow();
+            assertThat(waiting.getError()).isNull();
+            assertThat(waiting.isNeedsLogin()).isFalse();
+            assertThat(waiting.getAttempts()).isZero();
+            assertThat(queueService.nextPending()).get().extracting(DownloadQueueItem::getGalleryId)
+                    .isEqualTo("ehentai:618395/0439fa3666");
+        }
+        finally
+        {
+            cleanUp(chapterId);
+            chapterRepository.findByGalleryId("ehentai:1/0123456789").map(Chapter::getId).ifPresent(this::cleanUp);
+        }
+    }
+
+    @Test
+    void shouldSayTheAccountWasRefusedWhenNeitherDomainShowsTheGallery() throws IOException
+    {
+        // GIVEN exhentai refuses the account, and e-hentai.org hides the gallery
+        account("1004");
+        FakeGalleryDl.set("pages", "2");
+        FakeGalleryDl.set("exit", "16");
+        FakeGalleryDl.set("stderr", "[exhentai][error] AuthorizationError: ");
+        queueService.enqueue(List.of("ehentai:618395/0439fa3666"), choices(false, "0"));
+        Integer chapterId = null;
+        try
+        {
+            // WHEN
+            assertThat(worker.processNext()).isTrue();
+            em.flush();
+            chapterId = chapterRepository.findByGalleryId("ehentai:618395/0439fa3666").map(Chapter::getId).orElse(null);
+
+            // THEN
+            DownloadQueueItem failed = queueRepository.findByLink("ehentai:618395/0439fa3666").orElseThrow();
+            assertThat(failed.getError()).contains("did not accept your e-hentai account", "Settings");
+            assertThat(failed.isNeedsLogin()).isTrue();
+            assertThat(FakeGalleryDl.calls()).hasSize(2);
         }
         finally
         {
@@ -506,7 +610,7 @@ class GalleryDlDownloadIT
         FakeGalleryDl.set("pages", "2");
         FakeGalleryDl.set("exit", "16");
         FakeGalleryDl.set("stderr", "[exhentai][error] AuthorizationError: Temporarily Banned");
-        queueService.enqueue(List.of("ehentai:618395/0439fa3666", "ehentai:1/0123456789"), choices(null, false, "0"));
+        queueService.enqueue(List.of("ehentai:618395/0439fa3666", "ehentai:1/0123456789"), choices(false, "0"));
         Integer chapterId = null;
         try
         {
@@ -556,7 +660,7 @@ class GalleryDlDownloadIT
         subscription.setRequestDelay("0");
         int subscriptionId = subscriptionRepository.save(subscription).getId();
         queueService.queueForSubscription(subscriptionId, List.of("https://e-hentai.org/g/618395/0439fa3666/",
-                "https://e-hentai.org/g/1/0123456789/"), choices(null, false, "0"));
+                "https://e-hentai.org/g/1/0123456789/"), choices(false, "0"));
         Integer chapterId = null;
         try
         {

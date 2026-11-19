@@ -12,6 +12,7 @@ import io.github.mocchikon.hentie.service.SettingsService;
 import io.github.mocchikon.hentie.service.download.PermanentDownloadException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.context.ApplicationEventPublisher;
 
 import java.io.IOException;
 import java.net.InetAddress;
@@ -67,13 +68,15 @@ class EhentaiDownloaderTest
         // A gallery-dl never updated: metadata asks whether one is.
         var appProperties = new AppProperties();
         return new EhentaiDownloader(properties, new GalleryDl(new GalleryDlTool(appProperties, null), appProperties),
-                mock(SettingsService.class));
+                mock(SettingsService.class),
+                mock(ApplicationEventPublisher.class));
     }
 
     @Test
     void shouldNameOneGalleryWhicheverDomainOrSpellingTheLinkUses()
     {
-        var downloader = new EhentaiDownloader(new EhentaiProperties(), null, mock(SettingsService.class));
+        var downloader = new EhentaiDownloader(new EhentaiProperties(), null, mock(SettingsService.class),
+                mock(ApplicationEventPublisher.class));
 
         // WHEN + THEN
         assertThat(downloader.resourceId("https://e-hentai.org/g/618395/0439fa3666/")).isEqualTo("618395/0439fa3666");
@@ -90,7 +93,8 @@ class EhentaiDownloaderTest
     @Test
     void shouldMarkEveryKindOfGalleryLink()
     {
-        var downloader = new EhentaiDownloader(new EhentaiProperties(), null, mock(SettingsService.class));
+        var downloader = new EhentaiDownloader(new EhentaiProperties(), null, mock(SettingsService.class),
+                mock(ApplicationEventPublisher.class));
         var links = List.of("https://e-hentai.org/g/618395/0439fa3666/", "https://exhentai.org/g/618395/0439FA3666/?p=2",
                 "http://E-HENTAI.org/mpv/0618395/0439fa3666/#page3", "EHENTAI: 618395 / 0439fa3666",
                 downloader.link("618395/0439fa3666"));
@@ -104,7 +108,8 @@ class EhentaiDownloaderTest
     @Test
     void shouldRefuseLinksThatNeedTheNetworkToBeUnderstood()
     {
-        var downloader = new EhentaiDownloader(new EhentaiProperties(), null, mock(SettingsService.class));
+        var downloader = new EhentaiDownloader(new EhentaiProperties(), null, mock(SettingsService.class),
+                mock(ApplicationEventPublisher.class));
 
         // WHEN + THEN a page link's gallery token is unknown, and a link without a token names nothing fetchable.
         assertThat(downloader.accepts("https://e-hentai.org/s/0123456789/618395-3")).isFalse();

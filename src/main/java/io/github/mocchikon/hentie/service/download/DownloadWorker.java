@@ -6,6 +6,7 @@ import io.github.mocchikon.hentie.config.SqliteLocks;
 import io.github.mocchikon.hentie.config.WriteGate;
 import io.github.mocchikon.hentie.entity.DownloadQueueItem;
 import io.github.mocchikon.hentie.scrapper.GalleryNotFoundException;
+import io.github.mocchikon.hentie.scrapper.LoginAccepted;
 import io.github.mocchikon.hentie.service.SettingsService;
 import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
@@ -124,6 +125,21 @@ public class DownloadWorker
             }
         }
         thread = null;
+    }
+
+    /**
+     * The downloads that failed for want of a login run again once their site accepts the account. Published by the
+     * source on whichever thread learnt it, never inside a transaction.
+     */
+    @EventListener
+    public void onLoginAccepted(LoginAccepted accepted)
+    {
+        int revived = queueService.retryNeedingLogin(accepted.sourcePrefix());
+        if (revived > 0)
+        {
+            log.info("{} download(s) of {} that needed a login wait again", revived, accepted.sourcePrefix());
+            kick();
+        }
     }
 
     public void kick()
@@ -284,7 +300,7 @@ public class DownloadWorker
         Thread.interrupted();
         Integer chapterId = item.getGalleryId() == null
                 ? null : importService.findChapterId(item.getGalleryId()).orElse(null);
-        var outcome = queueService.recordFailure(item, "Aborted on request.", chapterId, true, false, null,
+        var outcome = queueService.recordFailure(item, "Aborted on request.", chapterId, true, false, null, false,
                 appProperties.getDownload().getMaxAttempts());
         if (outcome == DownloadQueueService.FailureOutcome.GAVE_UP)
         {
@@ -381,7 +397,8 @@ public class DownloadWorker
                 ? null : importService.findChapterId(item.getGalleryId()).orElse(null);
 
         var outcome = queueService.recordFailure(item, message, chapterId, permanent, rejectedDuplicate,
-                duplicateChapterId, appProperties.getDownload().getMaxAttempts());
+                duplicateChapterId, failure instanceof LoginRequiredException,
+                appProperties.getDownload().getMaxAttempts());
         if (outcome == DownloadQueueService.FailureOutcome.SUPERSEDED)
         {
             // No backoff: the changed request has not been tried yet.

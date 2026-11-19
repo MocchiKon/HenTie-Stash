@@ -49,9 +49,8 @@ public class SettingsService
     /** Optional for downloads (it raises nhentai's rate limits), required to list the user's favourites. */
     public static final String NHENTAI_API_KEY = API_KEY_PREFIX + "nhentai";
     /**
-     * The e-hentai account an exhentai subscription searches with (the {@code ipb_member_id}, {@code ipb_pass_hash}
-     * and, optionally, {@code igneous} cookies). Only the app's own search sends them; downloads read the browser's
-     * cookies through gallery-dl.
+     * The e-hentai account (the {@code ipb_member_id}, {@code ipb_pass_hash} and, optionally, {@code igneous}
+     * cookies) that exhentai searches and every e-hentai download use.
      */
     public static final String EHENTAI_MEMBER_ID = "ehentai.member-id";
     public static final String EHENTAI_PASS_HASH = "ehentai.pass-hash";
@@ -71,7 +70,6 @@ public class SettingsService
     public static final String IMAGE_TOOLS_SYSTEM = "image.compression.system-binaries";
     public static final String JXL_DELIVERY = "image.jxl.delivery";
     public static final String GALLERY_DL_SYSTEM = "gallery-dl.system-binary";
-    public static final String GALLERY_DL_COOKIES_BROWSER = "gallery-dl.cookies-browser";
     public static final String GALLERY_DL_ORIGINALS = "gallery-dl.originals";
     public static final String GALLERY_DL_DELAY = "gallery-dl.delay";
     public static final String COMFYUI_URL = "comfyui.url";
@@ -369,8 +367,7 @@ public class SettingsService
      */
     public GalleryDlOptions getGalleryDlDefaults()
     {
-        return new GalleryDlOptions(cache.get(GALLERY_DL_COOKIES_BROWSER),
-                Boolean.parseBoolean(cache.getOrDefault(GALLERY_DL_ORIGINALS, "false")),
+        return new GalleryDlOptions(Boolean.parseBoolean(cache.getOrDefault(GALLERY_DL_ORIGINALS, "false")),
                 GalleryDlOptions.normalizedDelay(cache.get(GALLERY_DL_DELAY))
                         .orElseGet(this::defaultGalleryDlDelay));
     }
@@ -579,7 +576,6 @@ public class SettingsService
     @Transactional
     public void setGalleryDlDefaults(GalleryDlOptions defaults)
     {
-        put(GALLERY_DL_COOKIES_BROWSER, StringUtils.defaultString(defaults.cookiesBrowser()));
         put(GALLERY_DL_ORIGINALS, Boolean.toString(defaults.originals()));
         put(GALLERY_DL_DELAY, defaults.delay());
     }

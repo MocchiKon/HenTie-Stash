@@ -7,6 +7,7 @@ import io.github.mocchikon.hentie.scrapper.gallerydl.GalleryDlDownloader;
 import io.github.mocchikon.hentie.scrapper.gallerydl.GalleryDlException;
 import io.github.mocchikon.hentie.scrapper.gallerydl.GalleryDlOptions;
 import io.github.mocchikon.hentie.service.SettingsService;
+import io.github.mocchikon.hentie.service.download.LoginRequiredException;
 import io.github.mocchikon.hentie.service.download.PermanentDownloadException;
 import io.github.mocchikon.hentie.service.download.RetryLaterException;
 import jakarta.annotation.PreDestroy;
@@ -14,6 +15,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.text.StringEscapeUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -22,6 +24,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -36,13 +39,17 @@ import static io.github.mocchikon.hentie.scrapper.JsonFields.text;
  * <b>Metadata from the JSON API, pages through gallery-dl.</b> The API is one cheap request for everything a chapter
  * needs; gallery-dl knows the image servers, their fallbacks and the account's image limit.
  * <p>
- * <b>The domain follows the cookies, not the pasted link</b>: with cookies exhentai.org (it also has the galleries
- * e-hentai hides), falling back once to e-hentai.org when exhentai refuses the account; without them e-hentai.org,
- * since exhentai shows nothing to a visitor. A re-download has no pasted link at all, so the domain could not come
- * from one anyway.
+ * <b>The domain follows the account, not the pasted link</b>: with the e-hentai account from Settings exhentai.org
+ * (it also has the galleries e-hentai hides), falling back once to e-hentai.org when exhentai refuses the account;
+ * without one e-hentai.org, since exhentai shows nothing to a visitor. A re-download has no pasted link at all, so
+ * the domain could not come from one anyway.
  * <p>
- * <b>Subscriptions search either domain</b> ({@link EhentaiSearchPages}), exhentai with the account cookies from
- * Settings. Searches and downloads share the cooldown: a ban stops both.
+ * <b>Searches and downloads use the same account</b>, so an exhentai subscription can only queue galleries while
+ * exhentai accepts the cookies its downloads will send. A browser's cookie store would be a second login the app
+ * cannot check, and gallery-dl quietly switches to e-hentai.org when it holds none, where a hidden gallery looks
+ * missing. Whether exhentai accepts the account is learnt from every search and download, and asked for once
+ * ({@link #checkLogin}) when nothing else would tell. Searches and downloads also share the cooldown: a ban stops
+ * both.
  */
 @Component
 public class EhentaiDownloader implements GalleryDlDownloader, SearchSource
@@ -77,12 +84,24 @@ public class EhentaiDownloader implements GalleryDlDownloader, SearchSource
     private final Supplier<EhentaiSearchPages.Account> account;
     private final EhentaiSearchPages searchPages;
     private final EhentaiCooldown cooldown = new EhentaiCooldown();
+    private final ApplicationEventPublisher events;
 
-    public EhentaiDownloader(EhentaiProperties properties, GalleryDl galleryDl, SettingsService settingsService)
+    /**
+     * The account exhentai last accepted; null while that is unknown, or since it refused one. Only for publishing
+     * {@link LoginAccepted} once per account: a stale value costs at most one event too many or too few, and the
+     * next search or download corrects it.
+     */
+    private volatile EhentaiSearchPages.Account acceptedAccount;
+
+    private final AtomicBoolean checkingLogin = new AtomicBoolean();
+
+    public EhentaiDownloader(EhentaiProperties properties, GalleryDl galleryDl, SettingsService settingsService,
+                             ApplicationEventPublisher events)
     {
         this.properties = properties;
         this.api = new EhentaiApi(properties);
         this.galleryDl = galleryDl;
+        this.events = events;
         // Read on every search, so cookies saved in Settings apply at once.
         this.account = () -> new EhentaiSearchPages.Account(settingsService.getEhentaiMemberId(),
                 settingsService.getEhentaiPassHash(), settingsService.getEhentaiIgneous());
@@ -243,6 +262,8 @@ public class EhentaiDownloader implements GalleryDlDownloader, SearchSource
     /**
      * {@code --sleep-request}, because e-hentai needs one request per image (its page, then its API call) and that
      * is what its ban counts; the image itself comes from a Hentai@Home server.
+     *
+     * @throws LoginRequiredException when e-hentai.org hides the gallery and exhentai accepted no account
      */
     @Override
     public GalleryDl.Outcome downloadPages(String resourceId, GalleryDlOptions options, SortedSet<Integer> pages,
@@ -252,65 +273,168 @@ public class EhentaiDownloader implements GalleryDlDownloader, SearchSource
         cooldown.check();
         var args = new ArrayList<>(List.of("--sleep-request", options.delay(),
                 "-o", "original=" + options.originals()));
-        if (options.usesCookies())
+        EhentaiSearchPages.Account credentials = account.get();
+        if (!credentials.complete())
         {
-            args.addAll(List.of("--cookies-from-browser", options.cookiesBrowser()));
+            try
+            {
+                return galleryDl.download(galleryUrl(EHENTAI, resourceId), args, pages, folder, sink);
+            }
+            catch (GalleryDlException e)
+            {
+                if (e.kind() == GalleryDlException.Kind.REFUSED)
+                {
+                    log.info("e-hentai.org refused gallery {} without an account: {}", resourceId, e.getMessage());
+                    throw new LoginRequiredException("e-hentai shows this gallery only to logged-in users. Add your "
+                            + "e-hentai account in Settings; the download then starts again by itself.", e);
+                }
+                throw failure(e);
+            }
         }
+        try (GalleryDl.CookiesFile cookies = galleryDl.cookiesFile(cookiesOf(credentials)))
+        {
+            args.addAll(cookies.args());
+            return downloadWithAccount(resourceId, credentials, args, pages, folder, sink);
+        }
+    }
+
+    private GalleryDl.Outcome downloadWithAccount(String resourceId, EhentaiSearchPages.Account credentials,
+                                                  List<String> args, SortedSet<Integer> pages, Path folder,
+                                                  GalleryDl.PageSink sink) throws IOException
+    {
         Set<Integer> received = new HashSet<>();
         GalleryDl.PageSink tracking = (page, file) ->
         {
             sink.accept(page, file);
             received.add(page);
         };
-        String domain = options.usesCookies() ? EXHENTAI : EHENTAI;
         try
         {
-            GalleryDl.Outcome outcome = galleryDl.download(galleryUrl(domain, resourceId), args, pages, folder, tracking);
-            return domain.equals(EXHENTAI) ? outcome.fromSite(EXHENTAI_SITE) : outcome;
+            GalleryDl.Outcome outcome = galleryDl.download(galleryUrl(EXHENTAI, resourceId), args, pages, folder,
+                    tracking);
+            accepted(credentials);
+            return outcome.fromSite(EXHENTAI_SITE);
         }
         catch (GalleryDlException e)
         {
-            if (e.kind() != GalleryDlException.Kind.REFUSED || !domain.equals(EXHENTAI))
+            if (e.kind() != GalleryDlException.Kind.REFUSED)
             {
-                throw failure(e, options);
+                throw failure(e);
             }
-            log.info("exhentai.org refused the account for gallery {} ({}); trying e-hentai.org", resourceId,
+            refused(credentials);
+            log.info("exhentai.org refused the e-hentai account for gallery {} ({}); trying e-hentai.org", resourceId,
                     e.getMessage());
-            SortedSet<Integer> rest = new TreeSet<>(pages);
-            rest.removeAll(received);
-            try
+        }
+        SortedSet<Integer> rest = new TreeSet<>(pages);
+        rest.removeAll(received);
+        try
+        {
+            GalleryDl.Outcome second = galleryDl.download(galleryUrl(EHENTAI, resourceId), args, rest, folder,
+                    tracking);
+            return new GalleryDl.Outcome(received, second.problem(), second.writeFailed());
+        }
+        catch (GalleryDlException again)
+        {
+            if (again.kind() == GalleryDlException.Kind.REFUSED || again.kind() == GalleryDlException.Kind.NOT_FOUND)
             {
-                GalleryDl.Outcome second = galleryDl.download(galleryUrl(EHENTAI, resourceId), args, rest, folder,
-                        tracking);
-                return new GalleryDl.Outcome(received, second.problem(), second.writeFailed());
+                log.info("e-hentai.org did not show gallery {} either: {}", resourceId, again.getMessage());
+                throw new LoginRequiredException("exhentai did not accept your e-hentai account (the cookies in "
+                        + "Settings may have expired), and e-hentai does not show this gallery. Update them in "
+                        + "Settings; the download then starts again by itself.", again);
             }
-            catch (GalleryDlException again)
-            {
-                if (again.kind() == GalleryDlException.Kind.REFUSED || again.kind() == GalleryDlException.Kind.NOT_FOUND)
-                {
-                    throw new PermanentDownloadException("exhentai.org refused the cookies from "
-                            + options.cookiesBrowser() + " (no ExHentai access, or not logged in there), and "
-                            + "e-hentai.org would not show the gallery either: " + again.getMessage(), again);
-                }
-                throw failure(again, options);
-            }
+            throw failure(again);
         }
     }
 
-    /** A refusal is worded by whether cookies were sent: without them there is no account to blame. */
-    private RuntimeException failure(GalleryDlException e, GalleryDlOptions options)
+    /**
+     * The account's login for both domains; {@code igneous} only for exhentai, where it is set. Without it exhentai
+     * sends gallery-dl through the forums for one, which it follows like a browser.
+     */
+    private static Map<String, Map<String, String>> cookiesOf(EhentaiSearchPages.Account credentials)
+    {
+        var login = new LinkedHashMap<String, String>();
+        login.put("ipb_member_id", credentials.memberId());
+        login.put("ipb_pass_hash", credentials.passHash());
+        var exhentai = new LinkedHashMap<>(login);
+        if (StringUtils.isNotBlank(credentials.igneous()))
+        {
+            exhentai.put("igneous", credentials.igneous());
+        }
+        return Map.of("." + EXHENTAI, exhentai, "." + EHENTAI, login);
+    }
+
+    private RuntimeException failure(GalleryDlException e)
     {
         return switch (e.kind())
         {
             case BANNED, IMAGE_LIMIT -> new PermanentDownloadException(startCooldown(e.getMessage()), e);
             case NO_GP -> new PermanentDownloadException(e.getMessage()
                     + " - originals cost GP; untick \"Download originals\" and paste the link again.", e);
-            case REFUSED -> new PermanentDownloadException(e.getMessage() + (options.usesCookies()
-                    ? " - e-hentai refused the account. Log in to it in the browser the cookies come from."
-                    : " - e-hentai shows this gallery only to a logged-in account. Choose the browser you are logged "
-                    + "in with under \"Use cookies when downloading\" and paste the link again."), e);
             default -> e.forWorker();
         };
+    }
+
+    // ---- the account ---------------------------------------------------------------------------------------
+
+    private void accepted(EhentaiSearchPages.Account credentials)
+    {
+        if (!credentials.equals(acceptedAccount))
+        {
+            acceptedAccount = credentials;
+            log.info("exhentai accepts the e-hentai account from Settings");
+            events.publishEvent(new LoginAccepted(PREFIX));
+        }
+    }
+
+    private void refused(EhentaiSearchPages.Account credentials)
+    {
+        if (credentials.equals(acceptedAccount))
+        {
+            acceptedAccount = null;
+        }
+    }
+
+    /**
+     * One request for exhentai's front page, the cheapest page that needs the account. Skipped during a cooldown
+     * (a request during a ban can extend it) and while a check runs.
+     */
+    @Override
+    public void checkLogin()
+    {
+        EhentaiSearchPages.Account credentials = account.get();
+        if (!credentials.complete() || credentials.equals(acceptedAccount) || cooldown.until().isPresent()
+                || !checkingLogin.compareAndSet(false, true))
+        {
+            return;
+        }
+        Thread.ofVirtual().name("exhentai-login-check").start(() ->
+        {
+            try
+            {
+                searchPages.fetch(true, "", null);
+                if (credentials.equals(account.get()))
+                {
+                    accepted(credentials);
+                }
+            }
+            catch (EhentaiSearchPages.RefusedException e)
+            {
+                refused(credentials);
+                log.info("exhentai did not accept the e-hentai account from Settings: {}", e.getMessage());
+            }
+            catch (EhentaiApi.BannedException e)
+            {
+                startCooldown(e.getMessage());
+            }
+            catch (IOException | RuntimeException e)
+            {
+                log.info("Could not ask exhentai whether it accepts the e-hentai account: {}", e.toString());
+            }
+            finally
+            {
+                checkingLogin.set(false);
+            }
+        });
     }
 
     private String startCooldown(String why)
@@ -364,18 +488,6 @@ public class EhentaiDownloader implements GalleryDlDownloader, SearchSource
         return Optional.empty();
     }
 
-    /** exhentai's galleries download from exhentai.org only with the browser's cookies (see {@link #downloadPages}). */
-    @Override
-    public Optional<String> choicesProblem(String site, GalleryDlOptions galleryDl)
-    {
-        if (EXHENTAI_SITE.equals(site) && !galleryDl.usesCookies())
-        {
-            return Optional.of("exhentai's galleries download with your browser's cookies: choose the browser you "
-                    + "are logged in to e-hentai with under \"Use cookies when downloading\".");
-        }
-        return Optional.empty();
-    }
-
     /**
      * @throws RetryLaterException during a cooldown, without asking the site: requests during a ban can extend it
      */
@@ -393,11 +505,21 @@ public class EhentaiDownloader implements GalleryDlDownloader, SearchSource
         {
             throw new UncheckedIOException(new IOException(missing.get()));
         }
+        EhentaiSearchPages.Account credentials = account.get();
         try
         {
             EhentaiSearchPages.Page page = searchPages.fetch(exhentai, query,
                     after == null ? null : Long.parseLong(after));
+            if (exhentai)
+            {
+                accepted(credentials);
+            }
             return new SearchPage(page.resourceIds(), Set.of(), page.more(), page.total());
+        }
+        catch (EhentaiSearchPages.RefusedException e)
+        {
+            refused(credentials);
+            throw new UncheckedIOException(e.getMessage(), e);
         }
         catch (EhentaiApi.BannedException e)
         {

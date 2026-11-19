@@ -62,9 +62,6 @@ public class Subscription
     private boolean avoidDuplicateTitles;
 
     /** gallery-dl's choices, as on the Download page; read only by gallery-dl sources. */
-    @Column(name = "cookies_browser", length = 32)
-    private String cookiesBrowser;
-
     @Column(name = "download_originals", nullable = false, columnDefinition = "boolean not null default 0")
     private boolean downloadOriginals;
 

@@ -30,20 +30,19 @@ class GalleryDlQueueOptionsIT
     @Autowired DownloadQueueService queueService;
     @Autowired DownloadQueueRepository queueRepository;
 
-    private static DownloadChoices choices(String browser, boolean originals, String delay)
+    private static DownloadChoices choices(boolean originals, String delay)
     {
-        return new DownloadChoices(NONE, false, false, new GalleryDlOptions(browser, originals, delay));
+        return new DownloadChoices(NONE, false, false, new GalleryDlOptions(originals, delay));
     }
 
     @Test
     void shouldStoreThePastesChoicesOnTheRow()
     {
         // WHEN
-        queueService.enqueue(List.of("hitomi:7101"), choices("firefox", true, "0.4-0.65"));
+        queueService.enqueue(List.of("hitomi:7101"), choices(true, "0.4-0.65"));
 
         // THEN
         DownloadQueueItem item = queueRepository.findByLink("hitomi:7101").orElseThrow();
-        assertThat(item.getCookiesBrowser()).isEqualTo("firefox");
         assertThat(item.isDownloadOriginals()).isTrue();
         assertThat(item.getRequestDelay()).isEqualTo("0.4-0.65");
     }
@@ -52,19 +51,18 @@ class GalleryDlQueueOptionsIT
     void shouldReplaceTheChoicesWhenALinkIsPastedAgain()
     {
         // GIVEN one waiting and one failed row
-        queueService.enqueue(List.of("hitomi:7102", "hitomi:7103"), choices("firefox", true, "2"));
+        queueService.enqueue(List.of("hitomi:7102", "hitomi:7103"), choices(true, "2"));
         DownloadQueueItem failed = queueRepository.findByLink("hitomi:7103").orElseThrow();
         failed.setError("it failed");
         queueRepository.save(failed);
 
         // WHEN both are pasted again with other choices
-        queueService.enqueue(List.of("hitomi:7102", "hitomi:7103"), choices(null, false, "0.5"));
+        queueService.enqueue(List.of("hitomi:7102", "hitomi:7103"), choices(false, "0.5"));
 
         // THEN both take them.
         for (String link : List.of("hitomi:7102", "hitomi:7103"))
         {
             DownloadQueueItem item = queueRepository.findByLink(link).orElseThrow();
-            assertThat(item.getCookiesBrowser()).isNull();
             assertThat(item.isDownloadOriginals()).isFalse();
             assertThat(item.getRequestDelay()).isEqualTo("0.5");
         }
@@ -74,7 +72,7 @@ class GalleryDlQueueOptionsIT
     void shouldKeepTheChoicesWhenRetrying()
     {
         // GIVEN a failed row
-        queueService.enqueue(List.of("hitomi:7104"), choices("librewolf", true, "3"));
+        queueService.enqueue(List.of("hitomi:7104"), choices(true, "3"));
         DownloadQueueItem item = queueRepository.findByLink("hitomi:7104").orElseThrow();
         item.setError("it failed");
         queueRepository.save(item);
@@ -84,7 +82,6 @@ class GalleryDlQueueOptionsIT
 
         // THEN its choices are the paste's.
         DownloadQueueItem retried = queueRepository.findByLink("hitomi:7104").orElseThrow();
-        assertThat(retried.getCookiesBrowser()).isEqualTo("librewolf");
         assertThat(retried.isDownloadOriginals()).isTrue();
         assertThat(retried.getRequestDelay()).isEqualTo("3");
     }
@@ -93,16 +90,15 @@ class GalleryDlQueueOptionsIT
     void shouldTakeTheGivenDefaultsForALosslessRedownload()
     {
         // GIVEN a waiting row with a paste's choices
-        queueService.enqueue(List.of("hitomi:7105"), choices("firefox", true, "3"));
+        queueService.enqueue(List.of("hitomi:7105"), choices(true, "3"));
 
         // WHEN it is turned into a re-download with Settings' defaults
         queueService.enqueueRedownload("hitomi:7105", "hitomi:7105", BuiltInCompressionMode.LOSSLESS.getKey(),
-                new GalleryDlOptions(null, false, "0.4-0.65"));
+                new GalleryDlOptions(false, "0.4-0.65"));
 
         // THEN
         DownloadQueueItem item = queueRepository.findByLink("hitomi:7105").orElseThrow();
         assertThat(item.isReplacePages()).isTrue();
-        assertThat(item.getCookiesBrowser()).isNull();
         assertThat(item.isDownloadOriginals()).isFalse();
         assertThat(item.getRequestDelay()).isEqualTo("0.4-0.65");
     }

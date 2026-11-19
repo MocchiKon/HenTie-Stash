@@ -9,6 +9,8 @@ import io.github.mocchikon.hentie.service.ImageService;
 import io.github.mocchikon.hentie.service.compress.ImageCompressionModeService;
 import lombok.RequiredArgsConstructor;
 import org.apache.commons.lang3.StringUtils;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.data.domain.Limit;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
@@ -204,7 +206,7 @@ public class DownloadQueueService
     {
         try
         {
-            return new GalleryDlOptions(item.getCookiesBrowser(), item.isDownloadOriginals(), item.getRequestDelay());
+            return new GalleryDlOptions(item.isDownloadOriginals(), item.getRequestDelay());
         }
         catch (IllegalArgumentException e)
         {
@@ -216,22 +218,21 @@ public class DownloadQueueService
      * The row's gallery-dl choices as stored, compared as one value wherever a change matters, so a new choice
      * cannot be left out of one comparison. Not {@link GalleryDlOptions}: a hand-edited delay must not throw here.
      */
-    private record StoredGalleryDl(String cookiesBrowser, boolean originals, String delay)
+    private record StoredGalleryDl(boolean originals, String delay)
     {
         static StoredGalleryDl of(DownloadQueueItem item)
         {
-            return new StoredGalleryDl(item.getCookiesBrowser(), item.isDownloadOriginals(), item.getRequestDelay());
+            return new StoredGalleryDl(item.isDownloadOriginals(), item.getRequestDelay());
         }
 
         static StoredGalleryDl of(GalleryDlOptions options)
         {
-            return new StoredGalleryDl(options.cookiesBrowser(), options.originals(), options.delay());
+            return new StoredGalleryDl(options.originals(), options.delay());
         }
     }
 
     private static void setGalleryDlOptions(DownloadQueueItem item, GalleryDlOptions options)
     {
-        item.setCookiesBrowser(options.cookiesBrowser());
         item.setDownloadOriginals(options.originals());
         item.setRequestDelay(options.delay());
     }
@@ -434,11 +435,13 @@ public class DownloadQueueService
      *                           duplicates list; any other failure clears the mark
      * @param duplicateChapterId the chapter the check clashed with, so the list can link to it; null when there is
      *                           none
+     * @param needsLogin         whether the site wants an account it accepts ({@link LoginRequiredException}), so
+     *                           the row goes back to waiting once it accepts one
      */
     @Transactional
     public FailureOutcome recordFailure(DownloadQueueItem attempted, String error, Integer chapterId,
                                         boolean permanent, boolean rejectedDuplicate, Integer duplicateChapterId,
-                                        int maxAttempts)
+                                        boolean needsLogin, int maxAttempts)
     {
         DownloadQueueItem item = repository.findById(attempted.getId()).orElse(null);
         if (item == null)
@@ -456,6 +459,7 @@ public class DownloadQueueService
         }
         item.setRejectedDuplicate(rejectedDuplicate);
         item.setDuplicateChapterId(rejectedDuplicate ? duplicateChapterId : null);
+        item.setNeedsLogin(needsLogin);
         boolean giveUp = permanent || item.getAttempts() >= maxAttempts;
         if (giveUp)
         {
@@ -569,6 +573,30 @@ public class DownloadQueueService
         }
         repository.save(item);
         return true;
+    }
+
+    /**
+     * Puts the rows of a source that failed for want of a login back to waiting.
+     *
+     * @return how many
+     */
+    @Transactional
+    public int retryNeedingLogin(String sourcePrefix)
+    {
+        return repository.retryNeedingLogin(sourcePrefix + ":");
+    }
+
+    /**
+     * At startup, a row waiting for a login has nothing else that would ask its site whether it accepts the account:
+     * no search or download of that site may run before the user saves Settings.
+     */
+    @EventListener(ApplicationReadyEvent.class)
+    public void checkLoginsNeeded()
+    {
+        if (repository.existsByErrorIsNotNullAndNeedsLoginTrue())
+        {
+            registry.checkLogins();
+        }
     }
 
     /** Retries every rejected duplicate allowing its title: keeping the check would refuse them all again. */
