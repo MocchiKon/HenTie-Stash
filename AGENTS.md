@@ -934,10 +934,14 @@ downloaded and uploaded images. Default mode is **None**: bytes are stored as th
 - **Running a mode twice re-encodes again — on purpose.** There is no "already compressed" marker; a mode's
   format list decides its inputs. The downscaling built-ins list only `JPG,PNG,WEBP`, and `Lossless` lists
   `JPG,PNG`, so repeating them is a no-op.
-- **Order per file is fixed** (`ImageCompressor`): format filter → ImageMagick (only with arguments) →
-  encoder → reduction thresholds. **ImageMagick always writes PNG**, and inputs the encoder cannot read
-  (WebP for both; GIF for AVIF) take a **lossless PNG detour**. Nothing lossy in the middle. The ImageMagick
-  input gets `[0]` so an animated GIF yields one PNG.
+- **Order per file is fixed** (`ImageCompressor`): format filter → decoder (JPEG XL only) → ImageMagick (only
+  with arguments) → encoder → reduction thresholds. **ImageMagick always writes PNG**, and inputs the encoder
+  cannot read (WebP for both; GIF for AVIF) take a **lossless PNG detour**. Nothing lossy in the middle. The
+  ImageMagick input gets `[0]` so an animated GIF yields one PNG.
+  - **A JPEG XL page is decoded by `djxl` to PNG first, on every platform** (`ImageCompressor.DECODERS`): no
+    encoder reads JPEG XL, and the bundled Linux ImageMagick has no JPEG XL support (Windows' has). Relying on
+    ImageMagick would make a JPEG XL → AVIF mode work on Windows only. A format the app accepts that some
+    bundled ImageMagick cannot read needs a decoder there too.
 - **A mode may limit ImageMagick's arguments to images taller than a height** (`image_height_limit`, null =
   every image; the built-in modes leave it null). The image's header is read only when the limit is set; an
   unreadable size counts as "no limit", and the condition **never skips the lossless PNG detour**: a small

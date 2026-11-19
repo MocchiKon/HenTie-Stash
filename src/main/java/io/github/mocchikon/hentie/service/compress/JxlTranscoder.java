@@ -209,7 +209,7 @@ public class JxlTranscoder implements PageDerivedCache
      */
     private Optional<Path> decode(Path source, Path cached, String filename) throws IOException
     {
-        Optional<String> djxl = toolLocator.find("djxl");
+        Optional<String> djxl = toolLocator.find(ImageToolLocator.DJXL);
         if (djxl.isEmpty())
         {
             log.error("A JPEG XL page has to be sent as PNG but no djxl binary was found - serving {} as it is",

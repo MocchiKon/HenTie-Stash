@@ -27,6 +27,9 @@ public class ImageToolLocator
     /** ImageMagick's driver, the one command all of its tools are reached through since v7. */
     public static final String MAGICK = "magick";
 
+    /** The JPEG XL reference decoder, for every place that turns a JPEG XL page into a PNG. */
+    public static final String DJXL = "djxl";
+
     private static final boolean WINDOWS =
             System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win");
 

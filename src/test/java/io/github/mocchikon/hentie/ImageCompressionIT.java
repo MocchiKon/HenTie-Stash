@@ -4,6 +4,7 @@ import io.github.mocchikon.hentie.config.AppProperties;
 import io.github.mocchikon.hentie.dto.CompressionProfile;
 import io.github.mocchikon.hentie.entity.ImageEncoder;
 import io.github.mocchikon.hentie.service.ImageDirectory;
+import io.github.mocchikon.hentie.service.ImageSize;
 import io.github.mocchikon.hentie.service.compress.ImageCompressionService;
 import io.github.mocchikon.hentie.service.compress.ImageCompressor;
 import io.github.mocchikon.hentie.service.compress.ImageToolLocator;
@@ -20,6 +21,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Stream;
@@ -174,6 +176,75 @@ class ImageCompressionIT
         // THEN it was still encoded, though the mode never mentions ImageMagick.
         assertThat(result.replaced()).isTrue();
         assertThat(pageFiles()).containsExactly("1.jxl");
+    }
+
+    /**
+     * No encoder reads JPEG XL, and the bundled Linux ImageMagick cannot either, so a JPEG XL page is decoded by
+     * djxl first. Re-encoding one into AVIF is the real case: a mode switched from JPEG XL to AVIF.
+     */
+    @Test
+    void shouldEncodeAJpegXlPageIntoAvif() throws IOException
+    {
+        assumeTool("cjxl");
+        assumeTool("djxl");
+        assumeTool("avifenc");
+        // GIVEN page 1 as a lossless JPEG XL.
+        Path source = writeJxl(dir.resolve("1.jxl"));
+        long before = Files.size(source);
+
+        // WHEN it is compressed with a lossy AVIF mode that asks for no resizing.
+        ImageCompressor.Result result = compressor.compress(source,
+                profile(ImageEncoder.AVIF, "-q 40 -s 10", "", 0, 0, ""), work);
+
+        // THEN the page is now an AVIF of the same size in pixels, and the JPEG XL is gone.
+        assertThat(result.replaced()).isTrue();
+        assertThat(result.finalBytes()).isLessThan(before);
+        assertThat(pageFiles()).containsExactly("1.avif");
+        assertThat(ImageSize.of(Files.readAllBytes(dir.resolve("1.avif"))))
+                .contains(new ImageSize(SIZE, SIZE));
+        assertThat(listNames(work)).isEmpty();
+    }
+
+    /** The decoded PNG is what ImageMagick downscales, wherever its own JPEG XL support stands. */
+    @Test
+    void shouldDownscaleAJpegXlPageWithImageMagick() throws IOException
+    {
+        assumeTool(ImageToolLocator.MAGICK);
+        assumeTool("cjxl");
+        assumeTool("djxl");
+        assumeTool("avifenc");
+        // GIVEN page 1 as a lossless JPEG XL.
+        Path source = writeJxl(dir.resolve("1.jxl"));
+
+        // WHEN it is compressed with a mode that halves it and encodes AVIF.
+        ImageCompressor.Result result = compressor.compress(source,
+                profile(ImageEncoder.AVIF, "-q 40 -s 10", "-resize 50%", 0, 0, ""), work);
+
+        // THEN the stored page is half the size in each dimension.
+        assertThat(result.replaced()).isTrue();
+        assertThat(ImageSize.of(Files.readAllBytes(dir.resolve("1.avif"))))
+                .contains(new ImageSize(SIZE / 2, SIZE / 2));
+        assertThat(listNames(work)).isEmpty();
+    }
+
+    /** cjxl cannot read its own format either, so re-encoding a JPEG XL into JPEG XL goes through djxl too. */
+    @Test
+    void shouldReEncodeAJpegXlPageIntoJpegXl() throws IOException
+    {
+        assumeTool(ImageToolLocator.MAGICK);
+        assumeTool("cjxl");
+        assumeTool("djxl");
+        // GIVEN page 1 as a lossless JPEG XL.
+        Path source = writeJxl(dir.resolve("1.jxl"));
+
+        // WHEN it is compressed with the built-in High reduction shape.
+        ImageCompressor.Result result = compressor.compress(source,
+                jxlWithMagick("-q 50 -e 1", "-filter lanczos -resize 50%"), work);
+
+        // THEN it is still page 1.jxl, now half the size in each dimension.
+        assertThat(result.replaced()).isTrue();
+        assertThat(pageFiles()).containsExactly("1.jxl");
+        assertThat(decodedSize(dir.resolve("1.jxl"))).isEqualTo(SIZE / 2);
     }
 
     @Test
@@ -375,8 +446,23 @@ class ImageCompressionIT
 
     private boolean runMagick(Path input, Path output) throws IOException
     {
-        var command = List.of(toolLocator.find(ImageToolLocator.MAGICK).orElseThrow(),
-                input.toString(), output.toString());
+        return runTool(ImageToolLocator.MAGICK, input, output);
+    }
+
+    /** Lossless, so it is large and any lossy mode saves. */
+    private Path writeJxl(Path target) throws IOException
+    {
+        Path png = TestImages.writePng(work.resolve("source.png"), SIZE, SIZE);
+        assertThat(runTool("cjxl", png, target, "-d", "0")).isTrue();
+        Files.delete(png);
+        return target;
+    }
+
+    private boolean runTool(String tool, Path input, Path output, String... args) throws IOException
+    {
+        var command = new ArrayList<>(List.of(toolLocator.find(tool).orElseThrow(),
+                input.toString(), output.toString()));
+        command.addAll(List.of(args));
         try
         {
             Process process = new ProcessBuilder(command).redirectErrorStream(true).start();

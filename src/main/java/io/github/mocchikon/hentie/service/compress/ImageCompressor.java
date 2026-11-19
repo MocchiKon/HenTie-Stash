@@ -15,18 +15,22 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Stream;
 
 /**
- * Downscales and re-encodes one page image, in place. The order is fixed: format filter, ImageMagick (only
- * when the mode gives it arguments and the image is above its optional height limit), encoder, validity
- * check, reduction thresholds.
+ * Downscales and re-encodes one page image, in place. The order is fixed: format filter, decoder (JPEG XL
+ * only), ImageMagick (only when the mode gives it arguments and the image is above its optional height limit),
+ * encoder, validity check, reduction thresholds.
  *
- * <p>ImageMagick always writes PNG, because a lossy intermediate would lose quality twice. An input the
- * encoder cannot read (WebP for both, GIF for AVIF) goes through a lossless PNG first, or it would never be
- * compressed.
+ * <p>Every intermediate is a lossless PNG, because a lossy one would lose quality twice. An input the encoder
+ * cannot read (WebP for both, GIF for AVIF) goes through ImageMagick even without arguments, or it would never
+ * be compressed. JPEG XL is decoded by {@code djxl} first, on every platform: no encoder reads it, and the
+ * bundled Linux ImageMagick cannot either, so relying on ImageMagick would make a mode work on one platform
+ * only.
  *
  * <p><b>Any failure keeps the original</b>: compression is an improvement, never a precondition.
  * Intermediates go to the work folder the caller passes, which may be a RAM disk.
@@ -38,6 +42,13 @@ public class ImageCompressor
     private static final Logger log = LoggerFactory.getLogger(ImageCompressor.class);
 
     private static final String INTERMEDIATE_EXTENSION = "png";
+
+    /**
+     * Formats ImageMagick is not relied on to read, with the tool that turns them into a PNG
+     * ({@code [tool, input, output.png]}). An image format the app accepts belongs here unless every bundled
+     * ImageMagick reads it.
+     */
+    private static final Map<String, String> DECODERS = Map.of("jxl", ImageToolLocator.DJXL);
 
     /**
      * Enough for a JPEG's frame header after its metadata and for an AVIF's property boxes. A size beyond
@@ -119,17 +130,32 @@ public class ImageCompressor
         }
     }
 
-    /** Null when ImageMagick was needed and could not run. */
+    /** Null when a decoder or ImageMagick was needed and could not run. */
     private Path prepareEncoderInput(Path source, CompressionProfile profile, Path workDir, String scratch,
                                      String extension, List<Path> intermediates)
     {
-        boolean applyMagickArgs = imageMagickApplies(profile, source);
+        Path input = source;
+        String format = extension.toLowerCase(Locale.ROOT);
+        String decoder = DECODERS.get(format);
+        if (decoder != null)
+        {
+            var decoded = workDir.resolve(scratch + ".decoded." + INTERMEDIATE_EXTENSION);
+            input = decode(source, decoder, profile, decoded, intermediates);
+            if (input == null)
+            {
+                return null;
+            }
+            format = INTERMEDIATE_EXTENSION;
+        }
+
+        // Read from the decoded PNG when there is one: its header is one the size reader knows.
+        boolean applyMagickArgs = imageMagickApplies(profile, input);
         // The height condition never skips a conversion: without it the encoder could not read the input at
         // all, and the page would stay as it is instead of being compressed.
-        boolean needsMagick = applyMagickArgs || !profile.encoder().accepts(extension);
+        boolean needsMagick = applyMagickArgs || !profile.encoder().accepts(format);
         if (!needsMagick)
         {
-            return source;
+            return input;
         }
         Optional<String> magick = toolLocator.find(ImageToolLocator.MAGICK);
         if (magick.isEmpty())
@@ -145,7 +171,7 @@ public class ImageCompressor
         command.add(magick.get());
         // [0] = first frame: for an animated GIF ImageMagick would otherwise write one numbered PNG per
         // frame and none under the name we asked for.
-        command.add(source + "[0]");
+        command.add(input + "[0]");
         if (applyMagickArgs)
         {
             command.addAll(profile.magickArgs());
@@ -156,6 +182,27 @@ public class ImageCompressor
             return null;
         }
         return converted;
+    }
+
+    /** Null when the decoder is missing, failed or wrote nothing. */
+    private Path decode(Path source, String decoder, CompressionProfile profile, Path decoded,
+                        List<Path> intermediates)
+    {
+        Optional<String> tool = toolLocator.find(decoder);
+        if (tool.isEmpty())
+        {
+            log.error("Image Compression mode {} needs {} to read {} but no binary was found - keeping it as it is",
+                    profile.name(), decoder, source);
+            return null;
+        }
+        intermediates.add(decoded);
+        if (!runner.run(List.of(tool.get(), source.toString(), decoded.toString())) || sizeOf(decoded) <= 0)
+        {
+            log.error("Image Compression mode {} could not decode {} with {} - keeping it as it is",
+                    profile.name(), source, decoder);
+            return null;
+        }
+        return decoded;
     }
 
     private static boolean imageMagickApplies(CompressionProfile profile, Path source)

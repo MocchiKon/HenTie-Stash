@@ -10,6 +10,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -28,6 +29,11 @@ class ImageCompressorTest
 {
     /** A plausible JPEG XL: the raw-codestream signature, then anything. */
     private static final byte[] REAL_JXL = {(byte) 0xFF, 0x0A, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12};
+
+    private static final byte[] JXL_PAGE = Arrays.copyOf(REAL_JXL, 4096);
+
+    /** A plausible AVIF: a box size, then 'ftyp'. */
+    private static final byte[] REAL_AVIF = {0, 0, 0, 0x1C, 'f', 't', 'y', 'p', 'a', 'v', 'i', 'f', 0, 0};
 
     @TempDir
     private Path tmp;
@@ -267,6 +273,129 @@ class ImageCompressorTest
         assertThat(result.replaced()).isTrue();
         verify(runner).run(argThat(command -> command.get(0).equals("magick") && command.size() == 3));
         verify(runner).run(argThat(command -> command.get(0).equals("cjxl")));
+    }
+
+    /**
+     * No encoder reads JPEG XL and the bundled Linux ImageMagick cannot either, so djxl decodes it first, and
+     * the encoder gets the decoded PNG. ImageMagick is not needed: the encoder reads PNG.
+     */
+    @Test
+    void shouldDecodeAJpegXlPageBeforeEncodingIt() throws IOException
+    {
+        // GIVEN page 3 as a JPEG XL, an AVIF mode without ImageMagick arguments, and tools that all work.
+        source = jxlPage();
+        when(locator.find(ImageToolLocator.DJXL)).thenReturn(Optional.of("djxl"));
+        when(locator.find("avifenc")).thenReturn(Optional.of("avifenc"));
+        when(runner.run(anyList())).thenAnswer(invocation ->
+        {
+            List<String> command = invocation.getArgument(0);
+            if (command.get(0).equals("djxl"))
+            {
+                Files.write(Path.of(command.get(2)), TestImages.png(400, 400));
+            }
+            else
+            {
+                Files.write(Path.of(command.getLast()), REAL_AVIF);
+            }
+            return true;
+        });
+
+        // WHEN
+        ImageCompressor.Result result = compressor.compress(source, avifProfile(List.of()), workDir);
+
+        // THEN djxl wrote a PNG, and the encoder read that PNG rather than the JPEG XL.
+        assertThat(result.replaced()).isTrue();
+        assertThat(result.file()).isEqualTo(source.resolveSibling("3.avif"));
+        assertThat(source).doesNotExist();
+        var order = inOrder(runner);
+        order.verify(runner).run(argThat(command -> command.get(0).equals("djxl")
+                && command.get(1).equals(source.toString()) && command.get(2).endsWith(".png")));
+        order.verify(runner).run(argThat(command -> command.get(0).equals("avifenc")
+                && command.get(command.size() - 2).endsWith(".decoded.png")));
+        verify(runner, never()).run(argThat(command -> command.get(0).equals("magick")));
+        assertThat(workDir).isEmptyDirectory();
+    }
+
+    /** ImageMagick gets the decoded PNG too, so a resize works whatever its own JPEG XL support is. */
+    @Test
+    void shouldRunImageMagickOnTheDecodedPngOfAJpegXlPage() throws IOException
+    {
+        // GIVEN
+        source = jxlPage();
+        when(locator.find(ImageToolLocator.DJXL)).thenReturn(Optional.of("djxl"));
+        when(locator.find(ImageToolLocator.MAGICK)).thenReturn(Optional.of("magick"));
+        when(locator.find("avifenc")).thenReturn(Optional.of("avifenc"));
+        when(runner.run(anyList())).thenAnswer(invocation ->
+        {
+            List<String> command = invocation.getArgument(0);
+            Files.write(Path.of(command.getLast()), switch (command.get(0))
+            {
+                case "djxl" -> TestImages.png(400, 1200);
+                case "magick" -> TestImages.png(200, 600);
+                default -> REAL_AVIF;
+            });
+            return true;
+        });
+
+        // WHEN
+        ImageCompressor.Result result = compressor.compress(source, avifProfile(List.of("-resize", "50%")),
+                workDir);
+
+        // THEN djxl, then ImageMagick on its PNG with the mode's arguments, then the encoder on ImageMagick's.
+        assertThat(result.replaced()).isTrue();
+        var order = inOrder(runner);
+        order.verify(runner).run(argThat(command -> command.get(0).equals("djxl")));
+        order.verify(runner).run(argThat(command -> command.get(0).equals("magick")
+                && command.get(1).endsWith(".decoded.png[0]") && command.containsAll(List.of("-resize", "50%"))));
+        order.verify(runner).run(argThat(command -> command.get(0).equals("avifenc")
+                && command.get(command.size() - 2).endsWith(".magick.png")));
+    }
+
+    @Test
+    void shouldKeepAJpegXlPageWhenNoDecoderIsFound() throws IOException
+    {
+        // GIVEN no djxl.
+        source = jxlPage();
+        when(locator.find(ImageToolLocator.DJXL)).thenReturn(Optional.empty());
+
+        // WHEN
+        ImageCompressor.Result result = compressor.compress(source, avifProfile(List.of()), workDir);
+
+        // THEN nothing ran, and the page is as it was.
+        assertThat(result.replaced()).isFalse();
+        assertThat(source).hasBinaryContent(JXL_PAGE);
+        verifyNoInteractions(runner);
+    }
+
+    @Test
+    void shouldKeepAJpegXlPageWhenTheDecoderFails() throws IOException
+    {
+        // GIVEN a djxl that fails.
+        source = jxlPage();
+        when(locator.find(ImageToolLocator.DJXL)).thenReturn(Optional.of("djxl"));
+        when(runner.run(anyList())).thenReturn(false);
+
+        // WHEN
+        ImageCompressor.Result result = compressor.compress(source, avifProfile(List.of()), workDir);
+
+        // THEN the encoder never ran, the page is as it was, and nothing is left in the work folder.
+        assertThat(result.replaced()).isFalse();
+        assertThat(source).hasBinaryContent(JXL_PAGE);
+        verify(runner, times(1)).run(anyList());
+        assertThat(workDir).isEmptyDirectory();
+    }
+
+    /** Larger than {@link #REAL_AVIF}, so encoding it saves. */
+    private Path jxlPage() throws IOException
+    {
+        Files.delete(source);
+        return Files.write(tmp.resolve("data/3.jxl"), JXL_PAGE);
+    }
+
+    private static CompressionProfile avifProfile(List<String> magickArgs)
+    {
+        return new CompressionProfile("TEST", "Test", ImageEncoder.AVIF,
+                List.of(), magickArgs, null, 0, 0, Set.of());
     }
 
     /** Lossless mode's shape: straight to the encoder, no ImageMagick, every format in scope. */
