@@ -251,7 +251,7 @@ class ImageCompressionWebIT
         // THEN every field is stored, and it joins the dropdown.
         ImageCompressionMode saved = modeRepository.findFirstByNameIgnoreCase("From the form").orElseThrow();
         assertThat(saved.getEncoder()).isEqualTo(ImageEncoder.AVIF);
-        assertThat(saved.getEncoderArgs()).isEqualTo("-q 55 -s 2");
+        assertThat(saved.getEncoderArgs()).isEqualTo("-q 55 -s 2 --jobs 1");
         assertThat(saved.getMagickArgs()).isEqualTo("-resize 80%");
         assertThat(saved.getImageHeightLimit()).isEqualTo(1200);
         assertThat(saved.getMinRelativeReduction()).isEqualTo(25);

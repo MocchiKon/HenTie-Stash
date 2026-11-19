@@ -199,7 +199,7 @@ class ImageCompressionModeIT
         CompressionProfile profile = modeService.resolve(key).orElseThrow();
         assertThat(profile.name()).isEqualTo("Archive");
         assertThat(profile.encoder()).isEqualTo(ImageEncoder.AVIF);
-        assertThat(profile.encoderArgs()).containsExactly("-q", "60", "-s", "4");
+        assertThat(profile.encoderArgs()).containsExactly("-q", "60", "-s", "4", "--jobs", "1");
         assertThat(profile.magickArgs()).containsExactly("-resize", "75%");
         assertThat(profile.imageHeightLimit()).isEqualTo(1000);
         assertThat(profile.minRelativeReduction()).isEqualTo(30);
@@ -242,18 +242,31 @@ class ImageCompressionModeIT
                 "-q", "100", "--lossless_jpeg=1", "--allow_jpeg_reconstruction=0");
     }
 
-    /** The switches are cjxl's; avifenc would reject them. */
+    /**
+     * The app runs one encoder per allowed processor, so avifenc gets one thread unless the user asks for more.
+     * The JPEG switches are cjxl's; avifenc would reject them.
+     */
     @Test
-    void shouldLeaveTheArgumentsOfAnAvifModeAlone()
+    void shouldAddASingleThreadToAnAvifMode()
     {
-        // WHEN
+        // WHEN the mode names no thread count...
         ImageCompressionMode avif = mode("Plain AVIF", ImageEncoder.AVIF);
         avif.setEncoderArgs("-q 55 -s 2");
         String key = modeService.save(avif);
-
-        // THEN
+        // THEN it runs on one thread, and gets none of cjxl's switches.
         assertThat(modeService.resolve(key).orElseThrow().encoderArgs())
-                .containsExactly("-q", "55", "-s", "2");
+                .containsExactly("-q", "55", "-s", "2", "--jobs", "1");
+
+        // WHEN the user gives a thread count, in either spelling...
+        ImageCompressionMode longForm = mode("Threaded AVIF", ImageEncoder.AVIF);
+        longForm.setEncoderArgs("-q 55 --jobs all");
+        ImageCompressionMode shortForm = mode("Short threaded AVIF", ImageEncoder.AVIF);
+        shortForm.setEncoderArgs("-q 55 -j 4");
+        // THEN their value wins, and nothing is appended.
+        assertThat(modeService.resolve(modeService.save(longForm)).orElseThrow().encoderArgs())
+                .containsExactly("-q", "55", "--jobs", "all");
+        assertThat(modeService.resolve(modeService.save(shortForm)).orElseThrow().encoderArgs())
+                .containsExactly("-q", "55", "-j", "4");
     }
 
     /** Why a choice is stored as {@code custom:<id>}: a rename must not orphan the rows that picked it. */

@@ -42,6 +42,13 @@ public class ImageCompressionModeService
     /** Keeps cjxl from storing metadata that only rebuilds the source JPEG byte for byte. */
     private static final String ALLOW_JPEG_RECONSTRUCTION = "--allow_jpeg_reconstruction";
 
+    /**
+     * avifenc's thread count. The app already runs one encoder per allowed processor, so avifenc's own threads
+     * would only compete with them and slip past Settings' processor cap.
+     */
+    private static final String AVIF_JOBS = "--jobs";
+    private static final String AVIF_JOBS_SHORT = "-j";
+
     private final AppProperties appProperties;
     private final ImageCompressionModeRepository repository;
 
@@ -346,33 +353,38 @@ public class ImageCompressionModeService
                     throw new NameTaken("Another mode is already called \"" + other.getName() + "\".");
                 });
         mode.setName(name);
-        mode.setEncoderArgs(withJxlDefaults(mode.getEncoder(), mode.getEncoderArgs()));
+        mode.setEncoderArgs(withEncoderDefaults(mode.getEncoder(), mode.getEncoderArgs()));
         return keyOf(repository.save(mode).getId());
     }
 
     /**
-     * Adds the cjxl switches a JPEG source needs, so the stored mode says what is really run and a later edit
-     * shows it. The switches are added only when the user has not named them: an explicit
-     * {@code --lossless_jpeg} or {@code --allow_jpeg_reconstruction} always wins.
+     * Adds the switches the encoder needs, so the stored mode says what is really run and a later edit shows it.
+     * cjxl gets the ones a JPEG source needs, avifenc a single thread. A switch is added only when the user has
+     * not named it: an explicit {@code --lossless_jpeg}, {@code --allow_jpeg_reconstruction} or {@code --jobs}
+     * always wins.
      */
-    private static String withJxlDefaults(ImageEncoder encoder, String rawArgs)
+    private static String withEncoderDefaults(ImageEncoder encoder, String rawArgs)
     {
         String args = StringUtils.trimToEmpty(rawArgs);
-        if (encoder != ImageEncoder.JXL)
-        {
-            return args;
-        }
         List<String> tokens = CompressionProfile.splitArgs(args);
         var normalized = new StringBuilder(args);
-        if (!namesOption(tokens, LOSSLESS_JPEG))
+        if (encoder == ImageEncoder.JXL)
         {
-            appendOption(normalized, Integer.valueOf(100).equals(qualityOf(tokens))
-                    ? LOSSLESS_JPEG_QUALITY_100
-                    : LOSSLESS_JPEG_BELOW_100);
+            if (!namesOption(tokens, LOSSLESS_JPEG))
+            {
+                appendOption(normalized, Integer.valueOf(100).equals(qualityOf(tokens))
+                        ? LOSSLESS_JPEG_QUALITY_100
+                        : LOSSLESS_JPEG_BELOW_100);
+            }
+            if (!namesOption(tokens, ALLOW_JPEG_RECONSTRUCTION))
+            {
+                appendOption(normalized, ALLOW_JPEG_RECONSTRUCTION + "=0");
+            }
         }
-        if (!namesOption(tokens, ALLOW_JPEG_RECONSTRUCTION))
+        else if (encoder == ImageEncoder.AVIF
+                && !namesOption(tokens, AVIF_JOBS) && !namesOption(tokens, AVIF_JOBS_SHORT))
         {
-            appendOption(normalized, ALLOW_JPEG_RECONSTRUCTION + "=0");
+            appendOption(normalized, AVIF_JOBS + " 1");
         }
         return normalized.toString();
     }

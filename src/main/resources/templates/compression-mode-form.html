@@ -42,7 +42,8 @@
             <p class="hint">
                 Passed to the encoder as typed. For JXL the app adds <code>--lossless_jpeg=1</code> when the
                 quality is 100 and <code>--lossless_jpeg=0</code> below it, and
-                <code>--allow_jpeg_reconstruction=0</code>, unless you have already given them yourself.
+                <code>--allow_jpeg_reconstruction=0</code>; for AVIF it adds <code>--jobs 1</code>. Anything you
+                have already given yourself is kept.
             </p>
         </div>
 

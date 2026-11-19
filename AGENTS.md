@@ -975,7 +975,8 @@ downloaded and uploaded images. Default mode is **None**: bytes are stored as th
   `--lossless_jpeg=1` at quality 100 keeps a JPEG lossless; below 100 `=0` makes cjxl decode and re-encode it,
   since cjxl otherwise transcodes every JPEG losslessly whatever quality is asked for.
   `--allow_jpeg_reconstruction=0` stops storing the metadata that only rebuilds the source JPEG byte for byte,
-  which nothing in the app does.
+  which nothing in the app does. An AVIF user mode gets `--jobs 1` the same way unless it names `--jobs`/`-j`:
+  the pool already runs one encoder per processor, and avifenc's own threads would slip past the CPU cap.
 - **Its own thread pool** (`ImageCompressionConfig`), sized to the machine: long CPU-bound tasks must not
   take threads from anything latency-sensitive. **Settings caps how much of the processor it uses**
   (`image.compression.cpu-percent`, default 100%): a resizable semaphore in `ImageCompressionExecutor`
