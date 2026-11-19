@@ -2,11 +2,14 @@ package io.github.mocchikon.hentie.repository;
 
 import io.github.mocchikon.hentie.entity.Chapter;
 import io.github.mocchikon.hentie.entity.DownloadStatus;
+import io.github.mocchikon.hentie.entity.Status;
 import org.springframework.data.domain.Limit;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.util.*;
 
@@ -33,6 +36,15 @@ public interface ChapterRepository extends JpaRepository<Chapter, Integer>, JpaS
     List<Chapter> findBySeriesIdAndLanguageOrderByChapterNumAscIdAsc(Integer seriesId, String language);
 
     List<Chapter> findBySeriesId(Integer seriesId);
+
+    /**
+     * One statement however many chapters the series has. Flushes first, so chapters linked earlier in the same
+     * transaction are included. Chapters already loaded keep their old status in memory, which
+     * {@code @DynamicUpdate} never writes back, since it is not a change made to them.
+     */
+    @Modifying(flushAutomatically = true)
+    @Query("update Chapter c set c.status = :to where c.series.id = :seriesId and c.status = :from")
+    int updateStatusInSeries(@Param("seriesId") int seriesId, @Param("from") Status from, @Param("to") Status to);
 
     /** A keyset walk, not an offset page, so a sweep never pays a growing OFFSET scan. */
     @Query("select c.id from Chapter c where c.id > :afterId order by c.id")

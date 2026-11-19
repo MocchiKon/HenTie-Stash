@@ -103,6 +103,8 @@ class SearchCriteriaTest
                 c -> c.getLanguages().add(" "),
                 c -> c.getStatuses().add(null),
                 c -> c.getStatuses().addAll(List.of(Status.values())),
+                c -> c.getStatuses().addAll(Status.CHAPTER_VALUES),
+                c -> c.getStatuses().add(Status.UPDATED),
                 c -> c.setMinScore(0),
                 c -> c.setMinPages(0));
 
@@ -114,6 +116,23 @@ class SearchCriteriaTest
             criteria.normalize();
             assertThat(criteria.hasFilter()).as("value #%d", i).isFalse();
         }
+    }
+
+    /** A series can be UPDATED, so on a series search the three chapter statuses still filter. */
+    @Test
+    void shouldKeepTheChapterStatusesAsAFilterOnASeriesSearch()
+    {
+        // GIVEN
+        var criteria = new SearchCriteria();
+        criteria.setType(SearchType.SERIES);
+        criteria.getStatuses().addAll(Status.CHAPTER_VALUES);
+
+        // WHEN
+        criteria.normalize();
+
+        // THEN
+        assertThat(criteria.getStatuses()).containsExactlyElementsOf(Status.CHAPTER_VALUES);
+        assertThat(criteria.hasFilter()).isTrue();
     }
 
     @Test

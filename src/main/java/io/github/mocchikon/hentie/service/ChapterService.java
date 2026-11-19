@@ -178,7 +178,7 @@ public class ChapterService
         TitleKey key = applyMatchKeys(chapter);
         chapter.setTitle(prettyTitle(form, key));
         chapter.setUploadDate(LocalDate.now());   // never user-editable
-        chapter.setStatus(form.getStatus() != null ? form.getStatus() : Status.NEW);
+        chapter.setStatus(chapterStatus(form.getStatus()));
         chapter.setGalleryId(galleryId);
         chapter.setLanguage(LanguageService.canonical(form.getLanguage()));
         chapter.setScore(toDbScore(form.getScore()));
@@ -213,7 +213,7 @@ public class ChapterService
         chapter.setNativeTitle(form.getNativeTitle());
         // A cleared pretty title is re-derived, not blanked: the column is NOT NULL.
         chapter.setTitle(prettyTitle(form, applyMatchKeys(chapter)));
-        chapter.setStatus(form.getStatus() != null ? form.getStatus() : Status.NEW);   // status is NOT NULL
+        chapter.setStatus(chapterStatus(form.getStatus()));
         chapter.setGalleryId(galleryId);
         chapter.setLanguage(LanguageService.canonical(form.getLanguage()));
         chapter.setScore(toDbScore(form.getScore()));
@@ -300,6 +300,15 @@ public class ChapterService
         }
         chapterRemoval.finish(chapters);
         return chapters.size();
+    }
+
+    /**
+     * The column is NOT NULL, and {@code UPDATED} belongs to series: the forms never offer it, so it only
+     * arrives in a hand-made request.
+     */
+    private static Status chapterStatus(Status status)
+    {
+        return status != null && Status.CHAPTER_VALUES.contains(status) ? status : Status.NEW;
     }
 
     /**

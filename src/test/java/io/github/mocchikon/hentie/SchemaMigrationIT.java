@@ -1,5 +1,6 @@
 package io.github.mocchikon.hentie;
 
+import io.github.mocchikon.hentie.entity.Status;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -30,7 +31,19 @@ class SchemaMigrationIT
     void shouldMatchTheEntityMappingsWhenSchemaComesFromMigrations()
     {
         // Starting the context is the real check; this assertion keeps the test from passing vacuously.
-        assertThat(appliedMigrations()).containsExactly("1", "2", "3", "4", "5", "6", "7");
+        assertThat(appliedMigrations()).containsExactly("1", "2", "3", "4", "5", "6", "7", "8");
+    }
+
+    /** Status is ORDINAL and the column is CHECKed, which validation does not see: a new value needs a migration. */
+    @Test
+    void shouldAllowEveryStatusInTheStatusColumns()
+    {
+        String check = "check ((status between 0 and " + (Status.values().length - 1) + "))";
+        for (String table : List.of("chapter", "series"))
+        {
+            assertThat(jdbc.queryForObject("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
+                    String.class, table)).as(table).contains(check);
+        }
     }
 
     @Test

@@ -93,7 +93,7 @@ public class ChapterDivideController
         List<String> pageUrls = imageService.pageUrls(chapter.getId());
         model.addAttribute("chapter", chapter);
         model.addAttribute("divide", form);
-        model.addAttribute("statuses", Status.values());
+        model.addAttribute("statuses", Status.CHAPTER_VALUES);
         model.addAttribute("pageUrls", pageUrls);
         model.addAttribute("blocked", pageUrls.size() < 2
                 ? ChapterDivisionService.TOO_FEW_PAGES : divisionService.refusal(chapter).orElse(null));

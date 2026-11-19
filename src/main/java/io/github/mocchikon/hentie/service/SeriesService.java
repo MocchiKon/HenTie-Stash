@@ -133,6 +133,7 @@ public class SeriesService
         series.setCreatedDate(LocalDate.now());   // never user-editable
         series = seriesRepository.save(series);
         attachChapters(series, form.getChapterIds());
+        reviewChaptersIfReviewed(series, null);
         recomputeDerived(series);
         return series.getId();
     }
@@ -142,9 +143,16 @@ public class SeriesService
     public void update(SeriesForm form)
     {
         Series series = get(form.getId());
+        Status before = series.getStatus();
         applyForm(series, form);
         seriesRepository.save(series);
-        attachChapters(series, form.getChapterIds());
+        List<Chapter> attached = attachChapters(series, form.getChapterIds());
+        if (series.getStatus() == before)
+        {
+            // The status was left as it was, so the chapters join like on any other path.
+            markUpdatedIfNewJoined(series, attached);
+        }
+        reviewChaptersIfReviewed(series, before);
         saveChapterNums(form.getChapterNums());
         recomputeDerived(series);
     }
@@ -222,16 +230,47 @@ public class SeriesService
         return chapters;
     }
 
-    /** Only promotes NEW, like {@link ChapterService#markReviewed}. */
+    /** Only promotes NEW and UPDATED, so a review page left open in another tab cannot demote a favourite. */
     @Transactional
     public void markReviewed(int id)
     {
         Series series = get(id);
-        if (series.getStatus() == Status.NEW)
+        Status before = series.getStatus();
+        if (before == Status.NEW || before == Status.UPDATED)
         {
             series.setStatus(Status.REVIEWED);
             seriesRepository.save(series);
+            reviewChaptersIfReviewed(series, before);
             searchCountCache.clear();
+        }
+    }
+
+    /**
+     * Reviewing a series reviews the chapters it holds, or they would stay in every search for new chapters
+     * after the user has seen them. Only {@code NEW} chapters are promoted, so a favourite stays one. Runs only
+     * when the series <i>becomes</i> reviewed: saving a reviewed series again (a new title) touches no chapter.
+     * The caller evicts the search count.
+     */
+    private void reviewChaptersIfReviewed(Series series, Status before)
+    {
+        if (series.getStatus() == Status.REVIEWED && before != Status.REVIEWED)
+        {
+            chapterRepository.updateStatusInSeries(series.getId(), Status.NEW, Status.REVIEWED);
+        }
+    }
+
+    /**
+     * A reviewed series that a new chapter joins has something to review again. Only {@code REVIEWED}: a
+     * favourite keeps its mark and a new series is not reviewed yet. Not when the series form changes the
+     * status in the same request that links the chapters: the status the user picked wins. The caller saves the
+     * series and evicts the search count.
+     */
+    private static void markUpdatedIfNewJoined(Series series, Collection<Chapter> joined)
+    {
+        if (series.getStatus() == Status.REVIEWED
+                && joined.stream().anyMatch(chapter -> chapter.getStatus() == Status.NEW))
+        {
+            series.setStatus(Status.UPDATED);
         }
     }
 
@@ -271,6 +310,7 @@ public class SeriesService
             return 0;
         }
         attachLoaded(series, joining, Map.of());
+        markUpdatedIfNewJoined(series, joining);
         recomputeDerived(series);
         return joining.size();
     }
@@ -283,7 +323,9 @@ public class SeriesService
     @Transactional
     public void addChaptersDeferred(int seriesId, Map<Integer, Double> chapterNums)
     {
-        attachChapters(get(seriesId), chapterNums);
+        Series series = get(seriesId);
+        markUpdatedIfNewJoined(series, attachChapters(series, chapterNums));
+        seriesRepository.save(series);
     }
 
     /**
@@ -380,28 +422,30 @@ public class SeriesService
         series.setCategories(categoryRepository.findAllById(form.getCategoryIds()));
     }
 
-    private void attachChapters(Series series, List<Integer> chapterIds)
+    private List<Chapter> attachChapters(Series series, List<Integer> chapterIds)
     {
         if (chapterIds == null || chapterIds.isEmpty())
         {
-            return;
+            return List.of();
         }
         var withoutNumbers = new LinkedHashMap<Integer, Double>();
         chapterIds.forEach(id -> withoutNumbers.put(id, null));
-        attachChapters(series, withoutNumbers);
+        return attachChapters(series, withoutNumbers);
     }
 
     /**
      * A null number keeps the chapter's own (it may have been set by hand); a chapter with none gets the one
      * its title implies. A constant fallback would give every chapter linked by hand the same number.
      */
-    private void attachChapters(Series series, Map<Integer, Double> chapterNums)
+    private List<Chapter> attachChapters(Series series, Map<Integer, Double> chapterNums)
     {
         if (chapterNums == null || chapterNums.isEmpty())
         {
-            return;
+            return List.of();
         }
-        attachLoaded(series, chapterRepository.findAllById(chapterNums.keySet()), chapterNums);
+        List<Chapter> chapters = chapterRepository.findAllById(chapterNums.keySet());
+        attachLoaded(series, chapters, chapterNums);
+        return chapters;
     }
 
     private void attachLoaded(Series series, List<Chapter> chapters, Map<Integer, Double> chapterNums)

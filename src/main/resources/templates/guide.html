@@ -6,8 +6,8 @@
 
 <main class="container narrow guide">
     <h1>Guide</h1>
-    <p class="hint">How to reach HenTie from other devices, how to set up ComfyUI, and how image compression rules
-        work.</p>
+    <p class="hint">How to reach HenTie from other devices, how to set up ComfyUI, how image compression rules
+        work, and what the statuses mean.</p>
 
     <nav class="guide-toc" aria-label="Contents">
         <ol>
@@ -39,6 +39,7 @@
                     <li><a href="#compression-rules-values">Renaming, merging or deleting</a></li>
                 </ol>
             </li>
+            <li><a href="#statuses">Statuses</a></li>
         </ol>
     </nav>
 
@@ -489,6 +490,19 @@ exec python main.py --listen 127.0.0.1 --port 8188</pre>
     <h3 id="compression-rules-values">Renaming, merging or deleting</h3>
     <p>Renaming or merging an artist, tag or other value on the Manage page keeps its rules working. Deleting one
         stops the rules that list it; the rules page marks them so you can fix them.</p>
+
+    <!-- ===================================================================================== -->
+    <h2 class="section-title" id="statuses">Statuses</h2>
+    <p>Every chapter and series is <strong>New</strong>, <strong>Reviewed</strong> or <strong>Favourite</strong>.
+        A series can also be <strong>Updated</strong>.</p>
+    <ul>
+        <li>Marking a series <strong>Reviewed</strong> also marks its <strong>New</strong> chapters Reviewed.
+            Favourite chapters stay Favourite.</li>
+        <li>When a <strong>New</strong> chapter is added to a <strong>Reviewed</strong> series, the series becomes
+            <strong>Updated</strong>, so you can find series with chapters you have not seen yet. Search for
+            series with the status Updated.</li>
+        <li>Marking an Updated series Reviewed again also marks its new chapters Reviewed.</li>
+    </ul>
 </main>
 <script th:src="@{/js/app.js}"></script>
 </body>

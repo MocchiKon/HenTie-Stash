@@ -691,7 +691,7 @@ public class ChapterController
     private void addNewModel(ChapterForm form, Model model)
     {
         model.addAttribute("selected", selectedFor(form));
-        model.addAttribute("statuses", Status.values());
+        model.addAttribute("statuses", Status.CHAPTER_VALUES);
         model.addAttribute("imageAccept", imageService.acceptAttribute());
         // Shown by the upload input: an upload blocks until compression is done.
         model.addAttribute("compressionModeName",

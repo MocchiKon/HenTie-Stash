@@ -1023,6 +1023,231 @@ class SeriesServiceIT
                 .isEqualTo(42L);
     }
 
+    private Chapter chapterWithStatus(String titleFull, Status status)
+    {
+        Chapter c = chapter(titleFull, "English", null, List.of());
+        c.setStatus(status);
+        return chapterRepository.save(c);
+    }
+
+    private Status statusOf(Chapter chapter)
+    {
+        return chapterRepository.findById(chapter.getId()).orElseThrow().getStatus();
+    }
+
+    private Status seriesStatus(int id)
+    {
+        return seriesRepository.findById(id).orElseThrow().getStatus();
+    }
+
+    /** Reviewing a series reviews its new chapters; a favourite chapter is no "new" one and is left alone. */
+    @Test
+    void shouldReviewNewChaptersButKeepFavouritesWhenSeriesBecomesReviewed()
+    {
+        // GIVEN a new series with a new, a reviewed and a favourite chapter, and a new chapter elsewhere.
+        Chapter fresh = chapterWithStatus("Review Cascade 1", Status.NEW);
+        Chapter seen = chapterWithStatus("Review Cascade 2", Status.REVIEWED);
+        Chapter favourite = chapterWithStatus("Review Cascade 3", Status.REVIEWED_FAVOURITE);
+        Chapter elsewhere = chapterWithStatus("Review Cascade Other", Status.NEW);
+        SeriesForm create = form("Review Cascade");
+        create.setStatus(Status.NEW);
+        int id = seriesService.create(create);
+        seriesService.addChapters(id, List.of(fresh.getId(), seen.getId(), favourite.getId()));
+        em.flush();
+        em.clear();
+
+        // WHEN it is reviewed on the edit form
+        SeriesForm edit = form("Review Cascade");
+        edit.setId(id);
+        seriesService.update(edit);
+        em.flush();
+        em.clear();
+
+        // THEN
+        assertThat(seriesStatus(id)).isEqualTo(Status.REVIEWED);
+        assertThat(statusOf(fresh)).isEqualTo(Status.REVIEWED);
+        assertThat(statusOf(seen)).isEqualTo(Status.REVIEWED);
+        assertThat(statusOf(favourite)).isEqualTo(Status.REVIEWED_FAVOURITE);
+        assertThat(statusOf(elsewhere)).isEqualTo(Status.NEW);
+    }
+
+    /** "Create series from this chapter" makes a reviewed series, which then holds no new chapter. */
+    @Test
+    void shouldReviewTheChaptersOfASeriesCreatedReviewed()
+    {
+        // GIVEN
+        Chapter fresh = chapterWithStatus("Created Reviewed 1", Status.NEW);
+        SeriesForm create = form("Created Reviewed");
+        create.setChapterIds(new ArrayList<>(List.of(fresh.getId())));
+
+        // WHEN
+        seriesService.create(create);
+        em.flush();
+        em.clear();
+
+        // THEN
+        assertThat(statusOf(fresh)).isEqualTo(Status.REVIEWED);
+    }
+
+    /** Only the change to REVIEWED reviews chapters: saving a reviewed series again leaves them as they are. */
+    @Test
+    void shouldLeaveChaptersAloneWhenAReviewedSeriesIsSavedAgain()
+    {
+        // GIVEN a reviewed series holding a chapter that is new again
+        Chapter chapter = chapterWithStatus("Saved Again 1", Status.REVIEWED);
+        int id = seriesService.create(form("Saved Again"));
+        seriesService.addChapters(id, List.of(chapter.getId()));
+        chapter = chapterRepository.findById(chapter.getId()).orElseThrow();
+        chapter.setStatus(Status.NEW);
+        chapterRepository.save(chapter);
+        em.flush();
+        em.clear();
+
+        // WHEN its title is edited
+        SeriesForm edit = form("Saved Again, Renamed");
+        edit.setId(id);
+        seriesService.update(edit);
+        em.flush();
+        em.clear();
+
+        // THEN
+        assertThat(statusOf(chapter)).isEqualTo(Status.NEW);
+        assertThat(seriesStatus(id)).isEqualTo(Status.REVIEWED);
+    }
+
+    /** Review mode's "Mark as reviewed" settles an updated series and its new chapters. */
+    @Test
+    void shouldReviewAnUpdatedSeriesAndItsNewChaptersWhenMarkedReviewed()
+    {
+        // GIVEN a reviewed series that a new chapter joined
+        int id = seriesService.create(form("Mark Updated"));
+        Chapter joined = chapterWithStatus("Mark Updated 2", Status.NEW);
+        seriesService.addChapters(id, List.of(joined.getId()));
+        em.flush();
+        em.clear();
+        assertThat(seriesStatus(id)).isEqualTo(Status.UPDATED);
+
+        // WHEN
+        seriesService.markReviewed(id);
+        em.flush();
+        em.clear();
+
+        // THEN
+        assertThat(seriesStatus(id)).isEqualTo(Status.REVIEWED);
+        assertThat(statusOf(joined)).isEqualTo(Status.REVIEWED);
+    }
+
+    /** A favourite is never demoted by a review page left open in another tab. */
+    @Test
+    void shouldKeepAFavouriteSeriesAndItsChaptersWhenMarkedReviewed()
+    {
+        // GIVEN
+        Chapter fresh = chapterWithStatus("Mark Favourite 1", Status.NEW);
+        SeriesForm create = form("Mark Favourite");
+        create.setStatus(Status.REVIEWED_FAVOURITE);
+        create.setChapterIds(new ArrayList<>(List.of(fresh.getId())));
+        int id = seriesService.create(create);
+        em.flush();
+        em.clear();
+
+        // WHEN
+        seriesService.markReviewed(id);
+        em.flush();
+        em.clear();
+
+        // THEN
+        assertThat(seriesStatus(id)).isEqualTo(Status.REVIEWED_FAVOURITE);
+        assertThat(statusOf(fresh)).isEqualTo(Status.NEW);
+    }
+
+    /** Every way a chapter joins a series: by hand, and through matching. */
+    @Test
+    void shouldMarkAReviewedSeriesUpdatedWhenANewChapterJoins()
+    {
+        // GIVEN two reviewed series
+        int byHand = seriesService.create(form("Updated By Hand"));
+        int matched = seriesService.create(form("Updated By Matching"));
+        Chapter first = chapterWithStatus("Updated By Hand 2", Status.NEW);
+        Chapter second = chapterWithStatus("Updated By Matching 2", Status.NEW);
+        em.flush();
+
+        // WHEN a new chapter joins each
+        seriesService.addChapters(byHand, List.of(first.getId()));
+        seriesService.addChaptersDeferred(matched, Map.of(second.getId(), 2.0));
+        em.flush();
+        em.clear();
+
+        // THEN
+        assertThat(seriesStatus(byHand)).isEqualTo(Status.UPDATED);
+        assertThat(seriesStatus(matched)).isEqualTo(Status.UPDATED);
+        assertThat(statusOf(first)).isEqualTo(Status.NEW);
+    }
+
+    /** Only a new chapter makes news, and only a reviewed series is waiting for it. */
+    @Test
+    void shouldKeepTheStatusWhenTheChapterIsNotNewOrTheSeriesNotReviewed()
+    {
+        // GIVEN a reviewed series, a favourite one and a new one
+        int reviewed = seriesService.create(form("Kept Reviewed"));
+        SeriesForm favouriteForm = form("Kept Favourite");
+        favouriteForm.setStatus(Status.REVIEWED_FAVOURITE);
+        int favourite = seriesService.create(favouriteForm);
+        SeriesForm newForm = form("Kept New");
+        newForm.setStatus(Status.NEW);
+        int fresh = seriesService.create(newForm);
+        Chapter seen = chapterWithStatus("Kept Reviewed 2", Status.REVIEWED);
+        Chapter forFavourite = chapterWithStatus("Kept Favourite 2", Status.NEW);
+        Chapter forNew = chapterWithStatus("Kept New 2", Status.NEW);
+        em.flush();
+
+        // WHEN
+        seriesService.addChapters(reviewed, List.of(seen.getId()));
+        seriesService.addChapters(favourite, List.of(forFavourite.getId()));
+        seriesService.addChapters(fresh, List.of(forNew.getId()));
+        em.flush();
+        em.clear();
+
+        // THEN
+        assertThat(seriesStatus(reviewed)).isEqualTo(Status.REVIEWED);
+        assertThat(seriesStatus(favourite)).isEqualTo(Status.REVIEWED_FAVOURITE);
+        assertThat(seriesStatus(fresh)).isEqualTo(Status.NEW);
+    }
+
+    /**
+     * On the edit form the picked status wins over the chapters linked with it: picking REVIEWED reviews them,
+     * leaving REVIEWED as it was lets them make the series updated.
+     */
+    @Test
+    void shouldLetTheFormStatusDecideForChaptersLinkedOnTheForm()
+    {
+        // GIVEN an updated series and a reviewed one, and a new chapter for each
+        int updated = seriesService.create(form("Form Picks Reviewed"));
+        seriesService.addChapters(updated, List.of(chapterWithStatus("Form Picks Reviewed 2", Status.NEW).getId()));
+        int reviewed = seriesService.create(form("Form Keeps Reviewed"));
+        Chapter linkedToUpdated = chapterWithStatus("Form Picks Reviewed 3", Status.NEW);
+        Chapter linkedToReviewed = chapterWithStatus("Form Keeps Reviewed 2", Status.NEW);
+        em.flush();
+        em.clear();
+
+        // WHEN both are saved as REVIEWED, each linking its chapter
+        SeriesForm pick = form("Form Picks Reviewed");
+        pick.setId(updated);
+        pick.setChapterIds(new ArrayList<>(List.of(linkedToUpdated.getId())));
+        seriesService.update(pick);
+        SeriesForm keep = form("Form Keeps Reviewed");
+        keep.setId(reviewed);
+        keep.setChapterIds(new ArrayList<>(List.of(linkedToReviewed.getId())));
+        seriesService.update(keep);
+        em.flush();
+        em.clear();
+
+        // THEN
+        assertThat(seriesStatus(updated)).isEqualTo(Status.REVIEWED);
+        assertThat(statusOf(linkedToUpdated)).isEqualTo(Status.REVIEWED);
+        assertThat(seriesStatus(reviewed)).isEqualTo(Status.UPDATED);
+        assertThat(statusOf(linkedToReviewed)).isEqualTo(Status.NEW);
+    }
+
     /** Writes one page file for a chapter and returns its directory. */
     private Path page(int chapterId)
     {

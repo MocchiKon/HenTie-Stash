@@ -57,7 +57,8 @@
         <div class="field">
             <label>Status</label>
             <div class="checkbox-row">
-                <label class="checkbox" th:each="s : ${statuses}">
+                <label class="checkbox" th:each="s : ${statuses}"
+                       th:classappend="${s.name() == 'UPDATED'} ? 'when-series'">
                     <input type="checkbox" name="statuses" th:value="${s.name()}"
                            th:checked="${criteria.statuses.contains(s)}">
                     <span th:text="${s.displayName}">Status</span>

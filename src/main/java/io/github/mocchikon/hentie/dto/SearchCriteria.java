@@ -123,8 +123,8 @@ public class SearchCriteria
      * they cannot disagree about whether a value filters. Must run before anything reads the criteria.
      * <ul>
      *   <li>Drops values that match every row (null ids, blank languages, {@code minScore}/{@code minPages}
-     *       below 1, every status at once). Kept, they would pass for a filter and split one count across
-     *       two cache keys.</li>
+     *       below 1, every status the searched type can hold at once) and statuses a chapter never has on a
+     *       chapter search. Kept, they would pass for a filter and split one count across two cache keys.</li>
      *   <li>An id both included and excluded stays included only: that is what an id means to a link that
      *       knows nothing about exclusion, and the form could not render it as two chips.</li>
      * </ul>
@@ -149,7 +149,12 @@ public class SearchCriteria
             languages = new ArrayList<>(languages.stream().filter(StringUtils::isNotBlank).toList());
         }
         statuses = withoutNulls(statuses);
-        if (statuses != null && statuses.containsAll(EnumSet.allOf(Status.class)))
+        if (statuses != null && !isSeries())
+        {
+            // The form hides series-only statuses on a chapter search but still sends one ticked earlier.
+            statuses.retainAll(Status.CHAPTER_VALUES);
+        }
+        if (statuses != null && statuses.containsAll(isSeries() ? EnumSet.allOf(Status.class) : Status.CHAPTER_VALUES))
         {
             statuses = new ArrayList<>();
         }

@@ -6,7 +6,7 @@
 
 <main class="container">
     <!-- Deletes with chapters: a series deleted alone would leave all its galleries behind. -->
-    <div th:replace="~{fragments/components :: reviewBar(${'/series/' + vm.series.id}, ${vm.series.status != null and vm.series.status.name() == 'NEW'}, ${'/series/' + vm.series.id + '/delete-with-chapters'}, ${'Delete this series AND its ' + vm.chapterCount + ' chapter(s), including their page images on disk? This cannot be undone.'})}"></div>
+    <div th:replace="~{fragments/components :: reviewBar(${'/series/' + vm.series.id}, ${vm.series.status != null and (vm.series.status.name() == 'NEW' or vm.series.status.name() == 'UPDATED')}, ${'/series/' + vm.series.id + '/delete-with-chapters'}, ${'Delete this series AND its ' + vm.chapterCount + ' chapter(s), including their page images on disk? This cannot be undone.'})}"></div>
     <section class="detail-block">
         <div class="detail-thumb">
             <img th:src="${vm.thumbnailUrl}" th:alt="${vm.series.titleFull}" loading="lazy">
