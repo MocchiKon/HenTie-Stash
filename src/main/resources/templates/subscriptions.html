@@ -41,7 +41,20 @@
         Image compression is chosen by your <a th:href="@{/compression-rules}">image compression rules</a>.
     </p>
 
-    <p class="empty" th:if="${#lists.isEmpty(subscriptions)}">No subscriptions yet.</p>
+    <form method="get" th:action="@{/subscriptions}" class="rule-filter metadata-value-row"
+          th:if="${filtered or not #lists.isEmpty(subscriptions)}">
+        <input type="search" name="filter" class="metadata-value-input" th:value="${filter}" maxlength="255"
+               placeholder="Find by name…" aria-label="Find subscriptions by name">
+        <select name="order" aria-label="Order">
+            <option value="asc" th:selected="${order == 'asc'}">Highest priority first</option>
+            <option value="desc" th:selected="${order == 'desc'}">Lowest priority first</option>
+        </select>
+        <button type="submit" class="btn">Show</button>
+        <a class="btn btn-ghost" th:if="${filtered}" th:href="@{/subscriptions(order=${order})}">Show all</a>
+    </form>
+
+    <p class="empty" th:if="${#lists.isEmpty(subscriptions) and not filtered}">No subscriptions yet.</p>
+    <p class="empty" th:if="${#lists.isEmpty(subscriptions) and filtered}">No subscription has that name.</p>
 
     <ul class="subscription-list" th:unless="${#lists.isEmpty(subscriptions)}">
         <li class="subscription-item" th:each="s : ${subscriptions}" th:id="'subscription-' + ${s.id()}">
@@ -85,24 +98,34 @@
                 <a class="btn" th:href="@{/subscriptions/{id}/edit(id=${s.id()})}">Edit</a>
                 <form method="post" class="inline-form" th:if="${s.enabled()}"
                       th:action="@{/subscriptions/{id}/check(id=${s.id()})}">
+                    <input type="hidden" name="filter" th:if="${filtered}" th:value="${filter}">
+                    <input type="hidden" name="order" th:value="${order}">
                     <button type="submit" class="btn">Check now</button>
                 </form>
                 <form method="post" class="inline-form" th:if="${s.enabled()}"
                       th:action="@{/subscriptions/{id}/pause(id=${s.id()})}">
+                    <input type="hidden" name="filter" th:if="${filtered}" th:value="${filter}">
+                    <input type="hidden" name="order" th:value="${order}">
                     <button type="submit" class="btn">Pause</button>
                 </form>
                 <form method="post" class="inline-form" th:unless="${s.enabled()}"
                       th:action="@{/subscriptions/{id}/resume(id=${s.id()})}">
+                    <input type="hidden" name="filter" th:if="${filtered}" th:value="${filter}">
+                    <input type="hidden" name="order" th:value="${order}">
                     <button type="submit" class="btn">Resume</button>
                 </form>
                 <form method="post" class="inline-form confirm-delete"
                       th:action="@{/subscriptions/{id}/restart(id=${s.id()})}"
                       data-confirm="Start over? The whole search is listed again from the newest gallery; what is in the library or the queue is passed over.">
+                    <input type="hidden" name="filter" th:if="${filtered}" th:value="${filter}">
+                    <input type="hidden" name="order" th:value="${order}">
                     <button type="submit" class="btn">Start over</button>
                 </form>
                 <form method="post" class="inline-form confirm-delete"
                       th:action="@{/subscriptions/{id}/delete(id=${s.id()})}"
                       data-confirm="Delete this subscription? What it already queued stays in the download queue.">
+                    <input type="hidden" name="filter" th:if="${filtered}" th:value="${filter}">
+                    <input type="hidden" name="order" th:value="${order}">
                     <button type="submit" class="btn btn-danger">Delete</button>
                 </form>
             </div>

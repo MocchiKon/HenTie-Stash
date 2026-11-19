@@ -289,13 +289,27 @@ public class SubscriptionService
         return titles;
     }
 
+    /**
+     * Filtered and sorted here, not in SQL: a library has a handful of subscriptions, and the name shown falls back to
+     * the query, which a column filter would not see. Equal priorities stay in the runner's order (oldest first).
+     *
+     * @param name                part of the name shown, in any case; blank shows every subscription
+     * @param lowestPriorityFirst the highest priority number first, instead of 0 first
+     */
     @Transactional(readOnly = true)
-    public List<SubscriptionView> overview()
+    public List<SubscriptionView> overview(String name, boolean lowestPriorityFirst)
     {
         Map<Integer, Long> waiting = queueService.waitingBySubscription();
         Map<Integer, Long> failed = queueService.failedBySubscription();
         LocalDateTime now = LocalDateTime.now();
+        String needle = StringUtils.isBlank(name) ? null : name.strip().toLowerCase(Locale.ROOT);
+        Comparator<Subscription> order = lowestPriorityFirst
+                ? Comparator.comparingInt(Subscription::getPriority).reversed().thenComparing(Subscription::getId)
+                : Comparator.comparingInt(Subscription::getPriority).thenComparing(Subscription::getId);
         return repository.findAllByOrderByPriorityAscIdAsc().stream()
+                .filter(subscription -> needle == null
+                        || title(subscription).toLowerCase(Locale.ROOT).contains(needle))
+                .sorted(order)
                 .map(subscription -> view(subscription, waiting.getOrDefault(subscription.getId(), 0L),
                         failed.getOrDefault(subscription.getId(), 0L), now))
                 .toList();

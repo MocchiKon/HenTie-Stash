@@ -287,7 +287,7 @@ class SubscriptionRunnerIT
 
         // THEN a check and one page below it (whose first gallery is the cursor's own), then it waits
         assertThat(rowsOf(id)).hasSize(49);
-        assertThat(subscriptionService.overview().getFirst().status()).startsWith("Waiting for 49 of its downloads");
+        assertThat(subscriptionService.overview(null, false).getFirst().status()).startsWith("Waiting for 49 of its downloads");
 
         // WHEN 40 of them have downloaded
         rowsOf(id).stream().limit(40).forEach(queueRepository::delete);
@@ -318,7 +318,7 @@ class SubscriptionRunnerIT
 
         // THEN
         assertThat(listed).isFalse();
-        assertThat(subscriptionService.overview().getFirst().status()).startsWith("Stopped listing: 5");
+        assertThat(subscriptionService.overview(null, false).getFirst().status()).startsWith("Stopped listing: 5");
     }
 
     /** More than a page of new galleries is carried down in steps; a failure part-way loses nothing. */

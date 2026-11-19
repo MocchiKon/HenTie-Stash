@@ -32,16 +32,29 @@ public class SubscriptionController
     private static final String FORM_VIEW = "subscription-form";
     private static final String REDIRECT_LIST = "redirect:/subscriptions";
     private static final String GONE = "That subscription no longer exists.";
+    /** Of the priority number: ascending is 0, the highest priority, first. */
+    private static final String ASCENDING = "asc";
+    private static final String DESCENDING = "desc";
 
     private final SubscriptionService subscriptionService;
     private final SubscriptionRunner runner;
     private final DataDownloaderRegistry registry;
     private final SettingsService settingsService;
 
+    /**
+     * The page's filter and order are request parameters, so a bookmark keeps them; the list's actions post them back
+     * so the page they return to looks the same.
+     */
     @GetMapping
-    public String list(Model model)
+    public String list(@RequestParam(required = false) String filter, @RequestParam(required = false) String order,
+                       Model model)
     {
-        model.addAttribute("subscriptions", subscriptionService.overview());
+        String name = StringUtils.trimToNull(filter);
+        boolean descending = DESCENDING.equals(order);
+        model.addAttribute("subscriptions", subscriptionService.overview(name, descending));
+        model.addAttribute("filter", name);
+        model.addAttribute("order", descending ? DESCENDING : ASCENDING);
+        model.addAttribute("filtered", name != null);
         return "subscriptions";
     }
 
@@ -114,38 +127,43 @@ public class SubscriptionController
     }
 
     @PostMapping("/{id:\\d+}/delete")
-    public String delete(@PathVariable int id, RedirectAttributes redirect)
+    public String delete(@PathVariable int id, @RequestParam(required = false) String filter,
+                         @RequestParam(required = false) String order, RedirectAttributes redirect)
     {
         subscriptionService.delete(id).ifPresentOrElse(title -> redirect.addFlashAttribute("deleted", title),
                 () -> redirect.addFlashAttribute("problem", GONE));
-        return REDIRECT_LIST;
+        return backToList(filter, order, redirect);
     }
 
     @PostMapping("/{id:\\d+}/pause")
-    public String pause(@PathVariable int id, RedirectAttributes redirect)
+    public String pause(@PathVariable int id, @RequestParam(required = false) String filter,
+                        @RequestParam(required = false) String order, RedirectAttributes redirect)
     {
-        return changed(subscriptionService.setEnabled(id, false), redirect);
+        return changed(subscriptionService.setEnabled(id, false), filter, order, redirect);
     }
 
     @PostMapping("/{id:\\d+}/resume")
-    public String resume(@PathVariable int id, RedirectAttributes redirect)
+    public String resume(@PathVariable int id, @RequestParam(required = false) String filter,
+                         @RequestParam(required = false) String order, RedirectAttributes redirect)
     {
-        return changed(subscriptionService.setEnabled(id, true), redirect);
+        return changed(subscriptionService.setEnabled(id, true), filter, order, redirect);
     }
 
     @PostMapping("/{id:\\d+}/check")
-    public String checkNow(@PathVariable int id, RedirectAttributes redirect)
+    public String checkNow(@PathVariable int id, @RequestParam(required = false) String filter,
+                           @RequestParam(required = false) String order, RedirectAttributes redirect)
     {
-        return changed(subscriptionService.checkNow(id), redirect);
+        return changed(subscriptionService.checkNow(id), filter, order, redirect);
     }
 
     @PostMapping("/{id:\\d+}/restart")
-    public String startOver(@PathVariable int id, RedirectAttributes redirect)
+    public String startOver(@PathVariable int id, @RequestParam(required = false) String filter,
+                            @RequestParam(required = false) String order, RedirectAttributes redirect)
     {
-        return changed(subscriptionService.startOver(id), redirect);
+        return changed(subscriptionService.startOver(id), filter, order, redirect);
     }
 
-    private String changed(boolean found, RedirectAttributes redirect)
+    private String changed(boolean found, String filter, String order, RedirectAttributes redirect)
     {
         if (found)
         {
@@ -154,6 +172,20 @@ public class SubscriptionController
         else
         {
             redirect.addFlashAttribute("problem", GONE);
+        }
+        return backToList(filter, order, redirect);
+    }
+
+    /** Only what differs from the plain page goes into the address. */
+    private static String backToList(String filter, String order, RedirectAttributes redirect)
+    {
+        if (StringUtils.isNotBlank(filter))
+        {
+            redirect.addAttribute("filter", filter.strip());
+        }
+        if (DESCENDING.equals(order))
+        {
+            redirect.addAttribute("order", DESCENDING);
         }
         return REDIRECT_LIST;
     }

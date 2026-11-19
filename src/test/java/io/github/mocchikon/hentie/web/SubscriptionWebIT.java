@@ -2,6 +2,7 @@ package io.github.mocchikon.hentie.web;
 
 import io.github.mocchikon.hentie.TestDownloads;
 import io.github.mocchikon.hentie.TestLogin;
+import io.github.mocchikon.hentie.dto.SubscriptionView;
 import io.github.mocchikon.hentie.entity.DownloadQueueItem;
 import io.github.mocchikon.hentie.entity.Subscription;
 import io.github.mocchikon.hentie.entity.ViewMode;
@@ -17,6 +18,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
@@ -261,6 +264,48 @@ class SubscriptionWebIT
     }
 
     @Test
+    void shouldFilterByNameAndOrderByPriority() throws Exception
+    {
+        // GIVEN
+        mvc.perform(subscriptionPost().param("source", "nhentai").param("query", "a").param("name", "Ärger One")
+                .param("priority", "2"));
+        mvc.perform(subscriptionPost().param("source", "nhentai").param("query", "b").param("name", "Other")
+                .param("priority", "0"));
+        mvc.perform(subscriptionPost().param("source", "nhentai").param("query", "ärger two").param("priority", "5"));
+
+        // WHEN + THEN the name, or the query standing in for it, in any case
+        assertThat(titles(get("/subscriptions").param("filter", " ÄRGER "))).containsExactly("Ärger One", "ärger two");
+        assertThat(titles(get("/subscriptions").param("filter", "ärger").param("order", "desc")))
+                .containsExactly("ärger two", "Ärger One");
+        assertThat(titles(get("/subscriptions").param("order", "desc")))
+                .containsExactly("ärger two", "Ärger One", "Other");
+        assertThat(titles(get("/subscriptions"))).containsExactly("Other", "Ärger One", "ärger two");
+        mvc.perform(get("/subscriptions").with(user("user")).param("filter", "ärger").param("order", "desc"))
+                .andExpect(content().string(containsString("value=\"ärger\"")))
+                .andExpect(content().string(containsString("value=\"desc\" selected")));
+        mvc.perform(get("/subscriptions").with(user("user")).param("filter", "nothing like it"))
+                .andExpect(content().string(containsString("No subscription has that name.")))
+                .andExpect(content().string(containsString("Show all")));
+    }
+
+    @Test
+    void shouldReturnToTheSameFilterAndOrderAfterAnAction() throws Exception
+    {
+        // GIVEN
+        mvc.perform(subscriptionPost().param("source", "nhentai").param("query", "x").param("name", "Mine"));
+        int id = subscriptionRepository.findAll().getFirst().getId();
+
+        // WHEN + THEN
+        mvc.perform(action(id, "pause").param("filter", " min ").param("order", "desc"))
+                .andExpect(redirectedUrl("/subscriptions?filter=min&order=desc"));
+        mvc.perform(action(id, "resume").param("order", "asc"))
+                .andExpect(redirectedUrl("/subscriptions"));
+        mvc.perform(get("/subscriptions").with(user("user")).param("filter", "min").param("order", "desc"))
+                .andExpect(content().string(containsString(
+                        "<input type=\"hidden\" name=\"filter\" value=\"min\">")));
+    }
+
+    @Test
     void shouldNameTheSubscriptionOnTheQueuePage() throws Exception
     {
         // GIVEN a row a subscription queued
@@ -298,6 +343,15 @@ class SubscriptionWebIT
         mvc.perform(get("/settings").with(user("user")))
                 .andExpect(content().string(containsString("id=\"ehentai-account\"")))
                 .andExpect(content().string(containsString("value=\"123\"")));
+    }
+
+    /** The page's subscriptions, in the order shown. */
+    @SuppressWarnings("unchecked")
+    private List<String> titles(MockHttpServletRequestBuilder request) throws Exception
+    {
+        var views = (List<SubscriptionView>) mvc.perform(request.with(user("user"))).andExpect(status().isOk())
+                .andReturn().getModelAndView().getModel().get("subscriptions");
+        return views.stream().map(SubscriptionView::title).toList();
     }
 
     /** The rest takes the form's defaults: a parameter given twice would bind its first value. */
