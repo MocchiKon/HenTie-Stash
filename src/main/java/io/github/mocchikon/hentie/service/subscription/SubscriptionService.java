@@ -20,6 +20,7 @@ import io.github.mocchikon.hentie.service.download.DownloadQueueService;
 import io.github.mocchikon.hentie.service.download.GalleryImportService;
 import io.github.mocchikon.hentie.service.subscription.SubscriptionWalk.Kind;
 import io.github.mocchikon.hentie.service.subscription.SubscriptionWalk.Listed;
+import io.github.mocchikon.hentie.service.subscription.SubscriptionWalk.Phase;
 import io.github.mocchikon.hentie.service.subscription.SubscriptionWalk.State;
 import io.github.mocchikon.hentie.service.subscription.SubscriptionWalk.Step;
 import lombok.Getter;
@@ -71,6 +72,7 @@ public class SubscriptionService
     private final ImageCompressionRuleService ruleService;
     private final SettingsService settingsService;
     private final AppProperties appProperties;
+    private final ParkedSites parkedSites;
 
     /** A form field the save refused, worded for the user. */
     @Getter
@@ -283,7 +285,7 @@ public class SubscriptionService
 
     /**
      * Filtered and sorted here, not in SQL: a library has a handful of subscriptions, and the name shown falls back to
-     * the query, which a column filter would not see. Equal priorities stay in the runner's order (oldest first).
+     * the query, which a column filter would not see. Equal priorities oldest first.
      *
      * @param name                part of the name shown, in any case; blank shows every subscription
      * @param lowestPriorityFirst the highest priority number first, instead of 0 first
@@ -294,26 +296,30 @@ public class SubscriptionService
         Map<Integer, Long> waiting = queueService.waitingBySubscription();
         Map<Integer, Long> failed = queueService.failedBySubscription();
         LocalDateTime now = LocalDateTime.now();
+        // Of every subscription: one the filter hides still holds back those it shows.
+        List<Turn> turns = turns(repository.findAllByOrderByPriorityAscIdAsc(), failed, now);
         String needle = StringUtils.isBlank(name) ? null : name.strip().toLowerCase(Locale.ROOT);
         Comparator<Subscription> order = lowestPriorityFirst
                 ? Comparator.comparingInt(Subscription::getPriority).reversed().thenComparing(Subscription::getId)
                 : Comparator.comparingInt(Subscription::getPriority).thenComparing(Subscription::getId);
-        return repository.findAllByOrderByPriorityAscIdAsc().stream()
-                .filter(subscription -> needle == null
-                        || title(subscription).toLowerCase(Locale.ROOT).contains(needle))
-                .sorted(order)
-                .map(subscription -> view(subscription, waiting.getOrDefault(subscription.getId(), 0L),
-                        failed.getOrDefault(subscription.getId(), 0L), now))
+        return turns.stream()
+                .filter(turn -> needle == null
+                        || title(turn.subscription()).toLowerCase(Locale.ROOT).contains(needle))
+                .sorted(Comparator.comparing(Turn::subscription, order))
+                .map(turn -> view(turn, holder(turns, turn).orElse(null),
+                        waiting.getOrDefault(turn.subscription().getId(), 0L),
+                        failed.getOrDefault(turn.subscription().getId(), 0L), now))
                 .toList();
     }
 
-    private SubscriptionView view(Subscription subscription, long waiting, long failed, LocalDateTime now)
+    private SubscriptionView view(Turn turn, Turn holder, long waiting, long failed, LocalDateTime now)
     {
+        Subscription subscription = turn.subscription();
         Optional<SearchSource> source = registry.searchSource(subscription.getSource());
         String siteLabel = source.flatMap(s -> s.searchSites().stream()
                         .filter(site -> site.key().equals(subscription.getSource())).findFirst())
                 .map(SearchSource.SearchSite::label).orElse(subscription.getSource());
-        Status status = status(subscription, source.orElse(null), waiting, failed, now);
+        Status status = status(subscription, source.orElse(null), turn.phase(), holder, waiting, failed, now);
         return new SubscriptionView(subscription.getId(), title(subscription), siteLabel, subscription.getPriority(),
                 subscription.getQuery(),
                 source.map(s -> s.searchPageUrl(subscription.getSource(), subscription.getQuery())).orElse(null),
@@ -340,9 +346,13 @@ public class SubscriptionService
     {
     }
 
-    /** What the subscription waits for, or does next; in the order a cause would hold it up. */
-    private Status status(Subscription subscription, SearchSource source, long waiting, long failed,
-                          LocalDateTime now)
+    /**
+     * What the subscription waits for, or does next; in the order a cause would hold it up.
+     *
+     * @param holder the subscription of a higher priority it waits for; null when none
+     */
+    private Status status(Subscription subscription, SearchSource source, Phase phase, Turn holder, long waiting,
+                          long failed, LocalDateTime now)
     {
         AppProperties.Subscriptions limits = appProperties.getSubscriptions();
         if (!subscription.isEnabled())
@@ -377,12 +387,28 @@ public class SubscriptionService
             return new Status("Stopped listing: " + failed + " of its downloads failed. Retry or remove them in the "
                     + "download queue, and it goes on.", "error");
         }
-        boolean full = waiting >= limits.getQueueAhead();
         String listed = listedSoFar(subscription);
+        if (holder != null)
+        {
+            Subscription first = holder.subscription();
+            String waitingFor = "Waiting for \"" + title(first) + "\" (priority " + first.getPriority() + ")";
+            return new Status(switch (phase)
+            {
+                case CHECK -> waitingFor + " before looking for new galleries.";
+                case RECHECK -> waitingFor + " before re-checking recent galleries.";
+                case BACKFILL -> waitingFor + " before listing older galleries; " + listed + ".";
+            }, "ok");
+        }
+        boolean full = waiting >= limits.getQueueAhead();
         if (subscription.getCatchUpTop() != null)
         {
-            return full ? new Status("Waiting for " + waiting + " of its downloads before listing more new galleries.",
-                    "ok") : new Status("Listing new galleries.", "ok");
+            if (SubscriptionWalk.listingNew(stateOf(subscription), positions(source)))
+            {
+                return full ? new Status("Waiting for " + waiting + " of its downloads before listing more new "
+                        + "galleries.", "ok") : new Status("Listing new galleries.", "ok");
+            }
+            return full ? new Status("Waiting for " + waiting + " of its downloads before re-checking more recent "
+                    + "galleries.", "ok") : new Status("Re-checking recent galleries.", "ok");
         }
         if (subscription.getOldestGalleryId() != null && !subscription.isReachedEnd())
         {
@@ -459,19 +485,89 @@ public class SubscriptionService
     {
     }
 
-    /** Snapshots: the runner holds them across network calls, so they must never be written back. */
-    @Transactional(readOnly = true)
-    public List<Subscription> of(SearchSource source)
+    /**
+     * A subscription's place in the runner's order, which spans every site.
+     *
+     * @param subscription a snapshot: the runner holds it across network calls, so it must never be written back
+     * @param phase        what its walk has left; null when nothing is, or it is paused
+     * @param holdsBack    whether the phase holds back lower priorities. Not while the subscription cannot go on by
+     *                     itself (its site is not asked, its last step failed, too many of its downloads failed): one
+     *                     stuck subscription would stop every one below it. Waiting for its own downloads does not
+     *                     count as stuck, as those run.
+     */
+    public record Turn(Subscription subscription, Phase phase, boolean holdsBack)
     {
-        return repository.findBySourceInOrderByPriorityAscIdAsc(
-                source.searchSites().stream().map(SearchSource.SearchSite::key).toList());
+        /**
+         * A lower priority waits in the same phase or a less important one, whatever site it searches: listing in this
+         * one's gaps, it would queue galleries that download between this one's.
+         */
+        public boolean holdsBack(Turn other)
+        {
+            return holdsBack && other.phase() != null
+                    && subscription.getPriority() < other.subscription().getPriority()
+                    && phase.compareTo(other.phase()) <= 0;
+        }
+    }
+
+    /** The runner's order: the most important phase first, then the highest priority, then the oldest. */
+    public static final Comparator<Turn> ORDER = Comparator
+            .comparing(Turn::phase, Comparator.nullsLast(Comparator.naturalOrder()))
+            .thenComparingInt(turn -> turn.subscription().getPriority())
+            .thenComparing(turn -> turn.subscription().getId());
+
+    /** Every subscription's turn, of every site, in {@link #ORDER}. */
+    @Transactional(readOnly = true)
+    public List<Turn> turns(LocalDateTime now)
+    {
+        return turns(repository.findAllByOrderByPriorityAscIdAsc(), queueService.failedBySubscription(), now);
+    }
+
+    /** The turn holding this one back, the first in {@link #ORDER}; empty when it may step. */
+    public static Optional<Turn> holder(List<Turn> turns, Turn turn)
+    {
+        return turns.stream().filter(other -> other.holdsBack(turn)).min(ORDER);
+    }
+
+    private List<Turn> turns(List<Subscription> subscriptions, Map<Integer, Long> failed, LocalDateTime now)
+    {
+        return subscriptions.stream()
+                .map(subscription -> turn(subscription, failed.getOrDefault(subscription.getId(), 0L), now))
+                .sorted(ORDER)
+                .toList();
+    }
+
+    private Turn turn(Subscription subscription, long failed, LocalDateTime now)
+    {
+        SearchSource source = registry.searchSource(subscription.getSource()).orElse(null);
+        if (!subscription.isEnabled() || source == null)
+        {
+            return new Turn(subscription, null, false);
+        }
+        Phase phase = phase(subscription, stateOf(subscription), positions(source), now).orElse(null);
+        String site = subscription.getSource();
+        boolean holdsBack = phase != null && subscription.getLastError() == null
+                && failed < appProperties.getSubscriptions().getFailedLimit()
+                && source.refusingUntil().isEmpty() && source.notReady(site).isEmpty()
+                && !parkedSites.isParked(site);
+        return new Turn(subscription, phase, holdsBack);
+    }
+
+    private static Optional<Phase> phase(Subscription subscription, State state, SubscriptionWalk.Positions positions,
+                                         LocalDateTime now)
+    {
+        return SubscriptionWalk.phase(state,
+                SubscriptionWalk.checkDue(subscription.getLastCheckedAt(), subscription.getPollMinutes(), now),
+                SubscriptionWalk.recheckDue(subscription.getLastRecheckedAt(), subscription.getRecheckEveryHours(),
+                        now),
+                positions);
     }
 
     /**
-     * The step a subscription needs now, if any: a catch-up under way first, then a due check (a re-check when that is
-     * due), then a page of the backfill. Listing beyond a check waits while the subscription has many downloads
+     * The step a subscription needs now for the most important phase it has left ({@link SubscriptionWalk#phase}), if
+     * any: a catch-up of new galleries, else a due check (a re-check when that is due too); a re-check's catch-up, or
+     * a due re-check; a page of the backfill. Listing beyond a check waits while the subscription has many downloads
      * waiting or failed (see {@code app.subscriptions.*}); checks go on meanwhile, also beside a catch-up that waits,
-     * stopping at its top (see {@link SubscriptionWalk}).
+     * stopping at its top (see {@link SubscriptionWalk}). Whether it may step at all is the runner's call.
      */
     @Transactional(readOnly = true)
     public Optional<PlannedStep> plan(Subscription subscription, LocalDateTime now)
@@ -493,29 +589,45 @@ public class SubscriptionService
             return Optional.empty();
         }
         State state = stateOf(subscription);
-        if (state.catchingUp() && mayList(subscription, limits))
+        SubscriptionWalk.Positions positions = positions(source);
+        Optional<Phase> phase = phase(subscription, state, positions, now);
+        if (phase.isEmpty())
         {
-            return Optional.of(planned(subscription, state,
-                    new Step(Kind.CATCH_UP, state.catchUpCursor(), state.catchUpStop(), false), false));
+            return Optional.empty();
         }
-        // A re-check waits for a catch-up to end: it has a stop of its own below the head.
-        boolean recheck = state.newest() != null && !state.catchingUp() && SubscriptionWalk.recheckDue(
-                subscription.getLastRecheckedAt(), subscription.getRecheckEveryHours(), now);
-        if (recheck || SubscriptionWalk.checkDue(subscription.getLastCheckedAt(), subscription.getPollMinutes(), now))
+        boolean checkDue = SubscriptionWalk.checkDue(subscription.getLastCheckedAt(), subscription.getPollMinutes(),
+                now);
+        boolean recheckDue = SubscriptionWalk.recheckDue(subscription.getLastRecheckedAt(),
+                subscription.getRecheckEveryHours(), now);
+        return switch (phase.get())
         {
-            String stop = state.catchingUp() ? state.catchUpTop()
-                    : recheck ? recheckStop(subscription, state, positions(source), now) : state.newest();
-            boolean lostSight = state.newest() != null && !state.catchingUp() && SubscriptionWalk.lostSight(
-                    subscription.getTopSeenAt(), subscription.getRecheckDepthHours(), now);
-            return Optional.of(planned(subscription, state, new Step(Kind.CHECK, null, stop, recheck), lostSight));
-        }
-        if (state.oldest() != null && !state.reachedEnd() && state.oldestCursor() != null
-                && mayList(subscription, limits))
-        {
-            return Optional.of(planned(subscription, state, new Step(Kind.BACKFILL, state.oldestCursor(), null,
-                    false), false));
-        }
-        return Optional.empty();
+            // The catch-up first: a check meanwhile could only list what fits on a page above its top.
+            case CHECK -> SubscriptionWalk.listingNew(state, positions) && mayList(subscription, limits)
+                    ? Optional.of(catchUp(subscription, state))
+                    : checkDue ? Optional.of(check(subscription, state, recheckDue, positions, now)) : Optional.empty();
+            case RECHECK -> !state.catchingUp() ? Optional.of(check(subscription, state, true, positions, now))
+                    : mayList(subscription, limits) ? Optional.of(catchUp(subscription, state)) : Optional.empty();
+            case BACKFILL -> mayList(subscription, limits) ? Optional.of(planned(subscription, state,
+                    new Step(Kind.BACKFILL, state.oldestCursor(), null, false), false)) : Optional.empty();
+        };
+    }
+
+    /** A re-check waits for a catch-up to end: it has a stop of its own below the head. */
+    private PlannedStep check(Subscription subscription, State state, boolean recheckDue,
+                              SubscriptionWalk.Positions positions, LocalDateTime now)
+    {
+        boolean recheck = recheckDue && state.newest() != null && !state.catchingUp();
+        String stop = state.catchingUp() ? state.catchUpTop()
+                : recheck ? recheckStop(subscription, state, positions, now) : state.newest();
+        boolean lostSight = state.newest() != null && !state.catchingUp() && SubscriptionWalk.lostSight(
+                subscription.getTopSeenAt(), subscription.getRecheckDepthHours(), now);
+        return planned(subscription, state, new Step(Kind.CHECK, null, stop, recheck), lostSight);
+    }
+
+    private static PlannedStep catchUp(Subscription subscription, State state)
+    {
+        return planned(subscription, state,
+                new Step(Kind.CATCH_UP, state.catchUpCursor(), state.catchUpStop(), false), false);
     }
 
     /** Asked only for a step that lists beyond a check: a subscription with nothing more to list costs no count. */

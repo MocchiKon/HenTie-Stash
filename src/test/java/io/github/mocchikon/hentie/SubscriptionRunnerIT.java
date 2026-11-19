@@ -79,6 +79,7 @@ class SubscriptionRunnerIT
     private String exhentaiUrlBefore;
     private int queueAheadBefore;
     private int failedLimitBefore;
+    private int retryAfterFailureBefore;
     private final List<Integer> chapters = new ArrayList<>();
     private final List<String> downloaded = new ArrayList<>();
 
@@ -92,6 +93,7 @@ class SubscriptionRunnerIT
         exhentaiUrlBefore = ehentaiProperties.getExhentaiUrl();
         queueAheadBefore = appProperties.getSubscriptions().getQueueAhead();
         failedLimitBefore = appProperties.getSubscriptions().getFailedLimit();
+        retryAfterFailureBefore = appProperties.getSubscriptions().getRetryAfterFailureSeconds();
         nhentaiProperties.setBaseUrl(nhentai.baseUrl());
         ehentaiProperties.setEhentaiUrl(ehentai.ehentaiUrl());
         ehentaiProperties.setExhentaiUrl(ehentai.exhentaiUrl());
@@ -112,6 +114,7 @@ class SubscriptionRunnerIT
         ehentaiProperties.setExhentaiUrl(exhentaiUrlBefore);
         appProperties.getSubscriptions().setQueueAhead(queueAheadBefore);
         appProperties.getSubscriptions().setFailedLimit(failedLimitBefore);
+        appProperties.getSubscriptions().setRetryAfterFailureSeconds(retryAfterFailureBefore);
         settingsService.setEhentaiMemberId("");
         settingsService.setEhentaiPassHash("");
         settingsService.setEhentaiIgneous("");
@@ -194,9 +197,13 @@ class SubscriptionRunnerIT
         assertThat(reload(paused).isEnabled()).isFalse();
     }
 
-    /** A lower priority number is handled first, however the rows were created. */
+    /**
+     * Every subscription looks for new galleries before any lists older ones. Within a phase the lower priority number
+     * goes first, however the rows were created, and the lower priority lists older galleries only once the higher one
+     * has none left.
+     */
     @Test
-    void shouldHandleTheHighestPrioritySubscriptionFirst()
+    void shouldCheckEverySubscriptionBeforeAnyBackfillsAndBackfillByPriority()
     {
         // GIVEN two subscriptions due at once, the lower priority one created first
         appProperties.getSubscriptions().setQueueAhead(1000);
@@ -204,23 +211,170 @@ class SubscriptionRunnerIT
         int low = subscribe("nhentai", "low", 5);
         int high = subscribe("nhentai", "high", 0);
 
-        // WHEN the high priority one walks its search
-        for (int step = 0; step < 3; step++)
+        // WHEN
+        int steps = runAll();
+
+        // THEN
+        assertThat(steps).isEqualTo(6);
+        assertThat(searchKinds(0)).containsExactly("high newest", "low newest", "high below", "high below",
+                "low below", "low below");
+        assertThat(rowsOf(high)).hasSize(60);
+        assertThat(rowsOf(low)).isEmpty();
+    }
+
+    /** The user's example: a lower priority does not go on listing older galleries while a higher one checks. */
+    @Test
+    void shouldNotBackfillWhileAHigherPriorityListsNewGalleriesAlsoWhileItWaitsForItsDownloads()
+    {
+        // GIVEN a higher priority walked to the end, and a lower one part-way down its older galleries
+        appProperties.getSubscriptions().setQueueAhead(1000);
+        searchable(1, 100, Duration.ofDays(5));
+        int high = subscribe("nhentai", "high", 0);
+        int low = subscribe("nhentai", "low", 1);
+        while (!reload(high).isReachedEnd())
         {
             assertThat(runner.runNext()).isTrue();
         }
+        assertThat(runner.runNext()).isTrue();
+        assertThat(searchKinds(0)).endsWith("low below");
+        assertThat(reload(low).isReachedEnd()).isFalse();
 
-        // THEN every step so far was its own, and the lower priority one has none
-        assertThat(nhentai.searches()).hasSize(3).allMatch(search -> search.startsWith("high"));
-        assertThat(rowsOf(high)).hasSize(60);
-        assertThat(rowsOf(low)).isEmpty();
+        // WHEN 60 new galleries come, the higher priority's check is due, and its downloads are ahead of the limit
+        searchable(200, 60, Duration.ofHours(5));
+        appProperties.getSubscriptions().setQueueAhead(20);
+        edit(high, s -> s.setLastCheckedAt(LocalDateTime.now().minusDays(1)));
+        int searchesBefore = nhentai.searches().size();
+        assertThat(runner.runNext()).isTrue();
+        boolean listedMore = runner.runNext();
 
-        // WHEN the next step is taken
+        // THEN its check leaves a catch-up that waits for its downloads, and the lower priority waits with it
+        assertThat(listedMore).isFalse();
+        assertThat(searchKinds(searchesBefore)).containsExactly("high newest");
+        assertThat(reload(high).getCatchUpTop()).isEqualTo("nhentai:259");
+        assertThat(status(low)).startsWith("Waiting for \"high\" (priority 0) before listing older galleries; ");
+
+        // WHEN its downloads catch up
+        appProperties.getSubscriptions().setQueueAhead(1000);
+        runAll();
+
+        // THEN it lists every new gallery before the lower priority goes on
+        assertThat(searchKinds(searchesBefore)).startsWith("high newest", "high below", "high below")
+                .contains("low below").doesNotContain("low newest");
+        assertThat(searchKinds(searchesBefore + 3)).allMatch(kind -> kind.equals("low below"));
+        assertThat(reload(high).getNewestGalleryId()).isEqualTo("nhentai:259");
+        assertThat(reload(low).isReachedEnd()).isTrue();
+    }
+
+    /**
+     * After days off, every subscription has new galleries: a higher priority lists all of its own, on any site, also
+     * while it waits for its downloads, before a lower one looks for its own.
+     */
+    @Test
+    void shouldListTheNewGalleriesOfAHigherPriorityOnAnotherSiteFirst()
+    {
+        // GIVEN an e-hentai subscription and a lower priority nhentai one, both walked, their downloads done
+        ehentai.galleries(5000, 10);
+        searchable(1, 10, Duration.ofDays(3));
+        int high = subscribe("e-hentai", "f_search=x", 0);
+        int low = subscribe("nhentai", "q", 1);
+        runAll();
+        queueRepository.deleteAll();
+
+        // WHEN 60 new galleries came on each site while the app was off, more than its downloads allow ahead
+        ehentai.galleries(6000, 60);
+        searchable(100, 60, Duration.ofHours(5));
+        appProperties.getSubscriptions().setQueueAhead(20);
+        edit(high, s -> s.setLastCheckedAt(LocalDateTime.now().minusDays(3)));
+        edit(low, s -> s.setLastCheckedAt(LocalDateTime.now().minusDays(3)));
+        int nhentaiSearches = nhentai.searches().size();
+        int steps = runAll();
+
+        // THEN the higher priority's first page, and its catch-up waits for its downloads, and the lower one with it
+        assertThat(steps).isOne();
+        assertThat(reload(high).getCatchUpTop()).isEqualTo(FakeEhentai.galleryId(6059));
+        assertThat(nhentai.searches()).hasSize(nhentaiSearches);
+        assertThat(status(low)).isEqualTo("Waiting for \"f_search=x\" (priority 0) before looking for new galleries.");
+        assertThat(status(high)).isEqualTo("Waiting for 25 of its downloads before listing more new galleries.");
+
+        // WHEN they download, twice
+        rowsOf(high).forEach(queueRepository::delete);
+        int stepsAfterFirst = runAll();
+        rowsOf(high).forEach(queueRepository::delete);
+        int stepsAfterSecond = runAll();
+
+        // THEN the catch-up goes on a page each time, and the lower priority checks only once it is done
+        assertThat(stepsAfterFirst).isOne();
+        assertThat(stepsAfterSecond).isEqualTo(2);
+        Subscription done = reload(high);
+        assertThat(done.getNewestGalleryId()).isEqualTo(FakeEhentai.galleryId(6059));
+        assertThat(done.getCatchUpTop()).isNull();
+        assertThat(nhentai.searches().subList(nhentaiSearches, nhentai.searches().size()))
+                .containsExactly("q page=1");
+        assertThat(reload(low).getCatchUpTop()).isEqualTo("nhentai:159");
+    }
+
+    /** New galleries of any subscription come before the recent past again of a higher priority. */
+    @Test
+    void shouldLookForNewGalleriesBeforeRecheckingAHigherPriority()
+    {
+        // GIVEN a higher priority with a re-check due, and a lower one with a check due
+        searchable(1, 10, Duration.ofDays(3));
+        int high = subscribe("nhentai", "high", 0);
+        int low = subscribe("nhentai", "low", 1);
+        runAll();
+        edit(high, s -> s.setLastRecheckedAt(LocalDateTime.now().minusHours(25)));
+        edit(low, s -> s.setLastCheckedAt(LocalDateTime.now().minusDays(1)));
+        int searchesBefore = nhentai.searches().size();
+
+        // WHEN
+        int steps = runAll();
+
+        // THEN
+        assertThat(steps).isEqualTo(2);
+        assertThat(searchKinds(searchesBefore)).containsExactly("low newest", "high newest");
+        assertThat(reload(high).getLastRecheckedAt()).isAfter(LocalDateTime.now().minusMinutes(5));
+    }
+
+    /** One stuck subscription must not stop every one below it: here its site bans this IP. */
+    @Test
+    void shouldNotWaitForAHigherPriorityWhoseSiteIsNotAsked()
+    {
+        // GIVEN an e-hentai subscription, whose site bans this IP, and a lower priority nhentai one
+        ehentai.galleries(5000, 10).banned(true);
+        searchable(1, 10, Duration.ofDays(3));
+        int high = subscribe("e-hentai", "f_search=x", 0);
+        int low = subscribe("nhentai", "q", 1);
+
+        // WHEN
+        runAll();
+
+        // THEN
+        assertThat(reload(high).getLastError()).contains("temporarily banned");
+        assertThat(rowsOf(high)).isEmpty();
+        assertThat(rowsOf(low)).hasSize(10);
+    }
+
+    /** A failing subscription holds back nothing while it waits to try again. */
+    @Test
+    void shouldNotWaitForAHigherPriorityThatFailed()
+    {
+        // GIVEN
+        appProperties.getSubscriptions().setRetryAfterFailureSeconds(3600);
+        searchable(1, 10, Duration.ofDays(3));
+        int high = subscribe("nhentai", "high", 0);
+        int low = subscribe("nhentai", "low", 1);
+        nhentai.failNext("/api/v2/search", 500);
+
+        // WHEN
+        assertThat(runner.runNext()).isTrue();
         assertThat(runner.runNext()).isTrue();
 
-        // THEN the lower priority one is handled
-        assertThat(nhentai.searches()).hasSize(4);
-        assertThat(nhentai.searches().get(3)).startsWith("low");
+        // THEN
+        assertThat(nhentai.requestsFor("/api/v2/search")).isEqualTo(2);
+        assertThat(nhentai.searches()).containsExactly("low page=1");
+        assertThat(reload(high).getFailedSteps()).isOne();
+        assertThat(rowsOf(low)).hasSize(10);
+        assertThat(runner.runNext()).isFalse();
     }
 
     /**
@@ -818,6 +972,25 @@ class SubscriptionRunnerIT
     private Subscription reload(int id)
     {
         return subscriptionRepository.findById(id).orElseThrow();
+    }
+
+    /**
+     * nhentai's searches from the given one on, by the query's first word: "newest" for the search's newest page,
+     * "below" for a page below a cursor (a backfill or a catch-up).
+     */
+    private List<String> searchKinds(int from)
+    {
+        List<String> searches = nhentai.searches();
+        return searches.subList(from, searches.size()).stream()
+                .map(search -> search.substring(0, search.indexOf(' '))
+                        + (search.contains(" uploaded:>") ? " below" : " newest"))
+                .toList();
+    }
+
+    private String status(int id)
+    {
+        return subscriptionService.overview(null, false).stream().filter(view -> view.id() == id).findFirst()
+                .orElseThrow().status();
     }
 
     private List<DownloadQueueItem> rowsOf(int id)

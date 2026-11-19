@@ -431,7 +431,10 @@ class MiscControllerIT
                 .andExpect(content().string(containsString("File → Export (API)")))
                 .andExpect(content().string(containsString(appProperties.getPasswordFile())))
                 .andExpect(content().string(containsString(
-                        "within " + appProperties.getComfyui().getJobTimeoutSeconds() + " s")));
+                        "within " + appProperties.getComfyui().getJobTimeoutSeconds() + " s")))
+                .andExpect(content().string(containsString("id=\"subscription-priority\"")))
+                .andExpect(content().string(containsString(
+                        "<span>" + appProperties.getSubscriptions().getQueueAhead() + "</span> galleries ahead")));
     }
 
     @Test

@@ -5,6 +5,8 @@ import io.github.mocchikon.hentie.scrapper.SearchSource.SearchPage;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.function.LongPredicate;
 
 /**
@@ -16,7 +18,9 @@ import java.util.function.LongPredicate;
  * holds only new galleries and more follow, it leaves a <b>catch-up</b> (top, cursor, stop) that later steps carry
  * down to the stop, and only then does the top become the head - so a crash part-way leaves the head where everything
  * below it is still true. A check during a catch-up stops at its top. A <b>re-check</b> is a check whose stop is
- * older than the head, for galleries tagged since they were first passed.
+ * older than the head, for galleries tagged since they were first passed. Its catch-up moves the head up to its top
+ * as soon as it reaches the head, since everything between the tail and the top is handled then: a top above the head
+ * is how a catch-up that still lists new galleries is told from one that only lists the recent past again.
  * <p>
  * A check <b>sees the top</b> of the search when everything above its stop is listed or left to a catch-up. Only a
  * check during a catch-up with more than a page above it does not. A walk that has not seen the top for longer than a
@@ -39,6 +43,20 @@ public final class SubscriptionWalk
         /** The newest page. */
         CHECK,
         /** One page below the tail. */
+        BACKFILL
+    }
+
+    /**
+     * What a walk has left to do, the most important first: new galleries, the recent past again, older galleries.
+     * Subscriptions are stepped by it before their priority (see {@code SubscriptionRunner}).
+     */
+    public enum Phase
+    {
+        /** A check is due, or a catch-up still lists galleries above the head. */
+        CHECK,
+        /** A re-check is due, or a re-check's catch-up has reached the head. */
+        RECHECK,
+        /** Older galleries are left below the tail. */
         BACKFILL
     }
 
@@ -148,9 +166,11 @@ public final class SubscriptionWalk
             }
             String top = newer(state.catchUpTop(), above.isEmpty() ? null : positions.galleryId(above.getFirst()),
                     positions);
-            State next = new State(state.newest(), state.oldest(), state.oldestCursor(), state.reachedEnd(), top,
+            // A catch-up that has reached the head keeps the head at its top.
+            String head = listingNew(state, positions) ? state.newest() : newer(state.newest(), top, positions);
+            State next = new State(head, state.oldest(), state.oldestCursor(), state.reachedEnd(), top,
                     state.catchUpCursor(), state.catchUpStop());
-            return new Transition(listed, next, CursorField.NONE, false, true);
+            return new Transition(listed, next, CursorField.NONE, !head.equals(state.newest()), true);
         }
         if (reachesStop)
         {
@@ -159,10 +179,12 @@ public final class SubscriptionWalk
             return new Transition(listed, withNewest(state, head), CursorField.NONE, !head.equals(state.newest()),
                     true);
         }
-        // More than a page above the stop: later steps carry the catch-up down, and the head moves once it is done.
-        State next = new State(state.newest(), state.oldest(), state.oldestCursor(), state.reachedEnd(),
-                positions.galleryId(ids.getFirst()), null, step.stop());
-        return new Transition(listed, next, CursorField.CATCH_UP, false, true);
+        // More than a page above the stop: later steps carry the catch-up down, and the head moves once it is reached,
+        // here already when a re-check's page goes below it.
+        String top = positions.galleryId(ids.getFirst());
+        String head = reaches(ids, state.newest(), positions) ? newer(state.newest(), top, positions) : state.newest();
+        State next = new State(head, state.oldest(), state.oldestCursor(), state.reachedEnd(), top, null, step.stop());
+        return new Transition(listed, next, CursorField.CATCH_UP, !head.equals(state.newest()), true);
     }
 
     private static Transition catchUp(State state, SearchPage page, Positions positions)
@@ -177,7 +199,12 @@ public final class SubscriptionWalk
             State next = new State(head, state.oldest(), state.oldestCursor(), state.reachedEnd(), null, null, null);
             return new Transition(listed, next, CursorField.NONE, !head.equals(state.newest()), false);
         }
-        return new Transition(listed, state, CursorField.CATCH_UP, false, false);
+        // A re-check's catch-up that reaches the head has handled everything from the tail to its top; what follows
+        // only lists the recent past again.
+        String head = reaches(ids, state.newest(), positions) ? newer(state.newest(), state.catchUpTop(), positions)
+                : state.newest();
+        return new Transition(listed, withNewest(state, head), CursorField.CATCH_UP,
+                !Objects.equals(head, state.newest()), false);
     }
 
     private static Transition backfill(State state, SearchPage page, Positions positions)
@@ -195,6 +222,13 @@ public final class SubscriptionWalk
         State next = new State(state.newest(), tail, null, !page.more(), state.catchUpTop(), state.catchUpCursor(),
                 state.catchUpStop());
         return new Transition(listed, next, page.more() ? CursorField.OLDEST : CursorField.NONE, false, false);
+    }
+
+    /** Whether a newest-first page goes down to the gallery, or below it. */
+    private static boolean reaches(List<String> ids, String gallery, Positions positions)
+    {
+        return gallery != null && !ids.isEmpty()
+                && positions.of(positions.galleryId(ids.getLast())) <= positions.of(gallery);
     }
 
     /** The prefix of a newest-first page that lies above the stop; all of it without one. */
@@ -241,6 +275,33 @@ public final class SubscriptionWalk
     }
 
     // ---- when -----------------------------------------------------------------------------------------------
+
+    /** The most important thing the walk has left; empty when nothing is left until the next check. */
+    static Optional<Phase> phase(State state, boolean checkDue, boolean recheckDue, Positions positions)
+    {
+        if (checkDue || listingNew(state, positions))
+        {
+            return Optional.of(Phase.CHECK);
+        }
+        // A catch-up no longer listing new galleries is a re-check's, and a due re-check waits for a catch-up to end.
+        if (state.catchingUp() || (recheckDue && state.newest() != null))
+        {
+            return Optional.of(Phase.RECHECK);
+        }
+        return backfillLeft(state) ? Optional.of(Phase.BACKFILL) : Optional.empty();
+    }
+
+    /** Whether a catch-up still lists new galleries: one that has reached the head keeps the head at its top. */
+    static boolean listingNew(State state, Positions positions)
+    {
+        return state.catchingUp()
+                && (state.newest() == null || positions.of(state.catchUpTop()) > positions.of(state.newest()));
+    }
+
+    static boolean backfillLeft(State state)
+    {
+        return state.oldest() != null && !state.reachedEnd() && state.oldestCursor() != null;
+    }
 
     static boolean checkDue(LocalDateTime lastCheckedAt, int pollMinutes, LocalDateTime now)
     {

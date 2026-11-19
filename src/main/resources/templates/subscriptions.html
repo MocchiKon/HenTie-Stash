@@ -48,7 +48,8 @@
         from queueing it again. Pause a subscription to stop it listing; what it queued still downloads.
     </p>
     <p class="hint">
-        A lower priority number is handled first: 0 is the highest.
+        New galleries come first, older ones last. A lower priority number goes first: 0 is the highest.
+        <a th:href="@{/guide#subscription-priority}">How priority works</a>
     </p>
     <p class="hint">
         Image compression is chosen by your <a th:href="@{/compression-rules}">image compression rules</a>.

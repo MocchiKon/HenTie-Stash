@@ -53,7 +53,8 @@
             <input type="number" id="priority" th:field="*{priority}" class="short-input" required min="0" step="1">
             <p class="field-error" th:if="${#fields.hasErrors('priority')}" th:errors="*{priority}">error</p>
             <p class="hint">
-                0 is the highest. Subscriptions with a lower number are handled first.
+                0 is the highest. Subscriptions with a lower number go first.
+                <a th:href="@{/guide#subscription-priority}">How priority works</a>
             </p>
         </div>
 

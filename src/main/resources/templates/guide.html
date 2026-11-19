@@ -7,8 +7,8 @@
 <main class="container narrow guide">
     <h1>Guide</h1>
     <p class="hint">How to reach HenTie from other devices, how to set up ComfyUI, how image compression rules
-        work, how to finish an incomplete download, how to set up your e-hentai account, and what statuses and
-        favourites mean.</p>
+        work, how to finish an incomplete download, in which order subscriptions run, how to set up your e-hentai
+        account, and what statuses and favourites mean.</p>
 
     <nav class="guide-toc" aria-label="Contents">
         <ol>
@@ -42,6 +42,7 @@
             </li>
             <li><a href="#incomplete-downloads">Incomplete downloads</a></li>
             <li><a href="#download-speed">Download speed</a></li>
+            <li><a href="#subscription-priority">Subscription priority</a></li>
             <li><a href="#ehentai-account">e-hentai account</a></li>
             <li><a href="#statuses">Statuses and favourites</a></li>
             <li><a href="#review-mode">Review mode</a></li>
@@ -528,6 +529,26 @@ exec python main.py --listen 127.0.0.1 --port 8188</pre>
     </ul>
     <p>Only the time spent on the work counts: while nothing downloads, the averages stay as they are. A gallery
         you already have, which downloads nothing, does not count.</p>
+
+    <!-- ===================================================================================== -->
+    <h2 class="section-title" id="subscription-priority">Subscription priority</h2>
+    <p>A <a th:href="@{/subscriptions}">subscription</a> does three kinds of work, the most important first:</p>
+    <ol>
+        <li><strong>New galleries</strong>: what was uploaded since it last looked.</li>
+        <li><strong>Re-check</strong>: the recent past again, for galleries that got a matching tag later.</li>
+        <li><strong>Older galleries</strong>: the rest of the search, until it has listed everything.</li>
+    </ol>
+    <p>Every subscription looks for new galleries before any re-checks, and every re-check comes before any older
+        galleries. Within each kind, the lower priority number goes first (0 is the highest).</p>
+    <p>A subscription waits while one with a higher priority, on any site, has work of the same or a more important
+        kind left. It also waits while that one waits for its downloads: a subscription finds at most
+        <span th:text="${subscriptionQueueAhead}">50</span> galleries ahead of what has downloaded. So when you start
+        the app after a few days, the priority 0 subscriptions find all their new galleries before priority 1 looks for
+        its own. The subscriptions page says which subscription another one waits for.</p>
+    <p>A subscription that cannot go on does not hold the others back: one that is paused, keeps failing, waits for
+        its site (such as e-hentai's cooldown or a missing account), or has
+        <span th:text="${subscriptionFailedLimit}">50</span> failed downloads.</p>
+    <p>Galleries download in the order they were found, after the links you paste.</p>
 
     <!-- ===================================================================================== -->
     <h2 class="section-title" id="ehentai-account">e-hentai account</h2>

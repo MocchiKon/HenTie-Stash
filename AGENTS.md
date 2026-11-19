@@ -800,7 +800,11 @@ decides** — a `SearchSource` never touches the database. Manage → Chapters �
   **catch-up** (top, cursor, stop) that later steps carry down, and only then does the top become the head — so a
   crash part-way never leaves a gap under the head. **A check during a catch-up stops at its top** and raises it,
   leaving more than a page for the check after the catch-up; starting the catch-up over would count its pages twice
-  and lose a re-check's stop. A re-check waits for a catch-up to end. The transitions are pure (`SubscriptionWalk`).
+  and lose a re-check's stop. A re-check waits for a catch-up to end. **A re-check's catch-up moves the head up to its
+  top once a page reaches the head** (everything from the tail to the top is handled then), and a check raising its
+  top raises the head too: a top above the head is how a catch-up still listing new galleries is told from one only
+  listing the recent past again (see the runner's phases), without a column. The transitions are pure
+  (`SubscriptionWalk`).
 - **Positions, never pages.** Both sites list newest first, and every comparison is by position (e-hentai's gid,
   nhentai's id), so a head, tail or stop whose gallery was deleted works all the same. e-hentai lists in strictly
   descending gids; a page that does not is an error, never trusted. nhentai sorts by upload time, and lists the
@@ -849,8 +853,8 @@ decides** — a `SearchSource` never touches the database. Manage → Chapters �
   a favourite artist's gallery must get the artist's mode whichever subscription finds it first.
 - **Its rows run after what the user asks for** (priority 1, see "Chapter downloading"). Deleting a subscription
   keeps them (`ON DELETE SET NULL`, the priority stays); pausing stops only the listing. **A subscription's own
-  priority** (`subscription.priority`, 0 highest, 1 default) **orders its walk, not those rows**: the runner steps
-  the lowest number with something due first.
+  priority** (`subscription.priority`, 0 highest, 1 default) **orders its walk, not those rows** (see the runner), so
+  rows queued before a higher priority's phase began still download first, at most `queue-ahead` per subscription.
 - **"Turn all subscriptions off" is a persisted setting of its own** (`subscriptions.off`), never a pause of each
   subscription: turning them on again must leave the ones the user paused paused. The runner checks it before every
   step (`runNext`), so its threads keep running and turning it on is only a kick. Like a pause, it stops only the
@@ -874,9 +878,23 @@ decides** — a `SearchSource` never touches the database. Manage → Chapters �
 - **Counters count a gallery the first time it is listed** (above the head or below the tail); one listed again
   counts only if it gets queued.
 - **The runner** (`SubscriptionRunner`): one platform daemon thread per `SearchSource`, so a site sitting out a 429
-  never holds up another; each takes its subscriptions by priority, one page each, in turn among equal priorities.
-  It starts on `ApplicationReadyEvent` when `app.subscriptions.enabled` — that start is the resume — and `runNext()`
-  is the test seam.
+  never holds up another. It starts on `ApplicationReadyEvent` when `app.subscriptions.enabled` — that start is the
+  resume — and `runNext()` is the test seam.
+  - **Phase first, then priority** (`SubscriptionWalk.Phase`, `SubscriptionService.ORDER`). A walk has left a
+    **check** (one due, or a catch-up still above the head), a **re-check** (one due, or a re-check's catch-up that
+    reached the head) or a **backfill**, in that order of importance. Each thread steps its source's subscriptions
+    in that order, then by priority, one page each, in turn among equals. So a long backfill never delays another
+    subscription's new galleries. A check and a re-check both due are one step, which lists the new galleries too,
+    so it counts as the check.
+  - **A higher priority holds back a lower one in the same phase or a less important one, on every site**
+    (`SubscriptionService.Turn`), also while it waits for its own downloads (`queue-ahead`). Otherwise the lower
+    one would list in its gaps, and the shared queue would download its galleries between the higher one's. So
+    after days off, priority 0 lists all its new galleries before priority 1 looks for its own. Each step wakes the
+    other threads, since the phase it ended may free theirs.
+  - **A subscription that cannot go on by itself holds back nothing**, or one stuck subscription would stop every
+    one below it: paused, its last step failed (until a step works), its site not asked (`refusingUntil`, parked,
+    not ready) or `failed-limit` reached. Parked sites are a bean of their own (`ParkedSites`) because the page
+    words the same decision. The page names the subscription a held one waits for.
   - A failed step backs the subscription off: doubling from `retry-after-failure-seconds`, up to its polling
     interval, worked out from stored columns so a restart waits too. A source refusing every download
     (`refusingUntil`, e-hentai's cooldown) is not asked at all, for any of its sites; a `RetryLaterException` parks

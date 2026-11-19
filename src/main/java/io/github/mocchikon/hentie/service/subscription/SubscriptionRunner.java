@@ -12,6 +12,7 @@ import io.github.mocchikon.hentie.service.SettingsService;
 import io.github.mocchikon.hentie.service.download.DownloadWorker;
 import io.github.mocchikon.hentie.service.download.RetryLaterException;
 import io.github.mocchikon.hentie.service.subscription.SubscriptionService.PlannedStep;
+import io.github.mocchikon.hentie.service.subscription.SubscriptionService.Turn;
 import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
@@ -28,16 +29,24 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 /**
  * Walks the subscriptions' searches, one page per step, and queues what they find.
  * <p>
  * <b>One thread per search source</b>, so a site that asks to slow down (nhentai's 429s are sat out for up to minutes)
- * never holds up another. Each thread takes its source's subscriptions by priority (0 first), one step each, in turn
- * among equal priorities, so a higher priority is always handled before a lower one that is due and a long walk never
- * starves its equals. Platform threads: a virtual one would pin its carrier while SQLite's native code waits for the
- * lock.
+ * never holds up another. Platform threads: a virtual one would pin its carrier while SQLite's native code waits for
+ * the lock.
+ * <p>
+ * <b>Each thread takes its source's subscriptions by phase, then priority</b> ({@link SubscriptionService#ORDER}):
+ * every check before any re-check, every re-check before any backfill, so a long backfill never delays another
+ * subscription's new galleries; within a phase 0 first, and in turn among equals, so a long walk never starves them.
+ * <b>A subscription does not step while one of a higher priority, of any source, has a phase of the same or a more
+ * important kind left</b> ({@link SubscriptionService.Turn#holdsBack}), also while that one waits for its downloads:
+ * after days off, priority 0 lists all its new galleries before priority 1 looks for its own. So every step wakes the
+ * other threads, since the phase it ended may free theirs.
  * <p>
  * <b>A step fetches outside any transaction and writes in one short one</b> ({@link SubscriptionService#applyPage}),
  * so the site's pace never holds SQLite's lock. Its writes wait for the {@link WriteGate} as long as they must, as on
@@ -64,16 +73,13 @@ public class SubscriptionRunner
     private final WriteGate writeGate;
     private final AppProperties appProperties;
     private final SettingsService settingsService;
+    /** Sites not asked after a step was told to wait. */
+    private final ParkedSites parkedSites;
 
     private final Object monitor = new Object();
     private final List<Thread> threads = new ArrayList<>();
     /** Per source, the subscription stepped last, so the next turn goes to the one after it. */
     private final Map<String, Integer> lastStepped = new ConcurrentHashMap<>();
-    /**
-     * Per site, until when it is not asked after a step was told to wait; in memory, since a restart is the user's way
-     * past it. A source sitting out a ban needs no entry: {@link SearchSource#refusingUntil} holds all its sites.
-     */
-    private final Map<String, Instant> parkedUntil = new ConcurrentHashMap<>();
 
     private volatile boolean running;
     /** Set by {@link #stop()}: a failure after it is the shutdown's, never the subscription's. */
@@ -137,7 +143,12 @@ public class SubscriptionRunner
      */
     public void kick()
     {
-        parkedUntil.clear();
+        parkedSites.clear();
+        wakeAll();
+    }
+
+    private void wakeAll()
+    {
         synchronized (monitor)
         {
             monitor.notifyAll();
@@ -201,7 +212,10 @@ public class SubscriptionRunner
         return false;
     }
 
-    /** @return false when none of the source's subscriptions had anything due, or subscriptions are turned off */
+    /**
+     * @return false when none of the source's subscriptions had a step to take now (nothing due, or held back by a
+     *         higher priority), or subscriptions are turned off
+     */
     public boolean runNext(SearchSource source)
     {
         // Checked per step, not by stopping the threads: turning them back on is then only a kick.
@@ -215,10 +229,12 @@ public class SubscriptionRunner
             return false;
         }
         LocalDateTime now = LocalDateTime.now();
-        List<Subscription> subscriptions = service.of(source);
-        for (Subscription subscription : inTurn(source, subscriptions))
+        // Every source's: a higher priority holds back the lower ones of the other sources too.
+        List<Turn> turns = service.turns(now);
+        for (Turn turn : inTurn(source, turns))
         {
-            if (!subscription.isEnabled() || isParked(subscription.getSource()))
+            Subscription subscription = turn.subscription();
+            if (!subscription.isEnabled() || parkedSites.isParked(subscription.getSource()))
             {
                 continue;
             }
@@ -233,18 +249,20 @@ public class SubscriptionRunner
                 }
                 continue;
             }
-            Optional<PlannedStep> step = service.plan(subscription, now);
+            Optional<PlannedStep> step = SubscriptionService.holder(turns, turn).isPresent()
+                    ? Optional.empty() : service.plan(subscription, now);
             if (step.isPresent())
             {
                 lastStepped.put(source.sourcePrefix(), subscription.getId());
                 run(source, step.get(), now);
+                wakeAll();
                 return true;
             }
             if (subscription.getFailedSteps() == 0 && subscription.getLastError() != null)
             {
                 // A problem that counted no failed step (a missing setting, a site's ban) is over, since the
-                // subscription is ready and nothing holds it, and no step is due to clear it: the page would say it
-                // until the next one, a whole polling interval away.
+                // subscription is ready and its site asks no wait, and no step is clearing it now: the page would say
+                // it until the next one, maybe a whole polling interval away, and it would hold back nothing.
                 writeGate.background("the subscription " + subscription.getId(),
                         () -> service.clearProblem(subscription.getId(), subscription.getRevision()));
             }
@@ -253,26 +271,29 @@ public class SubscriptionRunner
     }
 
     /**
-     * Priority first (0 highest), then the one after the last stepped one within its priority group, so every
-     * subscription of the same importance gets its turn while a higher priority always goes before a lower one.
+     * The source's subscriptions in {@link SubscriptionService#ORDER}, but within the same phase and priority from the
+     * one after the last stepped, so every subscription of the same importance gets its turn.
      */
-    private List<Subscription> inTurn(SearchSource source, List<Subscription> subscriptions)
+    private List<Turn> inTurn(SearchSource source, List<Turn> turns)
     {
+        Set<String> sites = source.searchSites().stream().map(SearchSource.SearchSite::key).collect(Collectors.toSet());
+        List<Turn> own = turns.stream().filter(turn -> sites.contains(turn.subscription().getSource())).toList();
         Integer last = lastStepped.get(source.sourcePrefix());
         if (last == null)
         {
-            return subscriptions;
+            return own;
         }
-        var ordered = new ArrayList<Subscription>(subscriptions.size());
-        for (int start = 0; start < subscriptions.size(); )
+        var ordered = new ArrayList<Turn>(own.size());
+        for (int start = 0; start < own.size(); )
         {
-            int priority = subscriptions.get(start).getPriority();
+            Turn first = own.get(start);
             int end = start;
-            while (end < subscriptions.size() && subscriptions.get(end).getPriority() == priority)
+            while (end < own.size() && own.get(end).phase() == first.phase()
+                    && own.get(end).subscription().getPriority() == first.subscription().getPriority())
             {
                 end++;
             }
-            var group = new ArrayList<>(subscriptions.subList(start, end));
+            var group = new ArrayList<>(own.subList(start, end));
             int lastIndex = indexOf(group, last);
             if (lastIndex >= 0)
             {
@@ -284,22 +305,16 @@ public class SubscriptionRunner
         return ordered;
     }
 
-    private static int indexOf(List<Subscription> subscriptions, Integer id)
+    private static int indexOf(List<Turn> turns, Integer id)
     {
-        for (int i = 0; i < subscriptions.size(); i++)
+        for (int i = 0; i < turns.size(); i++)
         {
-            if (subscriptions.get(i).getId().equals(id))
+            if (turns.get(i).subscription().getId().equals(id))
             {
                 return i;
             }
         }
         return -1;
-    }
-
-    private boolean isParked(String site)
-    {
-        Instant until = parkedUntil.get(site);
-        return until != null && Instant.now().isBefore(until);
     }
 
     private void run(SearchSource source, PlannedStep planned, LocalDateTime now)
@@ -354,7 +369,7 @@ public class SubscriptionRunner
         if (retryLater.isPresent())
         {
             Instant until = retryLater.get().retryAt().orElse(Instant.now().plus(DEFAULT_SITE_WAIT));
-            parkedUntil.put(planned.site(), until);
+            parkedSites.park(planned.site(), until);
             log.info("Subscriptions of {} wait until {}: {}", planned.site(), until, retryLater.get().getMessage());
             writeGate.background("the subscription " + planned.title(), () -> service.recordProblem(
                     planned.subscriptionId(), planned.revision(), retryLater.get().getMessage(), false, now));

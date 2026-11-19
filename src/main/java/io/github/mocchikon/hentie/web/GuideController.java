@@ -29,6 +29,8 @@ public class GuideController
         model.addAttribute("pagesAhead", SettingsService.DEFAULT_PAGES_AHEAD);
         model.addAttribute("comfyJobTimeoutSeconds", appProperties.getComfyui().getJobTimeoutSeconds());
         model.addAttribute("comfyResultCacheMaxMb", appProperties.getComfyui().getResultCacheMaxMb());
+        model.addAttribute("subscriptionQueueAhead", appProperties.getSubscriptions().getQueueAhead());
+        model.addAttribute("subscriptionFailedLimit", appProperties.getSubscriptions().getFailedLimit());
         CompressionModeController.addBuiltInQualities(model, modeService);
         return "guide";
     }
