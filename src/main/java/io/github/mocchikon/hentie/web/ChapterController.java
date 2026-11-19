@@ -15,6 +15,7 @@ import io.github.mocchikon.hentie.service.*;
 import io.github.mocchikon.hentie.service.compress.ImageCompressionModeService;
 import io.github.mocchikon.hentie.service.download.DownloadChoices;
 import io.github.mocchikon.hentie.service.download.DownloadQueueService;
+import io.github.mocchikon.hentie.service.download.DownloadStatistics;
 import io.github.mocchikon.hentie.service.download.DownloadWorker;
 import io.github.mocchikon.hentie.service.download.FavouritesDownloadService;
 import io.github.mocchikon.hentie.service.subscription.SubscriptionService;
@@ -67,6 +68,7 @@ public class ChapterController
     private final DownloadService downloadService;
     private final DownloadQueueService downloadQueueService;
     private final DownloadWorker downloadWorker;
+    private final DownloadStatistics downloadStatistics;
     private final DataDownloaderRegistry downloaderRegistry;
     private final FavouritesDownloadService favouritesDownloadService;
     private final ImageCompressionModeService compressionModeService;
@@ -306,6 +308,7 @@ public class ChapterController
     public String queue(Model model)
     {
         model.addAttribute("progress", downloadWorker.progress());
+        model.addAttribute("speed", downloadStatistics.snapshot());
         var pending = downloadQueueService.pending();
         model.addAttribute("pending", pending);
         model.addAttribute("failed", downloadQueueService.failed());

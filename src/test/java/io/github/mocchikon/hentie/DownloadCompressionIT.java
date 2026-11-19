@@ -12,6 +12,7 @@ import io.github.mocchikon.hentie.service.ImageService;
 import io.github.mocchikon.hentie.service.compress.ImageCompressionModeService;
 import io.github.mocchikon.hentie.service.compress.ImageToolLocator;
 import io.github.mocchikon.hentie.service.download.DownloadQueueService;
+import io.github.mocchikon.hentie.service.download.DownloadStatistics;
 import io.github.mocchikon.hentie.service.download.DownloadWorker;
 import io.github.mocchikon.hentie.service.download.GalleryImportService;
 import jakarta.persistence.EntityManager;
@@ -63,6 +64,7 @@ class DownloadCompressionIT
     @Autowired ImageToolLocator toolLocator;
     @Autowired DataDownloaderRegistry registry;
     @Autowired GalleryImportService importService;
+    @Autowired DownloadStatistics statistics;
     @PersistenceContext EntityManager em;
 
     private Integer createdChapterId;
@@ -112,6 +114,8 @@ class DownloadCompressionIT
         assertThat(chapter.getCompressionMode()).isEqualTo(key);
         // AND the queue row is gone, as for any completed item.
         assertThat(queueRepository.findByLink("mock:8100")).isEmpty();
+        // AND the compressing was measured.
+        assertThat(statistics.snapshot().sinceStart().processedPagesPerSecond()).isPositive();
     }
 
     @Test

@@ -41,6 +41,7 @@
                 </ol>
             </li>
             <li><a href="#incomplete-downloads">Incomplete downloads</a></li>
+            <li><a href="#download-speed">Download speed</a></li>
             <li><a href="#ehentai-account">e-hentai account</a></li>
             <li><a href="#statuses">Statuses and favourites</a></li>
             <li><a href="#review-mode">Review mode</a></li>
@@ -509,6 +510,24 @@ exec python main.py --listen 127.0.0.1 --port 8188</pre>
         <li>If the download failed, it is on the queue page's Failed list. Download again retries it; a subscription
             leaves it there for you.</li>
     </ul>
+
+    <!-- ===================================================================================== -->
+    <h2 class="section-title" id="download-speed">Download speed</h2>
+    <p>The <a th:href="@{/chapter/queue}">download queue</a> page shows how fast downloads go, once something has
+        been downloaded. Each value is an average over the last 10 minutes and over everything since the app
+        started. They are forgotten when the app closes.</p>
+    <ul>
+        <li><strong>Pages saved per second</strong>: pages that ended up in your library, counting everything a
+            download does (getting the gallery's details, downloading, compressing and saving).</li>
+        <li><strong>Pages downloaded per second</strong>: how fast the site sends pages.</li>
+        <li><strong>Pages compressed per second</strong>: how fast pages are compressed, when the download uses an
+            <a href="#compression-rules">image compression</a> mode. Several pages are compressed at once, so this can be
+            faster than the download.</li>
+        <li><strong>Seconds per chapter</strong>: how long a chapter takes from start until all its pages are
+            saved.</li>
+    </ul>
+    <p>Only the time spent on the work counts: while nothing downloads, the averages stay as they are. A gallery
+        you already have, which downloads nothing, does not count.</p>
 
     <!-- ===================================================================================== -->
     <h2 class="section-title" id="ehentai-account">e-hentai account</h2>

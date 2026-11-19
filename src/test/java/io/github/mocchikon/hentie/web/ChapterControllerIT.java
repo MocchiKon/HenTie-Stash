@@ -13,6 +13,7 @@ import io.github.mocchikon.hentie.repository.ChapterRepository;
 import io.github.mocchikon.hentie.repository.DownloadQueueRepository;
 import io.github.mocchikon.hentie.service.*;
 import io.github.mocchikon.hentie.service.download.DownloadQueueService;
+import io.github.mocchikon.hentie.service.download.DownloadStatistics;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -41,6 +42,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class ChapterControllerIT
 {
     @Autowired MockMvc mvc;
+    @Autowired DownloadStatistics downloadStatistics;
     @Autowired ChapterService chapterService;
     @Autowired ChapterRepository chapterRepository;
     @Autowired ImageService imageService;
@@ -310,6 +312,26 @@ class ChapterControllerIT
         result.andExpect(status().isOk())
                 .andExpect(view().name("download-queue"))
                 .andExpect(model().attributeExists("progress", "pending", "failed", "rejectedDuplicates"));
+    }
+
+    @Test
+    void shouldShowTheDownloadSpeedOnceSomethingWasDownloaded() throws Exception
+    {
+        // GIVEN a measured download (the statistics only ever grow, so other suites' downloads do no harm).
+        long started = downloadStatistics.now();
+        downloadStatistics.startSaving(started);
+        downloadStatistics.pagesSaved(1);
+        downloadStatistics.chapterSaved(started);
+        downloadStatistics.stopSaving();
+
+        // WHEN
+        ResultActions result = mvc.perform(get("/chapter/queue").with(user("user")));
+
+        // THEN
+        result.andExpect(status().isOk())
+                .andExpect(content().string(containsString("Pages saved per second")))
+                .andExpect(content().string(containsString("Last 10 minutes")))
+                .andExpect(content().string(containsString("/guide#download-speed")));
     }
 
     @Test

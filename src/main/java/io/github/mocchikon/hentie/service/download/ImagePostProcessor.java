@@ -8,6 +8,7 @@ import org.springframework.stereotype.Component;
 
 import java.nio.file.Path;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 
 /**
@@ -26,6 +27,7 @@ public class ImagePostProcessor
     private static final Logger log = LoggerFactory.getLogger(ImagePostProcessor.class);
 
     private final ImageCompressionService compressionService;
+    private final DownloadStatistics statistics;
 
     /** What becomes of a page once processed; called on the thread that processed it. */
     @FunctionalInterface
@@ -48,8 +50,13 @@ public class ImagePostProcessor
         return compressionService.profileFor(modeKey).map(profile ->
         {
             log.info("Compressing images of chapter {} with mode {}", chapterId, profile.name());
-            return new Run(compressionService.open(chapterId, profile,
-                    page -> processed.page(page.file(), page.replaced())), chapterId);
+            var inProcessing = new AtomicInteger();
+            return new Run(compressionService.open(chapterId, profile, page ->
+            {
+                inProcessing.decrementAndGet();
+                statistics.pageProcessed();
+                processed.page(page.file(), page.replaced());
+            }), chapterId, statistics, inProcessing);
         });
     }
 
@@ -70,12 +77,25 @@ public class ImagePostProcessor
         return compressionService.isRunInProgress();
     }
 
-    public record Run(ImageCompressionService.Session session, int chapterId) implements AutoCloseable
+    /** @param inProcessing pages submitted and not yet handed back, for the statistics */
+    public record Run(ImageCompressionService.Session session, int chapterId, DownloadStatistics statistics,
+                      AtomicInteger inProcessing) implements AutoCloseable
     {
         /** Does not wait, so encoding overlaps with the rest of the download. */
         public void page(Path stagedFile)
         {
-            session.submitPage(stagedFile);
+            statistics.startProcessing();
+            inProcessing.incrementAndGet();
+            try
+            {
+                session.submitPage(stagedFile);
+            }
+            catch (RuntimeException e)
+            {
+                inProcessing.decrementAndGet();
+                statistics.processingGivenUp(1);
+                throw e;
+            }
         }
 
         /** Waits for every page still being processed. Safe to call more than once. */
@@ -83,6 +103,8 @@ public class ImagePostProcessor
         public void close()
         {
             session.close();
+            // A task that died never handed its page back; left counted, processing would never look idle again.
+            statistics.processingGivenUp(Math.max(0, inProcessing.getAndSet(0)));
             ImageCompressionService.Summary summary = session.summary();
             if (summary.files() > 0)
             {

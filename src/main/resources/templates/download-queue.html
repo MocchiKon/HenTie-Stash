@@ -122,6 +122,47 @@
         </p>
     </section>
 
+    <section class="manage-section" id="download-speed" th:unless="${speed.sinceStart().isEmpty()}">
+        <h2 class="section-title">Speed</h2>
+        <div class="table-scroll">
+            <table class="queue-stats">
+                <thead>
+                <tr>
+                    <th scope="col"></th>
+                    <th scope="col" th:text="'Last ' + ${speed.recentMinutes()} + ' minutes'">Last 10 minutes</th>
+                    <th scope="col">Since start</th>
+                </tr>
+                </thead>
+                <tbody>
+                <tr>
+                    <th scope="row">Pages saved per second</th>
+                    <td th:text="${speed.recent().savedPagesPerSecond() != null ? #numbers.formatDecimal(speed.recent().savedPagesPerSecond(), 1, 2) : '-'}">1.25</td>
+                    <td th:text="${speed.sinceStart().savedPagesPerSecond() != null ? #numbers.formatDecimal(speed.sinceStart().savedPagesPerSecond(), 1, 2) : '-'}">1.25</td>
+                </tr>
+                <tr>
+                    <th scope="row">Pages downloaded per second</th>
+                    <td th:text="${speed.recent().downloadedPagesPerSecond() != null ? #numbers.formatDecimal(speed.recent().downloadedPagesPerSecond(), 1, 2) : '-'}">1.25</td>
+                    <td th:text="${speed.sinceStart().downloadedPagesPerSecond() != null ? #numbers.formatDecimal(speed.sinceStart().downloadedPagesPerSecond(), 1, 2) : '-'}">1.25</td>
+                </tr>
+                <tr>
+                    <th scope="row">Pages compressed per second</th>
+                    <td th:text="${speed.recent().processedPagesPerSecond() != null ? #numbers.formatDecimal(speed.recent().processedPagesPerSecond(), 1, 2) : '-'}">1.25</td>
+                    <td th:text="${speed.sinceStart().processedPagesPerSecond() != null ? #numbers.formatDecimal(speed.sinceStart().processedPagesPerSecond(), 1, 2) : '-'}">1.25</td>
+                </tr>
+                <tr>
+                    <th scope="row">Seconds per chapter</th>
+                    <td th:text="${speed.recent().secondsPerChapter() != null ? #numbers.formatDecimal(speed.recent().secondsPerChapter(), 1, 1) : '-'}">1.25</td>
+                    <td th:text="${speed.sinceStart().secondsPerChapter() != null ? #numbers.formatDecimal(speed.sinceStart().secondsPerChapter(), 1, 1) : '-'}">1.25</td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+        <p class="hint">
+            <span th:text="${speed.sinceStart().chaptersSaved()} + ' chapter(s), ' + ${speed.sinceStart().pagesSaved()} + ' page(s) saved since the app started.'">3 chapter(s), 60 page(s) saved since the app started.</span>
+            <a th:href="@{/guide#download-speed}">What these mean</a>
+        </p>
+    </section>
+
     <section class="manage-section" th:unless="${#lists.isEmpty(pending)}">
         <h2 class="section-title">
             Waiting (<span th:text="${progress.pending()}">0</span>)

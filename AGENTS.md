@@ -598,6 +598,23 @@ the pipeline hands it (gallery-dl's run folder, see "gallery-dl").
   registry accepts many spellings of one gallery, while `link` is UNIQUE under BINARY collation). The link
   is stored trimmed. The page refreshes every 3 s **only while there is something to watch**.
 
+### Download speed (`service/download/DownloadStatistics`)
+The queue page's Speed table: pages saved, downloaded and compressed per second, and seconds per chapter, over the
+last 10 minutes and since start. The Guide's Download speed section explains it.
+- **In memory only, never in the database**: a speed describes this run (the sites, the mode, the machine), and
+  the worker would otherwise write on every page.
+- **Every rate is per second of the time spent on that step, never of wall-clock time**, so an idle queue does not
+  make downloads look slow. Busy time is added as it passes (at each stop and read), so a running download counts in
+  the recent span. Compressing is busy while **any** page is with an encoder: encoders run in parallel, so it is
+  throughput, not one page's time.
+- **A page counts where its step ends**: downloaded when its bytes are here (gallery-dl: when it prints the file),
+  compressed when the encoder hands it back, saved when it is in the chapter's folder (a replacement: at the publish).
+- **Saving and seconds per chapter time the whole attempt, metadata included, but only an attempt that fetches
+  pages**: one that finds its gallery already in the library is no slow chapter. A failed attempt's time and pages
+  count; only a finished one counts as a chapter.
+- **The recent span is a ring of 10-second buckets**, so it costs the same however long the app runs. A
+  compression run's pages that never answered are given up at `close()`, or processing would never look idle again.
+
 ### Download all favourites (`service/download/FavouritesDownloadService`)
 Queues every gallery in the user's favourites on a site that the library does not have yet. A source offers
 it by also implementing **`FavouritesSource`**; the Download page lists those.

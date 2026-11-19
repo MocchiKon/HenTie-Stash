@@ -727,6 +727,10 @@ a.text-link:hover, .guide a:hover { color: var(--accent); }
 .queue-bar { height: .5rem; background: var(--surface-2); border-radius: 999px; overflow: hidden; margin-bottom: .75rem; }
 .queue-bar > span { display: block; height: 100%; background: var(--accent); transition: width .3s; }
 .queue-current { display: flex; flex-wrap: wrap; align-items: baseline; gap: .5rem; margin: .25rem 0 .75rem; }
+.queue-stats { border-collapse: collapse; font-size: .92rem; }
+.queue-stats th, .queue-stats td { border: 1px solid var(--border); padding: .35rem .6rem; text-align: right; }
+.queue-stats th[scope=row] { text-align: left; font-weight: normal; }
+.queue-stats thead th { background: var(--surface-2); }
 .queue-list { list-style: none; margin: .5rem 0 0; padding: 0; display: flex; flex-direction: column; gap: .35rem; }
 .queue-item {
     display: flex; flex-wrap: wrap; align-items: center; gap: .5rem;

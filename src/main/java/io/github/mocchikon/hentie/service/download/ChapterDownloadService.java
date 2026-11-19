@@ -61,6 +61,7 @@ public class ChapterDownloadService
     private final ImagePostProcessor imagePostProcessor;
     private final ImageCompressionRuleService ruleService;
     private final AppProperties appProperties;
+    private final DownloadStatistics statistics;
 
     /**
      * What an in-process retry of a replacement may inherit from staging, where it keeps its pages until the end. The
@@ -91,6 +92,7 @@ public class ChapterDownloadService
      */
     public int download(DownloadQueueItem item, Consumer<String> phase)
     {
+        long started = statistics.now();
         ResourceLink link = registry.parse(item.getLink())
                 .orElseThrow(() -> new PermanentDownloadException(
                         "No data source recognizes the link " + item.getLink()));
@@ -246,7 +248,17 @@ public class ChapterDownloadService
         // --- 7. fetch the missing pages -----------------------------------------------------------
         phase.accept("Downloading images");
         var attempt = new Attempt(item, link, data, chapterId, status, onDisk, missing, phase);
-        return replacing ? replacePages(attempt, mode) : fillIn(attempt, recordedMode, mode);
+        statistics.startSaving(started);
+        try
+        {
+            int saved = replacing ? replacePages(attempt, mode) : fillIn(attempt, recordedMode, mode);
+            statistics.chapterSaved(started);
+            return saved;
+        }
+        finally
+        {
+            statistics.stopSaving();
+        }
     }
 
     /** One attempt at a queue item, from the moment it is known which pages it fetches. */
@@ -444,6 +456,7 @@ public class ChapterDownloadService
             published = publishReplacing(chapterId, staging, attempt.missing(), skipped > 0, mode,
                     run.reEncoded().get());
             stagedByThisProcess = null;
+            statistics.pagesSaved(published);
         }
         catch (IOException e)
         {
@@ -521,12 +534,14 @@ public class ChapterDownloadService
         public void accept(int page, String extension, byte[] bytes) throws IOException
         {
             imageService.landPage(chapterId, page, extension, bytes);
+            statistics.pagesSaved(1);
         }
 
         @Override
         public void accept(int page, Path file) throws IOException
         {
             imageService.landFile(chapterId, page, file);
+            statistics.pagesSaved(1);
         }
     }
 
@@ -622,6 +637,7 @@ public class ChapterDownloadService
             try
             {
                 imageService.landStagedPage(chapterId, file);
+                statistics.pagesSaved(1);
                 if (wasReEncoded)
                 {
                     reEncoded.incrementAndGet();
@@ -745,6 +761,7 @@ public class ChapterDownloadService
             try
             {
                 bytes = fetchPage(fetch.link(), source, url, page);
+                statistics.pageDownloaded();
             }
             catch (IOException e)
             {
@@ -796,10 +813,13 @@ public class ChapterDownloadService
         int before = fetch.missing().size() - wanted.size();
         var arrived = new AtomicInteger();
         GalleryDl.Outcome outcome;
+        // The whole run: gallery-dl fetches while earlier pages move on, so its time is the download's.
+        statistics.startDownloading();
         try
         {
             outcome = source.downloadPages(fetch.link().resourceId(), options, wanted, runFolder, (page, file) ->
             {
+                statistics.pageDownloaded();
                 try
                 {
                     fetch.destination().accept(page, file);
@@ -823,6 +843,7 @@ public class ChapterDownloadService
         }
         finally
         {
+            statistics.stopDownloading();
             ImageService.deleteRecursively(runFolder);
         }
 
@@ -991,6 +1012,20 @@ public class ChapterDownloadService
      * is an {@link InterruptedIOException} too.
      */
     private byte[] fetchPage(ResourceLink link, PageDownloader source, URI url, int page) throws IOException
+    {
+        // Only the fetch, retries included: writing the page is saving it.
+        statistics.startDownloading();
+        try
+        {
+            return fetchPageRetrying(link, source, url, page);
+        }
+        finally
+        {
+            statistics.stopDownloading();
+        }
+    }
+
+    private byte[] fetchPageRetrying(ResourceLink link, PageDownloader source, URI url, int page) throws IOException
     {
         int retries = Math.max(0, appProperties.getDownload().getPageRetries());
         for (int retry = 1; ; retry++)

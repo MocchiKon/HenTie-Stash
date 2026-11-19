@@ -20,6 +20,7 @@ import io.github.mocchikon.hentie.service.ImageService;
 import io.github.mocchikon.hentie.service.SettingsService;
 import io.github.mocchikon.hentie.service.download.ChapterDownloadService;
 import io.github.mocchikon.hentie.service.download.DownloadQueueService;
+import io.github.mocchikon.hentie.service.download.DownloadStatistics;
 import io.github.mocchikon.hentie.service.download.DownloadWorker;
 import io.github.mocchikon.hentie.service.download.GalleryImportService;
 import jakarta.persistence.EntityManager;
@@ -69,6 +70,7 @@ class DownloadQueueIT
     @Autowired AppProperties appProperties;
     @Autowired WriteGate writeGate;
     @Autowired SubscriptionRepository subscriptionRepository;
+    @Autowired DownloadStatistics statistics;
     @PersistenceContext EntityManager em;
 
     @BeforeEach
@@ -117,6 +119,61 @@ class DownloadQueueIT
             // AND the queue row is gone while the permanent "downloaded" record stays.
             assertThat(queueRepository.findByLink("mock:900")).isEmpty();
             assertThat(downloadedGalleryRepository.findById("mock:900")).isPresent();
+        }
+        finally
+        {
+            cleanUp(chapterId);
+        }
+    }
+
+    @Test
+    void shouldCountTheSavedPagesAndTheChapterInTheStatistics()
+    {
+        // GIVEN
+        DownloadStatistics.Figures before = statistics.snapshot().sinceStart();
+        queueService.enqueue(List.of("mock:900"), TestDownloads.choices(NO_COMPRESSION, false));
+        Integer chapterId = null;
+        try
+        {
+            // WHEN
+            assertThat(worker.processNext()).isTrue();
+            em.flush();
+            chapterId = chapterRepository.findByGalleryId("mock:900").orElseThrow().getId();
+
+            // THEN
+            DownloadStatistics.Figures after = statistics.snapshot().sinceStart();
+            assertThat(after.pagesSaved() - before.pagesSaved()).isEqualTo(2);
+            assertThat(after.chaptersSaved() - before.chaptersSaved()).isEqualTo(1);
+            assertThat(after.savedPagesPerSecond()).isNotNull();
+            assertThat(after.downloadedPagesPerSecond()).isNotNull();
+            assertThat(after.secondsPerChapter()).isNotNull();
+        }
+        finally
+        {
+            cleanUp(chapterId);
+        }
+    }
+
+    @Test
+    void shouldNotCountAGalleryAlreadyInTheLibraryAsASavedChapter()
+    {
+        // GIVEN a downloaded gallery.
+        queueService.enqueue(List.of("mock:900"), TestDownloads.choices(NO_COMPRESSION, false));
+        worker.processNext();
+        em.flush();
+        Integer chapterId = chapterRepository.findByGalleryId("mock:900").orElseThrow().getId();
+        try
+        {
+            DownloadStatistics.Figures before = statistics.snapshot().sinceStart();
+
+            // WHEN it is queued again, which downloads nothing.
+            queueService.enqueue(List.of("mock:900"), TestDownloads.choices(NO_COMPRESSION, false));
+            assertThat(worker.processNext()).isTrue();
+
+            // THEN
+            DownloadStatistics.Figures after = statistics.snapshot().sinceStart();
+            assertThat(after.chaptersSaved()).isEqualTo(before.chaptersSaved());
+            assertThat(after.pagesSaved()).isEqualTo(before.pagesSaved());
         }
         finally
         {
