@@ -3,14 +3,15 @@ package io.github.mocchikon.hentie.repository.spec;
 import io.github.mocchikon.hentie.dto.MetadataType;
 
 /**
- * Names one included value of a search - a metadata value, the title term, the favourites, or (series) the
- * languages - so the planner can tell the specs which one a query should start from.
+ * Names one included value of a search - a metadata value, the title term, the favourites, the favourite artists
+ * or (series) the languages - so the planner can tell the specs which one a query should start from.
  */
 public record OperandKey(String facet, Integer id)
 {
     public static final OperandKey TITLE = new OperandKey("title", null);
     public static final OperandKey LANGUAGES = new OperandKey("languages", null);
     public static final OperandKey FAVOURITE = new OperandKey("favourite", null);
+    public static final OperandKey FAVOURITE_ARTIST = new OperandKey("favouriteArtist", null);
 
     public static OperandKey of(MetadataType type, Integer id)
     {

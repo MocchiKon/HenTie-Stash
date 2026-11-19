@@ -87,6 +87,10 @@ public final class SeriesSpecifications
             {
                 predicates.add(FavouritePredicate.build(Series.class, driver, root, query, cb));
             }
+            if (c.isFavouriteArtist())
+            {
+                predicates.add(FavouritePredicate.buildArtist(Series.class, driver, root, query, cb));
+            }
 
             Integer minScore = c.getMinScore();
             if (minScore != null && minScore > 0)

@@ -19,6 +19,13 @@ public class Artist implements Metadata
     @Column(nullable = false, unique = true)
     private String name;
 
+    /**
+     * The user's mark (the heart in the artist's chip). Changing it is all it takes: the database's triggers (V9)
+     * update the {@code favourite_artist} flag of the artist's chapters and series, which search filters on.
+     */
+    @Column(name = "favourite", nullable = false, columnDefinition = "boolean not null default 0")
+    private boolean favourite = false;
+
     @ManyToMany(mappedBy = "artists")
     private List<Chapter> chapters = new LinkedList<>();
 

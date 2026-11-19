@@ -49,7 +49,7 @@
                       th:text="'#' + ${vm.chapter.galleryId}">#id</span>
             </div>
 
-            <div th:replace="~{fragments/components :: chipGroups(${vm.detailGroups})}"></div>
+            <div th:replace="~{fragments/components :: chipGroups(${vm.detailGroups}, '/chapter/' + ${vm.chapter.id})}"></div>
 
             <div class="detail-actions"
                  th:with="lang=${vm.chapter.language == null ? '' : vm.chapter.language}">

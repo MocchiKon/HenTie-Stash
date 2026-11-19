@@ -1100,6 +1100,40 @@ class PerformanceIT
         });
     }
 
+    /**
+     * The heart in an artist's chip, on the most prolific probe artist (on 1 in {@link #PROBE} chapters): the
+     * triggers rewrite the flag of every chapter and series carrying it, inside the click's transaction. Then the
+     * filter it feeds, newest first and beside a tag on half the library.
+     */
+    @Test
+    @Timeout(value = 30, unit = TimeUnit.MINUTES)
+    void benchmarkFavouriteArtists()
+    {
+        int artist = artistIds.getFirst();
+        try
+        {
+            long start = System.nanoTime();
+            metadataService.setArtistFavourite(artist, true);
+            long markMs = (System.nanoTime() - start) / 1_000_000;
+            log.warn("[perf] marking an artist on {} chapters favourite: {} ms", artistCounts.get(artist), markMs);
+
+            pagedPattern("favourite artists (1 in " + PROBE + ")", (c, r, half, type) -> c.setFavouriteArtist(true));
+            pagedPattern("favourite artists + 50% tag", (c, r, half, type) ->
+            {
+                c.setFavouriteArtist(true);
+                c.setTagIds(List.of(half));
+            });
+
+            start = System.nanoTime();
+            metadataService.setArtistFavourite(artist, false);
+            log.warn("[perf] unmarking it: {} ms", (System.nanoTime() - start) / 1_000_000);
+        }
+        finally
+        {
+            metadataService.setArtistFavourite(artist, false);   // a reused dataset starts without favourites
+        }
+    }
+
     @Test
     @Timeout(value = 30, unit = TimeUnit.MINUTES)
     void benchmarkPagedPageNumSortDesc()   // sort the whole collection by page count (indexed ORDER BY + OFFSET)

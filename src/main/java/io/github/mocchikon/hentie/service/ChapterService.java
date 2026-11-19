@@ -557,7 +557,7 @@ public class ChapterService
             {
                 continue;
             }
-            chips.add(new ChipDto(item.getName(),
+            chips.add(ChipDto.of(item,
                     href(SearchType.CHAPTER, type.getSearchParam(), String.valueOf(item.getId())), null));
         }
         groups.add(new ChipGroup(title, chips, false));

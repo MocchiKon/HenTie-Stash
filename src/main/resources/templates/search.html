@@ -67,10 +67,17 @@
         </div>
 
         <div class="field">
-            <label class="checkbox">
-                <input type="checkbox" name="favourite" value="true" th:checked="${criteria.favourite}">
-                <span>Favourites only</span>
-            </label>
+            <div class="checkbox-row">
+                <label class="checkbox">
+                    <input type="checkbox" name="favourite" value="true" th:checked="${criteria.favourite}">
+                    <span>Favourites only</span>
+                </label>
+                <label class="checkbox" title="Mark an artist with the heart in its chip on a chapter or series page">
+                    <input type="checkbox" name="favouriteArtist" value="true"
+                           th:checked="${criteria.favouriteArtist}">
+                    <span>Favourite artists only</span>
+                </label>
+            </div>
         </div>
 
         <div class="field-row">

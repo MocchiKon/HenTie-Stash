@@ -31,26 +31,49 @@
     </div>
 </div>
 
-<!-- Sends the new value, never "toggle", so a click in a second tab cannot undo the first. app.js flips it in place. -->
+<!-- Sends the new value, never "toggle", so a click in a second tab cannot undo the first. app.js flips it in place,
+     taking the text and title for each state from the button's data-on-*/data-off-* attributes. -->
 <form th:fragment="favouriteToggle(action, favourite)" class="inline-form favourite-toggle" method="post"
       th:action="${action}">
     <input type="hidden" name="favourite" th:value="${!favourite}">
     <button type="submit" class="btn btn-ghost btn-favourite" th:attr="aria-pressed=${favourite}"
             th:title="${favourite} ? 'Remove from favourites' : 'Add to favourites'"
-            th:text="${favourite} ? '♥ Favourite' : '♡ Favourite'">♡ Favourite</button>
+            th:text="${favourite} ? '♥ Favourite' : '♡ Favourite'"
+            data-on-text="♥ Favourite" data-off-text="♡ Favourite"
+            data-on-title="Remove from favourites" data-off-title="Add to favourites">♡ Favourite</button>
 </form>
 
-<div th:fragment="chipGroups(groups)" class="detail-groups">
+<!-- back = this page's path, where a heart posted without JavaScript returns to. A chip with a heart is two controls
+     side by side, since a form cannot sit inside a link. -->
+<div th:fragment="chipGroups(groups, back)" class="detail-groups">
     <div class="chip-group" th:each="group : ${groups}" th:unless="${group.empty}">
         <span class="chip-group-title">
             <span th:text="${group.title}">Tags</span>
             <span class="derived" th:if="${group.derived}" title="Derived from chapters">(from chapters)</span>
         </span>
         <span class="chips">
-            <a class="chip" th:each="chip : ${group.chips}" th:href="${chip.href}">
-                <span th:text="${chip.label}">label</span>
-                <span class="chip-count" th:if="${chip.count != null}" th:text="'· ' + ${chip.count}">· 3</span>
-            </a>
+            <th:block th:each="chip : ${group.chips}">
+                <a class="chip" th:if="${chip.favouriteAction == null}" th:href="${chip.href}">
+                    <span th:text="${chip.label}">label</span>
+                    <span class="chip-count" th:if="${chip.count != null}" th:text="'· ' + ${chip.count}">· 3</span>
+                </a>
+                <span class="chip chip-with-heart" th:unless="${chip.favouriteAction == null}">
+                    <a th:href="${chip.href}">
+                        <span th:text="${chip.label}">label</span>
+                        <span class="chip-count" th:if="${chip.count != null}" th:text="'· ' + ${chip.count}">· 3</span>
+                    </a>
+                    <form class="favourite-toggle" method="post" th:action="${chip.favouriteAction}">
+                        <input type="hidden" name="favourite" th:value="${!chip.favourite}">
+                        <input type="hidden" name="back" th:value="${back}">
+                        <button type="submit" class="chip-heart" th:attr="aria-pressed=${chip.favourite}"
+                                th:title="${chip.favourite} ? 'Remove artist from favourites' : 'Add artist to favourites'"
+                                th:text="${chip.favourite} ? '♥' : '♡'"
+                                data-on-text="♥" data-off-text="♡"
+                                data-on-title="Remove artist from favourites"
+                                data-off-title="Add artist to favourites">♡</button>
+                    </form>
+                </span>
+            </th:block>
         </span>
     </div>
 </div>

@@ -395,6 +395,42 @@ class SearchSpecIT
         assertThat(result).extracting(Chapter::getTitleFull).containsExactly("st-reviewed");
     }
 
+    /** The same chapters whichever value the query starts from; the flag itself comes from the triggers. */
+    @Test
+    void shouldMatchOnlyChaptersWithAFavouriteArtistWhenThatFilterSet()
+    {
+        // GIVEN two tagged chapters, one by a favourite artist, and an untagged one by that artist
+        Tag tag = tag("fart-tag");
+        Artist loved = artist("fart-loved");
+        loved.setFavourite(true);
+        Chapter tagged = chapter("fart-tagged", "x", "English", List.of(tag));
+        tagged.setArtists(new ArrayList<>(List.of(loved)));
+        chapter("fart-not", "x", "English", List.of(tag)).setArtists(new ArrayList<>(List.of(artist("fart-other"))));
+        chapter("fart-untagged", "x", "English", List.of()).setArtists(new ArrayList<>(List.of(loved)));
+        em.flush();
+
+        SearchCriteria lovedArtists = new SearchCriteria();
+        lovedArtists.setFavouriteArtist(true);
+        lovedArtists.setTitle("fart-");
+        SearchCriteria taggedLovedArtists = new SearchCriteria();
+        taggedLovedArtists.setFavouriteArtist(true);
+        taggedLovedArtists.setTagIds(List.of(tag.getId()));
+
+        // WHEN + THEN
+        for (OperandKey driver : Arrays.asList(null, OperandKey.FAVOURITE_ARTIST))
+        {
+            assertThat(chapterRepository.findAll(ChapterSpecifications.from(lovedArtists, null, driver)))
+                    .as("driver %s", driver).extracting(Chapter::getTitleFull)
+                    .containsExactlyInAnyOrder("fart-tagged", "fart-untagged");
+        }
+        for (OperandKey driver : Arrays.asList(null, OperandKey.FAVOURITE_ARTIST,
+                OperandKey.of(MetadataType.TAG, tag.getId())))
+        {
+            assertThat(chapterRepository.findAll(ChapterSpecifications.from(taggedLovedArtists, null, driver)))
+                    .as("driver %s", driver).extracting(Chapter::getTitleFull).containsExactly("fart-tagged");
+        }
+    }
+
     /** The same favourites whichever value the query starts from. */
     @Test
     void shouldMatchOnlyFavouritesWhenFavouriteFilterSet()

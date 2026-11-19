@@ -3,6 +3,7 @@ package io.github.mocchikon.hentie.service;
 import io.github.mocchikon.hentie.config.CacheConfig;
 import io.github.mocchikon.hentie.dto.MetadataType;
 import io.github.mocchikon.hentie.dto.OptionDto;
+import io.github.mocchikon.hentie.entity.Artist;
 import io.github.mocchikon.hentie.entity.Metadata;
 import io.github.mocchikon.hentie.entity.MetadataRule;
 import io.github.mocchikon.hentie.entity.Tag;
@@ -611,6 +612,28 @@ public class MetadataService
         return new RuleConflict(type, rule.getSourceNameLower(), ruleService.targetName(type, rule));
     }
 
+    /**
+     * Sets rather than toggles, so a second tab sending the same click changes nothing. The database's triggers (V9)
+     * update the chapters and series carrying the artist; the search counts are evicted only when the mark changed.
+     *
+     * @return false when there is no such artist
+     */
+    @Transactional
+    public boolean setArtistFavourite(int id, boolean favourite)
+    {
+        Artist artist = em.find(Artist.class, id);
+        if (artist == null)
+        {
+            return false;
+        }
+        if (artist.isFavourite() != favourite)
+        {
+            artist.setFavourite(favourite);
+            searchCountCache.clear();
+        }
+        return true;
+    }
+
     /** A plain tag goes with its versions; its rule covers them. */
     @Transactional
     @Caching(evict = {
@@ -751,6 +774,11 @@ public class MetadataService
         }
         // Read before the row goes: the rule needs it.
         String sourceName = ((Metadata) found).getName();
+        // The user's mark is not lost with the row: whatever carried a favourite artist still does.
+        if (found instanceof Artist source && source.isFavourite())
+        {
+            em.find(Artist.class, targetId).setFavourite(true);
+        }
 
         reassignLinks(type.getChapterJoinTable(), "chapter_id", type.getFkColumn(), sourceId, targetId);
         reassignLinks(type.getSeriesJoinTable(), "series_id", type.getFkColumn(), sourceId, targetId);

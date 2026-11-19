@@ -73,14 +73,16 @@ class CompoundSearchIT
         Tag c = tag("cmp-c");
         Tag excluded = tag("cmp-excluded");
         Artist artist = artist("cmp-artist");
+        Artist loved = artist("cmp-loved");
+        loved.setFavourite(true);
         Category category = category("cmp-category");
         for (int i = 1; i <= 40; i++)
         {
-            chapter(i, a, b, c, excluded, artist, category);
+            chapter(i, a, b, c, excluded, artist, loved, category);
         }
         for (int i = 1; i <= 20; i++)
         {
-            series(i, a, b, excluded, category);
+            series(i, a, b, excluded, loved, category);
         }
         em.flush();
         // Rolled-back ids are handed out again, so a count cached by an earlier test could match a new filter.
@@ -185,6 +187,27 @@ class CompoundSearchIT
                 {
                     c.setFavourite(true);
                     c.setExcludedTagIds(ids(f.tagExcluded()));
+                }),
+                search("favourite artists only", (f, c) -> c.setFavouriteArtist(true)),
+                search("favourite artists and tag", (f, c) ->
+                {
+                    c.setFavouriteArtist(true);
+                    c.setTagIds(ids(f.tagA()));
+                }),
+                search("favourite artists, one status", (f, c) ->
+                {
+                    c.setFavouriteArtist(true);
+                    c.setStatuses(List.of(Status.NEW));
+                }),
+                search("favourite artists minus a tag", (f, c) ->
+                {
+                    c.setFavouriteArtist(true);
+                    c.setExcludedTagIds(ids(f.tagExcluded()));
+                }),
+                search("favourites with a favourite artist", (f, c) ->
+                {
+                    c.setFavourite(true);
+                    c.setFavouriteArtist(true);
                 }));
     }
 
@@ -237,6 +260,17 @@ class CompoundSearchIT
                 search("favourites, one status", (f, c) ->
                 {
                     c.setFavourite(true);
+                    c.setStatuses(List.of(Status.UPDATED));
+                }),
+                search("favourite artists only", (f, c) -> c.setFavouriteArtist(true)),
+                search("favourite artists and language", (f, c) ->
+                {
+                    c.setFavouriteArtist(true);
+                    c.setLanguages(List.of("English"));
+                }),
+                search("favourite artists, one status", (f, c) ->
+                {
+                    c.setFavouriteArtist(true);
                     c.setStatuses(List.of(Status.UPDATED));
                 }));
     }
@@ -375,7 +409,7 @@ class CompoundSearchIT
         return new ArrayList<>(List.of(ids));
     }
 
-    private void chapter(int i, Tag a, Tag b, Tag c, Tag excluded, Artist artist, Category category)
+    private void chapter(int i, Tag a, Tag b, Tag c, Tag excluded, Artist artist, Artist loved, Category category)
     {
         var chapter = new Chapter();
         chapter.setTitleFull("cmp chapter " + i + (i % 3 == 0 ? " zzkey" : ""));
@@ -390,12 +424,17 @@ class CompoundSearchIT
         chapter.setDiskSize(1000L * (i % 5));
         chapter.setGalleryId("cmp:" + i);
         chapter.setTags(tagsWhere(i % 2 == 0, a, i % 3 != 0, b, i % 5 < 3, c, i % 7 == 0, excluded));
-        chapter.setArtists(new ArrayList<>(i % 4 == 0 ? List.of(artist) : List.of()));
+        List<Artist> artists = new ArrayList<>(i % 4 == 0 ? List.of(artist) : List.of());
+        if (i % 5 < 2)
+        {
+            artists.add(loved);   // favourite_artist comes from the triggers on flush
+        }
+        chapter.setArtists(artists);
         chapter.setCategories(new ArrayList<>(i % 3 == 1 ? List.of(category) : List.of()));
         chapterRepository.save(chapter);
     }
 
-    private void series(int i, Tag a, Tag b, Tag excluded, Category category)
+    private void series(int i, Tag a, Tag b, Tag excluded, Artist loved, Category category)
     {
         var series = new Series();
         series.setTitleFull("cmp series " + i + (i % 3 == 0 ? " zzkey" : ""));
@@ -408,6 +447,7 @@ class CompoundSearchIT
         series.setPageNum(10 + (i % 3) * 10);
         series.setDiskSize(500L * (i % 4));
         series.setEffectiveTags(tagsWhere(i % 2 == 0, a, i % 3 != 0, b, i % 5 == 0, excluded));
+        series.setEffectiveArtists(new ArrayList<>(i % 3 != 2 ? List.of(loved) : List.of()));
         series.setEffectiveCategories(new ArrayList<>(i % 2 == 1 ? List.of(category) : List.of()));
         series.setEffectiveLanguages(new ArrayList<>(i % 3 == 0
                 ? List.of("English", "Japanese")

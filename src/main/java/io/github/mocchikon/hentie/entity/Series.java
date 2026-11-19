@@ -36,6 +36,7 @@ import java.util.List;
         @Index(name = "ix_series__id", columnList = "id"),
         // (favourite, id): the favourites in id order, read by search like a tag's list.
         @Index(name = "ix_series__favourite", columnList = "favourite"),
+        @Index(name = "ix_series__favourite_artist", columnList = "favourite_artist"),
         // Candidate seeks for matching; without them lookup would load every series. The nearest-title walk uses
         // ix_series__condensed_match_key (V1), an expression index @Index cannot declare.
         @Index(name = "ix_series__match_key", columnList = "match_key, id")
@@ -79,6 +80,15 @@ public class Series
     /** The user's mark, apart from the status: a favourite can still be new. */
     @Column(name = "favourite", nullable = false, columnDefinition = "boolean not null default 0")
     private boolean favourite = false;
+
+    /**
+     * Whether one of the series' effective artists is a favourite. Kept by the database's triggers (V9), so every way a
+     * link or an artist changes keeps it right; the app never writes it, and an entity loaded before such a change
+     * holds the old value.
+     */
+    @Column(name = "favourite_artist", nullable = false, insertable = false, updatable = false,
+            columnDefinition = "boolean not null default 0")
+    private boolean favouriteArtist = false;
 
     // Always the sum over the chapters (no override), materialized for search.
     @Column(name = "page_num", nullable = false, columnDefinition = "integer not null default 0")

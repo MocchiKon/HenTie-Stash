@@ -367,6 +367,13 @@ a.meta-gallery:hover { color: var(--text); }
 .chip { background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px; padding: .2rem .7rem; font-size: .85rem; }
 .chip:hover { border-color: var(--accent); color: var(--accent); }
 .chip-count { color: var(--muted); }
+.chip-with-heart { display: inline-flex; align-items: center; gap: .35rem; padding-right: .45rem; }
+.chip-with-heart:hover { color: inherit; }
+.chip-with-heart > a { min-width: 0; overflow-wrap: anywhere; }
+.chip-with-heart > a:hover { color: var(--accent); }
+.chip-with-heart form { display: inline-flex; margin: 0; }
+.chip-heart { background: transparent; border: 0; padding: 0 .1rem; font: inherit; line-height: 1; color: var(--muted); cursor: pointer; }
+.chip-heart:hover, .chip-heart[aria-pressed="true"] { color: var(--favourite); }
 
 /* ===== Pages grid ===== */
 .page-grid { margin-top: 1rem; display: grid; grid-template-columns: repeat(auto-fill, minmax(clamp(150px, 20vw, 250px), 1fr)); gap: .5rem; }

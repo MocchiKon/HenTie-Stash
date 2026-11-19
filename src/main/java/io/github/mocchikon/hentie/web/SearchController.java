@@ -157,6 +157,10 @@ public class SearchController
         {
             sj.add("favourite=true");
         }
+        if (c.isFavouriteArtist())
+        {
+            sj.add("favouriteArtist=true");
+        }
         if (c.getMinScore() != null)
         {
             sj.add("minScore=" + c.getMinScore());

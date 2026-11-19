@@ -31,7 +31,7 @@
                 <span th:if="${vm.createdDate}" class="meta-date" th:text="${vm.createdDate}">date</span>
             </div>
 
-            <div th:replace="~{fragments/components :: chipGroups(${vm.detailGroups})}"></div>
+            <div th:replace="~{fragments/components :: chipGroups(${vm.detailGroups}, '/series/' + ${vm.series.id})}"></div>
 
             <div class="detail-actions">
                 <form th:replace="~{fragments/components :: favouriteToggle(@{/series/{id}/favourite(id=${vm.series.id})}, ${vm.series.favourite})}"></form>

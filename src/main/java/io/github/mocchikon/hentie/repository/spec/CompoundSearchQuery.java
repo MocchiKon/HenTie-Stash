@@ -13,7 +13,7 @@ import java.util.List;
 
 /**
  * Native count and page queries for searches whose included values are all broad. The join-table indexes
- * {@code (meta_id, owner_id)}, the title index, the favourite index and the status and language indexes all
+ * {@code (meta_id, owner_id)}, the title index, the favourite indexes and the status and language indexes all
  * return owner ids in order, so an {@code INTERSECT}/{@code EXCEPT} of them is a merge that reads each index
  * entry once and builds nothing, and {@code ORDER BY 1 ... OFFSET} over it skips index entries instead of rows (a tag on half
  * the library, last page: 203 ms against 10 ms). The Criteria form builds every {@code IN} list in full and
@@ -86,6 +86,11 @@ public final class CompoundSearchQuery
         {
             operands.add(new Operand(OperandKey.FAVOURITE,
                     "select id from " + owner.table + " where favourite = 1", List.of(), true));
+        }
+        if (c.isFavouriteArtist())
+        {
+            operands.add(new Operand(OperandKey.FAVOURITE_ARTIST,
+                    "select id from " + owner.table + " where favourite_artist = 1", List.of(), true));
         }
         if (c.isSeries() && isNotEmpty(c.getLanguages()))
         {

@@ -42,6 +42,9 @@ public class SearchCriteria
     /** Favourites only; false means any, never "not a favourite". */
     private boolean favourite;
 
+    /** Only what carries a favourite artist (series: among its effective artists); false means any. */
+    private boolean favouriteArtist;
+
     /** 1-10; the half-star UI shows it as 0.5-5. */
     private Integer minScore;
 
@@ -91,6 +94,7 @@ public class SearchCriteria
                 .append("|languages=").append(languages)
                 .append("|statuses=").append(statuses)
                 .append("|favourite=").append(favourite)
+                .append("|favouriteArtist=").append(favouriteArtist)
                 .append("|minScore=").append(minScore)
                 .append("|minPages=").append(minPages)
                 .append("|maxPages=").append(maxPages)
@@ -113,7 +117,7 @@ public class SearchCriteria
                 || notEmpty(groupIds) || notEmpty(categoryIds) || notEmpty(excludedTagIds)
                 || notEmpty(excludedArtistIds) || notEmpty(excludedCharacterIds) || notEmpty(excludedParodyIds)
                 || notEmpty(excludedGroupIds) || notEmpty(excludedCategoryIds)
-                || notEmpty(languages) || notEmpty(statuses) || favourite
+                || notEmpty(languages) || notEmpty(statuses) || favourite || favouriteArtist
                 || minScore != null || minPages != null || maxPages != null || uploadFrom != null || uploadTo != null;
     }
 

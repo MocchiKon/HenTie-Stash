@@ -1272,6 +1272,24 @@ newer than the running version. The Guide's Updates section explains it.
   `ix_<owner>__favourite`, `(favourite, id)`, so the planner probes it, starts from it when it is small
   (`FavouritePredicate`), merges it as a stream when it is broad, and walks it alone by date. It is no row filter:
   favourites are usually few, and a row filter would have the native page walk the whole sort index for them.
+- **A favourite artist is a mark on the `artist` row** (the heart in its chip, `ArtistController`, posting the new
+  value in place like the favourite button). Search asks for **anything carrying one**, so `favourite_artist` is
+  **materialized on `chapter` and `series`** and searched exactly like `favourite` (`OperandKey.FAVOURITE_ARTIST`,
+  `ix_<owner>__favourite_artist`, `FavouritePredicate.buildArtist`). Asking the join table instead
+  (`id in (select … where artist_id in (favourites))`) would be a union of many ranges with no id order: no stream to
+  merge, and a temp B-tree built before the first row.
+  - **The flag is kept by SQLite triggers (V9), never by the app**, like the title index: artist links change through
+    Hibernate's collections, the native merge and removal, foreign-key cascades and a manual `sqlite3` session, and a
+    trigger sees all of them. App-side upkeep would need every one of those paths to remember. The entity columns are
+    `insertable = false, updatable = false`; an entity loaded before a change holds the old value, so read the row.
+  - **A series follows its effective artists** (`series_effective_artists`), so it agrees with artist search on
+    series: an artist override without the favourite leaves the series unflagged.
+  - **Each trigger rewrites an owner only when its flag is wrong** (`set x = not x where x <> exists(…)`). A missing
+    artist row counts as a possible favourite (`coalesce(…, 1)`): a cascade from an artist's delete removes the link
+    after the row is gone. Marking an artist rewrites the flag of each of its chapters and series in the click's
+    transaction (`PerformanceIT.benchmarkFavouriteArtists`).
+  - **A merge keeps the mark** (`MetadataService.mergeRow`): a favourite merged into another artist makes it one.
+  - A new table linking artists to an owner that search filters by favourite artist needs triggers of its own.
 - **`status` is required on `Series`** (no "None" in the UI, `@NotNull` on the form). The new-series form
   preselects `REVIEWED`; auto-created series get `NEW`.
 - **`UPDATED` is for series only** (`Status.CHAPTER_VALUES` is what chapter forms offer, and `ChapterService`

@@ -31,7 +31,7 @@ class SchemaMigrationIT
     void shouldMatchTheEntityMappingsWhenSchemaComesFromMigrations()
     {
         // Starting the context is the real check; this assertion keeps the test from passing vacuously.
-        assertThat(appliedMigrations()).containsExactly("1", "2", "3", "4", "5", "6", "7", "8");
+        assertThat(appliedMigrations()).containsExactly("1", "2", "3", "4", "5", "6", "7", "8", "9");
     }
 
     /** Status is ORDINAL and the column is CHECKed, which validation does not see: a new value needs a migration. */
@@ -52,9 +52,19 @@ class SchemaMigrationIT
         // Virtual tables are not mapped, so nothing else checks that title search has its index.
         assertThat(objectNames("type = 'table' AND sql LIKE 'CREATE VIRTUAL TABLE%'"))
                 .containsExactlyInAnyOrder("chapter_fts", "series_fts");
-        assertThat(objectNames("type = 'trigger'")).containsExactlyInAnyOrder(
+        assertThat(objectNames("type = 'trigger' AND name LIKE '%fts%'")).containsExactlyInAnyOrder(
                 "chapter_fts_ai", "chapter_fts_ad", "chapter_fts_au",
                 "series_fts_ai", "series_fts_ad", "series_fts_au");
+    }
+
+    @Test
+    void shouldCreateTheFavouriteArtistTriggersWhenMigrating()
+    {
+        // Nothing in the app writes favourite_artist; without a trigger the flag silently goes stale.
+        assertThat(objectNames("type = 'trigger' AND name NOT LIKE '%fts%'")).containsExactlyInAnyOrder(
+                "chapter_artists_favourite_ai", "chapter_artists_favourite_ad", "chapter_artists_favourite_au",
+                "series_eff_artists_favourite_ai", "series_eff_artists_favourite_ad",
+                "series_eff_artists_favourite_au", "artist_favourite_au");
     }
 
     @Test
@@ -69,6 +79,7 @@ class SchemaMigrationIT
                 "ix_chapter__language", "ix_chapter__language_score", "ix_chapter__language_page_num",
                 "ix_chapter__language_disk_size", "ix_chapter__id", "ix_series__id",
                 "ix_chapter__favourite", "ix_series__favourite",
+                "ix_chapter__favourite_artist", "ix_series__favourite_artist",
                 "ix_series_eff_languages__language_series",
                 "ix_chapter_tags__tag_chapter", "ix_chapter_tags__chapter_tag",
                 "ix_series_eff_tags__tag_series", "ix_series_eff_tags__series_tag",

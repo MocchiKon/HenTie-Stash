@@ -626,14 +626,14 @@ public class SeriesService
                     : Set.of();
             List<ChipDto> chips = override.stream()
                     .filter(m -> !covered.contains(m.getName()))
-                    .map(m -> new ChipDto(m.getName(),
+                    .map(m -> ChipDto.of(m,
                             ChapterService.href(SearchType.SERIES, type.getSearchParam(), String.valueOf(m.getId())), null))
                     .toList();
             return new ChipGroup(title, chips, false);
         }
 
         Map<Integer, Long> counts = new LinkedHashMap<>();
-        Map<Integer, String> names = new HashMap<>();
+        Map<Integer, Metadata> values = new HashMap<>();
         // Per plain tag, the chapters carrying a version of it as well.
         Map<Integer, Long> covered = new HashMap<>();
         for (Chapter chapter : chapters)
@@ -645,7 +645,7 @@ public class SeriesService
             for (Metadata item : items)
             {
                 counts.merge(item.getId(), 1L, Long::sum);
-                names.putIfAbsent(item.getId(), item.getName());
+                values.putIfAbsent(item.getId(), item);
                 if (coveredHere.contains(item.getName()))
                 {
                     covered.merge(item.getId(), 1L, Long::sum);
@@ -658,8 +658,8 @@ public class SeriesService
         List<ChipDto> chips = counts.entrySet().stream()
                 .filter(e -> !e.getValue().equals(covered.get(e.getKey())))
                 .sorted(Comparator.<Map.Entry<Integer, Long>>comparingLong(Map.Entry::getValue).reversed()
-                        .thenComparing(e -> names.get(e.getKey()), String.CASE_INSENSITIVE_ORDER))
-                .map(e -> new ChipDto(names.get(e.getKey()),
+                        .thenComparing(e -> values.get(e.getKey()).getName(), String.CASE_INSENSITIVE_ORDER))
+                .map(e -> ChipDto.of(values.get(e.getKey()),
                         ChapterService.href(SearchType.SERIES, type.getSearchParam(), String.valueOf(e.getKey())),
                         e.getValue()))
                 .toList();
