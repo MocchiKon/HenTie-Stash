@@ -115,6 +115,7 @@ class SubscriptionRunnerIT
         settingsService.setEhentaiMemberId("");
         settingsService.setEhentaiPassHash("");
         settingsService.setEhentaiIgneous("");
+        settingsService.setSubscriptionsOff(false);
         ehentaiDownloader.clearCooldown();
         nhentai.close();
         ehentai.close();
@@ -163,6 +164,34 @@ class SubscriptionRunnerIT
         // THEN
         assertThat(rowsOf(id)).hasSize(63);
         assertThat(reload(id).getNewestGalleryId()).isEqualTo("nhentai:1062");
+    }
+
+    @Test
+    void shouldListNothingWhileSubscriptionsAreTurnedOffAndKeepEachOnesPause()
+    {
+        // GIVEN one subscription running and one paused
+        searchable(1000, 5, Duration.ofHours(5));
+        int running = subscribe("nhentai", "running");
+        int paused = subscribe("nhentai", "paused");
+        assertThat(subscriptionService.setEnabled(paused, false)).isTrue();
+
+        // WHEN
+        settingsService.setSubscriptionsOff(true);
+
+        // THEN
+        assertThat(runner.runNext()).isFalse();
+        assertThat(nhentai.searches()).isEmpty();
+        assertThat(reload(running).isEnabled()).isTrue();
+        assertThat(reload(paused).isEnabled()).isFalse();
+
+        // WHEN turned on again, only the one not paused lists
+        settingsService.setSubscriptionsOff(false);
+        runAll();
+
+        // THEN
+        assertThat(rowsOf(running)).hasSize(5);
+        assertThat(rowsOf(paused)).isEmpty();
+        assertThat(reload(paused).isEnabled()).isFalse();
     }
 
     /** A lower priority number is handled first, however the rows were created. */

@@ -8,6 +8,7 @@ import io.github.mocchikon.hentie.entity.Subscription;
 import io.github.mocchikon.hentie.scrapper.DataDownloaderRegistry;
 import io.github.mocchikon.hentie.scrapper.SearchSource;
 import io.github.mocchikon.hentie.scrapper.SearchSource.SearchPage;
+import io.github.mocchikon.hentie.service.SettingsService;
 import io.github.mocchikon.hentie.service.download.DownloadWorker;
 import io.github.mocchikon.hentie.service.download.RetryLaterException;
 import io.github.mocchikon.hentie.service.subscription.SubscriptionService.PlannedStep;
@@ -62,6 +63,7 @@ public class SubscriptionRunner
     private final DownloadWorker worker;
     private final WriteGate writeGate;
     private final AppProperties appProperties;
+    private final SettingsService settingsService;
 
     private final Object monitor = new Object();
     private final List<Thread> threads = new ArrayList<>();
@@ -129,7 +131,10 @@ public class SubscriptionRunner
         threads.clear();
     }
 
-    /** After a subscription changed (created, edited, resumed, "Check now"), or Settings it depends on. */
+    /**
+     * After a subscription changed (created, edited, resumed, "Check now"), subscriptions were turned on, or Settings
+     * they depend on changed.
+     */
     public void kick()
     {
         parkedUntil.clear();
@@ -196,9 +201,14 @@ public class SubscriptionRunner
         return false;
     }
 
-    /** @return false when none of the source's subscriptions had anything due */
+    /** @return false when none of the source's subscriptions had anything due, or subscriptions are turned off */
     public boolean runNext(SearchSource source)
     {
+        // Checked per step, not by stopping the threads: turning them back on is then only a kick.
+        if (settingsService.isSubscriptionsOff())
+        {
+            return false;
+        }
         // A ban holds every site of the source, and asking during it would only be refused, or extend it.
         if (source.refusingUntil().isPresent())
         {

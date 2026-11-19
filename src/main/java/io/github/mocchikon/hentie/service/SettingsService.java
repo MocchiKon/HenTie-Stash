@@ -61,6 +61,8 @@ public class SettingsService
     public static final String UPDATE_CHECK = "updates.check";
     public static final String MATCH_THRESHOLD = "matching.threshold";
     public static final String DOWNLOAD_PAUSED = "download.paused";
+    /** Every subscription stops listing, while each one's own pause stays as the user set it. */
+    public static final String SUBSCRIPTIONS_OFF = "subscriptions.off";
     /** Applies to uploads; a download carries its own mode on the queue row and only starts at this one. */
     public static final String IMAGE_COMPRESSION_MODE = "image.compression.mode";
     /** Percent of the processor cores Image Compression may use at once. */
@@ -324,6 +326,11 @@ public class SettingsService
         return Boolean.parseBoolean(cache.getOrDefault(DOWNLOAD_PAUSED, "false"));
     }
 
+    public boolean isSubscriptionsOff()
+    {
+        return Boolean.parseBoolean(cache.getOrDefault(SUBSCRIPTIONS_OFF, "false"));
+    }
+
     public String getImageCompressionMode()
     {
         return cache.getOrDefault(IMAGE_COMPRESSION_MODE, BuiltInCompressionMode.NONE.getKey());
@@ -531,6 +538,16 @@ public class SettingsService
     public void setDownloadPaused(boolean paused)
     {
         put(DOWNLOAD_PAUSED, Boolean.toString(paused));
+    }
+
+    /**
+     * Persisted for the same reason as the download pause. A switch of its own rather than pausing every subscription,
+     * so turning it back on leaves the ones the user paused paused.
+     */
+    @Transactional
+    public void setSubscriptionsOff(boolean off)
+    {
+        put(SUBSCRIPTIONS_OFF, Boolean.toString(off));
     }
 
     @Transactional

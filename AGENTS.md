@@ -812,6 +812,10 @@ decides** — a `SearchSource` never touches the database. Manage → Chapters �
   keeps them (`ON DELETE SET NULL`, the priority stays); pausing stops only the listing. **A subscription's own
   priority** (`subscription.priority`, 0 highest, 1 default) **orders its walk, not those rows**: the runner steps
   the lowest number with something due first.
+- **"Turn all subscriptions off" is a persisted setting of its own** (`subscriptions.off`), never a pause of each
+  subscription: turning them on again must leave the ones the user paused paused. The runner checks it before every
+  step (`runNext`), so its threads keep running and turning it on is only a kick. Like a pause, it stops only the
+  listing; queued rows still download.
 - **Listing follows the downloads**: beyond its check a subscription lists only while fewer than
   `app.subscriptions.queue-ahead` (50) of its rows wait and fewer than `failed-limit` (50) failed. A broad search
   would otherwise fill the queue with rows chosen before an edit, and downloads that fail at once (no gallery-dl,

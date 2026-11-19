@@ -22,7 +22,9 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -62,6 +64,7 @@ class SubscriptionWebIT
         settingsService.setEhentaiIgneous("");
         settingsService.setGalleryDlDefaults(galleryDlBefore);
         settingsService.setSystemGalleryDlEnabled(false);
+        settingsService.setSubscriptionsOff(false);
         testLogin.restore();
     }
 
@@ -74,6 +77,51 @@ class SubscriptionWebIT
 
         // THEN
         assertThat(html).containsPattern("Add manually</a>\\s*<a class=\"btn\" href=\"/subscriptions\">Subscriptions</a>");
+    }
+
+    @Test
+    void shouldTurnAllSubscriptionsOffAndOnWithoutTouchingTheirPause() throws Exception
+    {
+        // GIVEN
+        mvc.perform(subscriptionPost().param("source", "nhentai").param("query", "kept running"))
+                .andExpect(status().is3xxRedirection());
+        mvc.perform(subscriptionPost().param("source", "nhentai").param("query", "kept paused"))
+                .andExpect(status().is3xxRedirection());
+        Subscription paused = subscriptionRepository.findAll().stream()
+                .filter(s -> s.getQuery().equals("kept paused")).findFirst().orElseThrow();
+        mvc.perform(post("/subscriptions/{id}/pause", paused.getId()).with(user("user")).with(csrf()))
+                .andExpect(status().is3xxRedirection());
+
+        // WHEN
+        mvc.perform(post("/subscriptions/switch").param("off", "true").param("filter", " kept ")
+                        .with(user("user")).with(csrf()))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/subscriptions?filter=kept"));
+
+        // THEN
+        assertThat(settingsService.isSubscriptionsOff()).isTrue();
+        assertThat(subscriptionRepository.findAll()).extracting(Subscription::getQuery, Subscription::isEnabled)
+                .containsExactlyInAnyOrder(tuple("kept running", true), tuple("kept paused", false));
+        mvc.perform(get("/subscriptions").with(user("user")))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("Subscriptions are turned off")))
+                .andExpect(content().string(containsString("Turn subscriptions on")))
+                .andExpect(content().string(not(containsString("Check now"))));
+
+        // WHEN
+        mvc.perform(post("/subscriptions/switch").param("off", "false").with(user("user")).with(csrf()))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/subscriptions"));
+
+        // THEN
+        assertThat(settingsService.isSubscriptionsOff()).isFalse();
+        assertThat(subscriptionRepository.findById(paused.getId())).get()
+                .extracting(Subscription::isEnabled).isEqualTo(false);
+        mvc.perform(get("/subscriptions").with(user("user")))
+                .andExpect(status().isOk())
+                .andExpect(content().string(not(containsString("Subscriptions are turned off"))))
+                .andExpect(content().string(containsString("Turn all subscriptions off")))
+                .andExpect(content().string(containsString("Check now")));
     }
 
     @Test

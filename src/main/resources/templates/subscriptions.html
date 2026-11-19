@@ -9,6 +9,15 @@
         <h1>Subscriptions</h1>
         <div class="btn-row">
             <a class="btn btn-accent" th:href="@{/subscriptions/new}">New subscription</a>
+            <form method="post" th:action="@{/subscriptions/switch}" class="inline-form">
+                <input type="hidden" name="off" th:value="${!subscriptionsOff}">
+                <input type="hidden" name="filter" th:if="${filtered}" th:value="${filter}">
+                <input type="hidden" name="order" th:value="${order}">
+                <button type="submit" class="btn"
+                        th:text="${subscriptionsOff} ? 'Turn subscriptions on' : 'Turn all subscriptions off'">
+                    Turn all subscriptions off
+                </button>
+            </form>
             <a class="btn" th:href="@{/compression-rules}">Image compression rules</a>
             <a class="btn" th:href="@{/chapter/queue}">View download queue</a>
             <a class="btn btn-ghost" th:href="@{/manage}">Back to Manage</a>
@@ -23,6 +32,10 @@
         in the download queue.
     </div>
     <div th:if="${problem != null}" class="alert error" role="alert" th:text="${problem}">problem</div>
+    <div th:if="${subscriptionsOff}" class="alert warning" role="status">
+        Subscriptions are turned off: none of them looks for new galleries. What they queued still downloads. When you
+        turn them on, the ones you paused stay paused.
+    </div>
 
     <p class="hint">
         A subscription follows a search on nhentai, e-hentai or exhentai. It queues every gallery the search already
@@ -96,7 +109,7 @@
                 avoiding duplicated titles</p>
             <div class="btn-row subscription-actions">
                 <a class="btn" th:href="@{/subscriptions/{id}/edit(id=${s.id()})}">Edit</a>
-                <form method="post" class="inline-form" th:if="${s.enabled()}"
+                <form method="post" class="inline-form" th:if="${s.enabled() and !subscriptionsOff}"
                       th:action="@{/subscriptions/{id}/check(id=${s.id()})}">
                     <input type="hidden" name="filter" th:if="${filtered}" th:value="${filter}">
                     <input type="hidden" name="order" th:value="${order}">

@@ -55,6 +55,7 @@ public class SubscriptionController
         model.addAttribute("filter", name);
         model.addAttribute("order", descending ? DESCENDING : ASCENDING);
         model.addAttribute("filtered", name != null);
+        model.addAttribute("subscriptionsOff", settingsService.isSubscriptionsOff());
         return "subscriptions";
     }
 
@@ -124,6 +125,19 @@ public class SubscriptionController
             result.rejectValue("requestDelay", "invalid", ChapterController.delayProblem(form.getRequestDelay()));
         }
         return new GalleryDlOptions(form.getCookiesBrowser(), form.isDownloadOriginals(), delay.orElse(defaultDelay));
+    }
+
+    /** Each subscription's own pause is left as it is, so turning them on again resumes only the ones not paused. */
+    @PostMapping("/switch")
+    public String switchAll(@RequestParam boolean off, @RequestParam(required = false) String filter,
+                          @RequestParam(required = false) String order, RedirectAttributes redirect)
+    {
+        settingsService.setSubscriptionsOff(off);
+        if (!off)
+        {
+            runner.kick();
+        }
+        return backToList(filter, order, redirect);
     }
 
     @PostMapping("/{id:\\d+}/delete")
