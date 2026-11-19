@@ -2,6 +2,7 @@ package io.github.mocchikon.hentie.service;
 
 import io.github.mocchikon.hentie.dto.BuiltInCompressionMode;
 import io.github.mocchikon.hentie.entity.Chapter;
+import io.github.mocchikon.hentie.entity.DownloadStatus;
 import io.github.mocchikon.hentie.scrapper.DataDownloaderRegistry;
 import io.github.mocchikon.hentie.service.compress.ImageCompressionModeService;
 import io.github.mocchikon.hentie.service.download.DownloadChoices;
@@ -98,6 +99,60 @@ public class DownloadService
         log.info("Queued a re-download of chapter {} ({}) in {}", chapter.getId(), chapter.getGalleryId(), modeKey);
         worker.kick();
         return true;
+    }
+
+    /**
+     * What the chapter page offers for a download this app started and never finished. Only {@code PENDING} lets
+     * the pipeline back in, so only such a chapter is offered anything.
+     */
+    public IncompleteDownload incompleteDownload(Chapter chapter)
+    {
+        if (chapter.getDownloadStatus() != DownloadStatus.PENDING)
+        {
+            return IncompleteDownload.NONE;
+        }
+        if (registry.linkFor(chapter.getGalleryId()).isEmpty())
+        {
+            return IncompleteDownload.NO_SOURCE;
+        }
+        return queueService.isWaiting(chapter.getGalleryId()) ? IncompleteDownload.WAITING : IncompleteDownload.CAN_RESUME;
+    }
+
+    public enum IncompleteDownload
+    {
+        /** Complete, or never from a download. */
+        NONE,
+        /** Its row waits or runs, so it finishes without being asked. */
+        WAITING,
+        CAN_RESUME,
+        /** No source here fetches its gallery id any more. */
+        NO_SOURCE
+    }
+
+    /**
+     * Fetches the pages an incomplete download is missing. A new row continues in the mode that compressed the
+     * pages already there, so the chapter keeps one mode; without a recorded mode it takes Settings' mode, as a
+     * paste from a fresh Download page would. A failed row is retried with its own choices instead.
+     *
+     * @return false when there is nothing to resume: the chapter is complete, already queued or from no known source
+     */
+    public boolean resumeDownload(Chapter chapter)
+    {
+        if (incompleteDownload(chapter) != IncompleteDownload.CAN_RESUME)
+        {
+            return false;
+        }
+        String link = registry.linkFor(chapter.getGalleryId()).orElseThrow();
+        String mode = modeService.storableKey(chapter.getCompressionMode() != null
+                ? chapter.getCompressionMode() : settingsService.getImageCompressionMode());
+        boolean queued = queueService.resume(link, chapter.getGalleryId(),
+                new DownloadChoices(mode, false, false, settingsService.getGalleryDlDefaults()));
+        if (queued)
+        {
+            log.info("Queued the rest of chapter {} ({})", chapter.getId(), chapter.getGalleryId());
+            worker.kick();
+        }
+        return queued;
     }
 
     /** Empty for a chapter from no known source, or from one without a website. */

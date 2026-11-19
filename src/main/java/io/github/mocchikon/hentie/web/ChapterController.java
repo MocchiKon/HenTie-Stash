@@ -501,6 +501,7 @@ public class ChapterController
         model.addAttribute("compressedWith", compressionMode == null
                 ? null : compressionModeService.nameOf(compressionMode).orElse("a mode since deleted"));
         model.addAttribute("canRedownloadLossless", downloadService.losslessRedownloadLink(vm.getChapter()).isPresent());
+        model.addAttribute("incompleteDownload", downloadService.incompleteDownload(vm.getChapter()).name());
         model.addAttribute("sourcePageLink", downloadService.sourcePageLink(vm.getChapter()).orElse(null));
         return "chapter-view";
     }
@@ -521,6 +522,23 @@ public class ChapterController
             return REDIRECT_CHAPTER + id;
         }
         redirectAttributes.addFlashAttribute("redownloadQueued", id);
+        return REDIRECT_CHAPTER_QUEUE;
+    }
+
+    /**
+     * Refused for a chapter that is complete, already in the queue or from no known source. The button is hidden
+     * then, but a page left open while the download went on can still post it.
+     */
+    @PostMapping("/{id:\\d+}/resume-download")
+    public String resumeDownload(@PathVariable int id, RedirectAttributes redirectAttributes)
+    {
+        if (!downloadService.resumeDownload(chapterService.get(id)))
+        {
+            redirectAttributes.addFlashAttribute("redownloadError", "Nothing to download: this chapter is "
+                    + "complete, already in the download queue, or from a site this app cannot download from.");
+            return REDIRECT_CHAPTER + id;
+        }
+        redirectAttributes.addFlashAttribute("resumeQueued", id);
         return REDIRECT_CHAPTER_QUEUE;
     }
 

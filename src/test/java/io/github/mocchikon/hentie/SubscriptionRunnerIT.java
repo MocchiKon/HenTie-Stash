@@ -195,8 +195,8 @@ class SubscriptionRunnerIT
     }
 
     /**
-     * What the library has, what was downloaded before and deleted since (downloaded_gallery), and a download never
-     * finished are never queued; a link the user pasted keeps its row and its choices.
+     * What the library has and what was downloaded before and deleted since (downloaded_gallery) are never queued; a
+     * download never finished is, to fetch what it misses; a link the user pasted keeps its row and its choices.
      */
     @Test
     void shouldPassOverWhatTheLibraryHasAndNeverTouchAPastedRow()
@@ -217,12 +217,36 @@ class SubscriptionRunnerIT
                 .extracting(DownloadQueueItem::getGalleryId, DownloadQueueItem::getPriority,
                         DownloadQueueItem::getSubscriptionId, DownloadQueueItem::getCompressionMode)
                 .containsExactlyInAnyOrder(tuple("nhentai:2", DownloadQueueItem.ASKED_FOR, null, "LOSSLESS"),
+                        tuple("nhentai:3", DownloadQueueItem.FROM_SUBSCRIPTION, id, BuiltInCompressionMode.RULES_KEY),
                         tuple("nhentai:1", DownloadQueueItem.FROM_SUBSCRIPTION, id, BuiltInCompressionMode.RULES_KEY));
         Subscription walked = reload(id);
-        assertThat(walked.getQueuedCount()).isEqualTo(1);
-        assertThat(walked.getInLibraryCount()).isEqualTo(2);
+        assertThat(walked.getQueuedCount()).isEqualTo(2);
+        assertThat(walked.getInLibraryCount()).isEqualTo(1);
         assertThat(walked.getDeletedSinceCount()).isEqualTo(1);
         assertThat(walked.getAlreadyQueuedCount()).isEqualTo(1);
+    }
+
+    /** A failed row waits for the user's decision, even for a download never finished. */
+    @Test
+    void shouldLeaveTheFailedRowOfAnUnfinishedDownloadAlone()
+    {
+        // GIVEN an unfinished chapter whose pasted download failed
+        searchable(1, 1, Duration.ofHours(5));
+        chapter("nhentai:1", DownloadStatus.PENDING);
+        queueService.enqueue(List.of("nhentai:1"), new DownloadChoices("LOSSLESS", false, false, TestDownloads.PLAIN_GALLERY_DL));
+        DownloadQueueItem failed = queueRepository.findFirstByGalleryIdOrderByIdAsc("nhentai:1").orElseThrow();
+        failed.setError("failed");
+        queueRepository.save(failed);
+        int id = subscribe("nhentai", "q");
+
+        // WHEN
+        runAll();
+
+        // THEN
+        assertThat(queueRepository.findAll())
+                .extracting(DownloadQueueItem::getGalleryId, DownloadQueueItem::getError, DownloadQueueItem::getSubscriptionId)
+                .containsExactly(tuple("nhentai:1", "failed", null));
+        assertThat(reload(id).getAlreadyQueuedCount()).isOne();
     }
 
     /**

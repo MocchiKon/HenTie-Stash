@@ -468,6 +468,12 @@ the pipeline hands it (gallery-dl's run folder, see "gallery-dl").
   - **A chapter is `PENDING` before its first page lands**, also one filled from empty (`NONE`, or
     `SUCCESSFUL` with every page deleted). Otherwise a crash or a failed attempt would leave it half-filled for
     good. The lossless re-download is exempt: its queue row repeats the whole replacement.
+- **An incomplete download is finished from its chapter page** ("Download again", `DownloadService.resumeDownload`),
+  offered only for a `PENDING` chapter whose gallery id names a known source and that has **no waiting row** (the
+  running item keeps its row, so that also covers a download in progress; the page says "In download queue"
+  instead). A failed row is retried strictly with its own choices; without a row a new one continues in the
+  chapter's recorded mode (the pages already there keep one mode), else Settings' mode. A paste, "Download all
+  favourites" and subscriptions reach a `PENDING` chapter too (see "Subscriptions").
 - **Nothing becomes `SUCCESSFUL` without pages.** A source listing no pages is a **transient** failure (it
   may serve metadata before images), so the item ends in the Failed list with the chapter still
   `PENDING`, where the user can see and retry it.
@@ -790,11 +796,12 @@ decides** — a `SearchSource` never touches the database. Manage → Chapters �
   afresh there, and the page is **dropped** if the subscription is gone, paused, or its `revision` changed (another
   site or query, "Start over"): a page fetched for the old walk must never move the new one. Never `save()` a
   detached `Subscription`; it is `@DynamicUpdate`, so an edit and a step never undo each other's columns.
-- **Never queued**: a gallery in the library; one in `downloaded_gallery`, which covers one downloaded and deleted
-  since and one whose download never finished (`recordDownloaded` runs before its pages); one with a queue row of
-  any kind (a paste's choices stay its own; a failed row waits for the user); one the site marks blacklisted.
-  Removing a row is not remembered, so a re-check or another subscription may queue it again; a paste always
-  downloads. **The exception is an upgrade** (see "Image compression rules"): a gallery in the library that the
+- **Never queued**: a gallery in the library; one in `downloaded_gallery` without a chapter (downloaded and deleted
+  since); one with a queue row of any kind (a paste's choices stay its own; a failed row waits for the user); one
+  the site marks blacklisted. Removing a row is not remembered, so a re-check or another subscription may queue it
+  again; a paste always downloads. **A `PENDING` chapter is queued** (`Holding.UNFINISHED`, counted as queued) unless
+  a row of any kind is there: nothing else would ever fetch its missing pages, and a waiting row means it is being
+  finished. **The other exception is an upgrade** (see "Image compression rules"): a gallery in the library that the
   rules give a better mode than its pages have, and allow to upgrade, is queued again, decided from the chapter's
   stored mode and metadata, so passing the library costs no request to the site. Counted in `upgrade_count`, each
   time one is queued.

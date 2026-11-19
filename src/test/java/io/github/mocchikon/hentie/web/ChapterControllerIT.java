@@ -368,6 +368,167 @@ class ChapterControllerIT
         assertThat(finishedHtml).doesNotContain("Incomplete download");
     }
 
+    // --- Incomplete downloads: "Download again" ------------------------------------
+
+    /** Asserted on the markup, since a model value would not catch a template that never shows the button. */
+    @Test
+    void shouldOfferToDownloadAnIncompleteChapterAgainOnlyWhileNothingInTheQueueWouldFinishIt() throws Exception
+    {
+        // GIVEN two incomplete chapters from the mock source, one with a waiting row
+        int idle = newChapter("chw-resume-idle", "mock:chw-resume-idle");
+        chapterService.setDownloadStatus(idle, DownloadStatus.PENDING);
+        int queued = newChapter("chw-resume-queued", "mock:chw-resume-queued");
+        chapterService.setDownloadStatus(queued, DownloadStatus.PENDING);
+        DownloadQueueItem waiting = queueRow("mock:chw-resume-queued", null);
+        try
+        {
+            // WHEN
+            String idleHtml = mvc.perform(get("/chapter/" + idle).with(user("user")))
+                    .andExpect(status().isOk())
+                    .andExpect(model().attribute("incompleteDownload", "CAN_RESUME"))
+                    .andReturn().getResponse().getContentAsString();
+            String queuedHtml = mvc.perform(get("/chapter/" + queued).with(user("user")))
+                    .andExpect(status().isOk())
+                    .andExpect(model().attribute("incompleteDownload", "WAITING"))
+                    .andReturn().getResponse().getContentAsString();
+
+            // THEN only the idle one offers the button; the queued one says where it is
+            assertThat(idleHtml).contains("action=\"/chapter/" + idle + "/resume-download\"")
+                    .contains("Download again").doesNotContain("In download queue");
+            assertThat(queuedHtml).doesNotContain("Download again").contains("In download queue");
+        }
+        finally
+        {
+            downloadQueueRepository.delete(waiting);
+        }
+    }
+
+    @Test
+    void shouldOfferNothingForAnIncompleteChapterNoSourceCanFetch() throws Exception
+    {
+        // GIVEN
+        int id = newChapter("chw-resume-no-source");
+        chapterService.setDownloadStatus(id, DownloadStatus.PENDING);
+
+        // WHEN + THEN
+        mvc.perform(get("/chapter/" + id).with(user("user")))
+                .andExpect(status().isOk())
+                .andExpect(model().attribute("incompleteDownload", "NO_SOURCE"))
+                .andExpect(content().string(not(containsString("Download again"))));
+    }
+
+    /** Continues in the mode that compressed the pages already there. */
+    @Test
+    void shouldQueueTheMissingPagesOfAnIncompleteChapterWhenTheButtonIsPressed() throws Exception
+    {
+        // GIVEN
+        int id = newChapter("chw-resume-new", "mock:chw-resume-new");
+        chapterService.setDownloadStatus(id, DownloadStatus.PENDING);
+        chapterService.setCompressionMode(id, BuiltInCompressionMode.HIGH_REDUCTION.getKey());
+        try
+        {
+            // WHEN
+            mvc.perform(post("/chapter/" + id + "/resume-download").with(user("user")).with(csrf()))
+                    .andExpect(status().is3xxRedirection())
+                    .andExpect(redirectedUrl("/chapter/queue"))
+                    .andExpect(flash().attribute("resumeQueued", id));
+
+            // THEN
+            DownloadQueueItem item = downloadQueueRepository.findFirstByGalleryIdOrderByIdAsc("mock:chw-resume-new")
+                    .orElseThrow();
+            assertThat(item.getError()).isNull();
+            assertThat(item.isReplacePages()).isFalse();
+            assertThat(item.getPriority()).isEqualTo(DownloadQueueItem.ASKED_FOR);
+            assertThat(item.getCompressionMode()).isEqualTo(BuiltInCompressionMode.HIGH_REDUCTION.getKey());
+            mvc.perform(get("/chapter/queue").with(user("user")).flashAttr("resumeQueued", id))
+                    .andExpect(status().isOk())
+                    .andExpect(content().string(containsString("Queued the missing pages of")));
+        }
+        finally
+        {
+            downloadQueueRepository.findFirstByGalleryIdOrderByIdAsc("mock:chw-resume-new")
+                    .ifPresent(downloadQueueRepository::delete);
+        }
+    }
+
+    /** A failed row is retried as the queue page's Retry would: strictly, with the choices it was queued with. */
+    @Test
+    void shouldRetryTheFailedRowOfAnIncompleteChapterKeepingItsChoices() throws Exception
+    {
+        // GIVEN
+        int id = newChapter("chw-resume-failed", "mock:chw-resume-failed");
+        chapterService.setDownloadStatus(id, DownloadStatus.PENDING);
+        DownloadQueueItem failed = queueRow("mock:chw-resume-failed", "Download failed.");
+        failed.setCompressionMode(BuiltInCompressionMode.LOSSLESS.getKey());
+        failed.setIgnoreImageErrors(true);
+        failed.setAttempts(3);
+        downloadQueueRepository.save(failed);
+        try
+        {
+            // WHEN
+            mvc.perform(post("/chapter/" + id + "/resume-download").with(user("user")).with(csrf()))
+                    .andExpect(redirectedUrl("/chapter/queue"));
+
+            // THEN the same row waits again
+            assertThat(downloadQueueRepository.findAll())
+                    .filteredOn(row -> "mock:chw-resume-failed".equals(row.getGalleryId()))
+                    .singleElement()
+                    .satisfies(row ->
+                    {
+                        assertThat(row.getId()).isEqualTo(failed.getId());
+                        assertThat(row.getError()).isNull();
+                        assertThat(row.getAttempts()).isZero();
+                        assertThat(row.isIgnoreImageErrors()).isFalse();
+                        assertThat(row.getCompressionMode()).isEqualTo(BuiltInCompressionMode.LOSSLESS.getKey());
+                    });
+        }
+        finally
+        {
+            downloadQueueRepository.deleteById(failed.getId());
+        }
+    }
+
+    /** The button is hidden then, but a page left open could still send it. */
+    @Test
+    void shouldRefuseToDownloadAgainAChapterThatIsCompleteOrAlreadyQueued() throws Exception
+    {
+        // GIVEN a finished chapter, and an incomplete one already waiting
+        int finished = newChapter("chw-resume-finished", "mock:chw-resume-finished");
+        chapterService.setDownloadStatus(finished, DownloadStatus.SUCCESSFUL);
+        int queued = newChapter("chw-resume-waiting", "mock:chw-resume-waiting");
+        chapterService.setDownloadStatus(queued, DownloadStatus.PENDING);
+        DownloadQueueItem waiting = queueRow("mock:chw-resume-waiting", null);
+        try
+        {
+            // WHEN + THEN
+            for (int id : List.of(finished, queued))
+            {
+                mvc.perform(post("/chapter/" + id + "/resume-download").with(user("user")).with(csrf()))
+                        .andExpect(redirectedUrl("/chapter/" + id))
+                        .andExpect(flash().attribute("redownloadError", containsString("Nothing to download")));
+            }
+            assertThat(downloadQueueRepository.findFirstByGalleryIdOrderByIdAsc("mock:chw-resume-finished")).isEmpty();
+            assertThat(downloadQueueRepository.findAll())
+                    .filteredOn(row -> "mock:chw-resume-waiting".equals(row.getGalleryId())).hasSize(1);
+        }
+        finally
+        {
+            downloadQueueRepository.delete(waiting);
+        }
+    }
+
+    private DownloadQueueItem queueRow(String galleryId, String error)
+    {
+        var item = new DownloadQueueItem();
+        item.setLink(galleryId);
+        item.setGalleryId(galleryId);
+        item.setCompressionMode(BuiltInCompressionMode.NONE.getKey());
+        item.setRequestDelay(TestDownloads.PLAIN_GALLERY_DL.delay());
+        item.setError(error);
+        item.setQueuedAt(java.time.LocalDateTime.now());
+        return downloadQueueRepository.save(item);
+    }
+
     // --- Compressed chapters: the label and the lossless re-download ---------------
 
     /** Asserted on the markup, since a model flag would not catch a template that never shows them. */

@@ -35,6 +35,10 @@
             th:text="'chapter ' + ${redownloadQueued}">chapter 1</a>. Its current pages are replaced once the
         new ones have arrived.
     </div>
+    <div th:if="${resumeQueued != null}" class="alert ok">
+        Queued the missing pages of <a th:href="@{/chapter/{id}(id=${resumeQueued})}"
+            th:text="'chapter ' + ${resumeQueued}">chapter 1</a>.
+    </div>
     <div th:if="${retriedCount != null}" class="alert ok">
         <span th:text="${retriedCount}">0</span> failed item(s) put back in the queue<span
             th:if="${retriedIgnoringImageErrors}">, keeping whatever pages download</span>.

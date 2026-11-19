@@ -7,7 +7,7 @@
 <main class="container narrow guide">
     <h1>Guide</h1>
     <p class="hint">How to reach HenTie from other devices, how to set up ComfyUI, how image compression rules
-        work, and what statuses and favourites mean.</p>
+        work, how to finish an incomplete download, and what statuses and favourites mean.</p>
 
     <nav class="guide-toc" aria-label="Contents">
         <ol>
@@ -39,6 +39,7 @@
                     <li><a href="#compression-rules-values">Renaming, merging or deleting</a></li>
                 </ol>
             </li>
+            <li><a href="#incomplete-downloads">Incomplete downloads</a></li>
             <li><a href="#statuses">Statuses and favourites</a></li>
         </ol>
     </nav>
@@ -490,6 +491,21 @@ exec python main.py --listen 127.0.0.1 --port 8188</pre>
     <h3 id="compression-rules-values">Renaming, merging or deleting</h3>
     <p>Renaming or merging an artist, tag or other value on the Manage page keeps its rules working. Deleting one
         stops the rules that list it; the rules page marks them so you can fix them.</p>
+
+    <!-- ===================================================================================== -->
+    <h2 class="section-title" id="incomplete-downloads">Incomplete downloads</h2>
+    <p>A chapter marked <strong>Incomplete download</strong> is missing pages: its download stopped before the end,
+        for example because the app was closed or the site failed.</p>
+    <ul>
+        <li>Click <strong>Download again</strong> on the chapter page to get the missing pages. The pages you
+            already have stay.</li>
+        <li>If the page says <strong>In download queue</strong>, nothing needs doing: the download will finish the
+            chapter.</li>
+        <li>Pasting the chapter's link on the Download page, a subscription that finds it, or
+            <strong>Download all favourites</strong> also gets the missing pages.</li>
+        <li>If the download failed, it is on the queue page's Failed list. Download again retries it; a subscription
+            leaves it there for you.</li>
+    </ul>
 
     <!-- ===================================================================================== -->
     <h2 class="section-title" id="statuses">Statuses and favourites</h2>

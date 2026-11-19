@@ -656,9 +656,14 @@ public class SubscriptionService
                 links.put(galleryId, source.link(gallery.resourceId()));
                 upgrades.add(galleryId);
             }
+            else if (held != null && held.is(GalleryImportService.Holding.UNFINISHED))
+            {
+                // Queued to fetch what it misses, unless a row of any kind is there: a waiting one finishes it, a
+                // failed one waits for the user. Counted as queued, since it downloads pages.
+                links.put(galleryId, source.link(gallery.resourceId()));
+            }
             else if (held != null)
             {
-                // In the library, or downloaded once and never finished: either way in downloaded_gallery or a chapter.
                 count(gallery, () -> subscription.setInLibraryCount(subscription.getInLibraryCount() + 1));
             }
             else

@@ -35,9 +35,11 @@
                 <span th:if="${compressedWith != null}" class="badge"
                       title="Pages of this chapter were re-encoded with this Image Compression mode"
                       th:text="'Compressed: ' + ${compressedWith}">Compressed</span>
-                <!-- A download this app started and never finished; queueing the link again completes it. -->
+                <!-- A download this app started and never finished; the button below completes it. -->
                 <span th:if="${vm.downloadIncomplete}" class="badge incomplete"
-                      title="A download of this chapter was interrupted - queue its link again to finish it">Incomplete download</span>
+                      th:title="${incompleteDownload == 'WAITING'} ? 'Some pages are missing. The download queue will get them.' : (${incompleteDownload == 'CAN_RESUME'} ? 'Some pages are missing. Click Download again to get them.' : 'Some pages are missing, and this app cannot download from its site.')">Incomplete download</span>
+                <a th:if="${incompleteDownload == 'WAITING'}" class="badge" th:href="@{/chapter/queue}"
+                   title="Open the download queue">In download queue</a>
                 <span th:if="${vm.chapter.uploadDate}" class="meta-date" th:text="${vm.chapter.uploadDate}">date</span>
                 <!-- noreferrer: the source has no business learning this app's address on the LAN. -->
                 <a th:if="${sourcePageLink != null}" class="meta-gallery" th:href="${sourcePageLink}"
@@ -66,6 +68,12 @@
                 </div>
                 <a class="btn btn-accent" th:unless="${vm.hasSeries()}"
                    th:href="@{/chapter/{id}/add-to-series(id=${vm.chapter.id})}">Add to series</a>
+                <!-- Only while no queue row would finish it; it lands on the queue. -->
+                <form th:if="${incompleteDownload == 'CAN_RESUME'}" class="inline-form" method="post"
+                      th:action="@{/chapter/{id}/resume-download(id=${vm.chapter.id})}">
+                    <button type="submit" class="btn btn-accent"
+                            title="Download the missing pages. The pages you have stay.">Download again</button>
+                </form>
                 <!-- Only for a compressed chapter from a source the app can fetch from; it lands on the queue. -->
                 <form th:if="${canRedownloadLossless}" class="inline-form" method="post"
                       th:action="@{/chapter/{id}/redownload(id=${vm.chapter.id})}">

@@ -269,6 +269,56 @@ public class DownloadQueueService
     }
 
     /**
+     * Whether a row for the gallery waits or runs. The running item keeps its row until it ends, so this also
+     * covers a download in progress; a failed row does not count.
+     */
+    @Transactional(readOnly = true)
+    public boolean isWaiting(String galleryId)
+    {
+        return repository.existsByGalleryIdAndErrorIsNull(galleryId);
+    }
+
+    /**
+     * Finishes an incomplete download at the user's request. A waiting row is left alone (it will finish the
+     * chapter anyway); a failed one is retried strictly with the choices it had, as the queue page's Retry does;
+     * without a row one is queued with {@code choices}.
+     *
+     * @return false when a row was already waiting, so nothing changed
+     */
+    @Transactional
+    public boolean resume(String link, String galleryId, DownloadChoices choices)
+    {
+        Optional<DownloadQueueItem> existing = repository.findFirstByGalleryIdOrderByIdAsc(galleryId);
+        if (existing.isPresent())
+        {
+            DownloadQueueItem item = existing.get();
+            if (item.getError() == null)
+            {
+                return false;
+            }
+            item.setError(null);
+            item.setAttempts(0);
+            item.setIgnoreImageErrors(false);
+            item.setRejectedDuplicate(false);
+            item.setDuplicateChapterId(null);
+            claim(item);
+            repository.save(item);
+            return true;
+        }
+        String mode = modeService.storableDownloadKey(choices.compressionMode());
+        var item = new DownloadQueueItem();
+        item.setLink(link);
+        item.setGalleryId(galleryId);
+        item.setCompressionMode(mode);
+        item.setAllowUpgrade(allowsUpgrade(mode, choices));
+        item.setAvoidDuplicateTitles(choices.avoidDuplicateTitles());
+        setGalleryDlOptions(item, choices.galleryDl());
+        item.setQueuedAt(LocalDateTime.now());
+        repository.save(item);
+        return true;
+    }
+
+    /**
      * Skips a subscription's rows of a source refusing every download meanwhile (a ban it sits out): they wait for it
      * to end instead of failing one after the other. A row the user asked for still runs and fails at once, saying
      * why: the user is there to read it and decide.
