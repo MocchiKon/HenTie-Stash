@@ -16,7 +16,13 @@ public final class TestDownloads
 
     public static DownloadChoices choices(String compressionMode, boolean avoidDuplicateTitles)
     {
-        return new DownloadChoices(compressionMode, false, avoidDuplicateTitles, PLAIN_GALLERY_DL);
+        return new DownloadChoices(compressionMode, false, avoidDuplicateTitles, false, PLAIN_GALLERY_DL);
+    }
+
+    /** The duplicate-title check on, merging a duplicate's metadata into the chapter instead of refusing it. */
+    public static DownloadChoices mergingDuplicates(String compressionMode)
+    {
+        return new DownloadChoices(compressionMode, false, true, true, PLAIN_GALLERY_DL);
     }
 
     /** A queue row built by hand, with the gallery-dl choices every queued row carries ({@link #PLAIN_GALLERY_DL}). */

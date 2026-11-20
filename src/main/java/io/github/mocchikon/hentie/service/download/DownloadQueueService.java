@@ -59,6 +59,7 @@ public class DownloadQueueService
         String mode = modeService.storableDownloadKey(choices.compressionMode());
         boolean allowUpgrade = allowsUpgrade(mode, choices);
         boolean avoidDuplicateTitles = choices.avoidDuplicateTitles();
+        boolean mergeDuplicateMetadata = choices.mergeDuplicateMetadata();
         GalleryDlOptions galleryDl = choices.galleryDl();
         int accepted = 0;
         int requeued = 0;
@@ -89,7 +90,9 @@ public class DownloadQueueService
                     item.setCompressionMode(mode);
                     item.setAllowUpgrade(allowUpgrade);
                     item.setAvoidDuplicateTitles(avoidDuplicateTitles);
+                    item.setMergeDuplicateMetadata(mergeDuplicateMetadata);
                     item.setRejectedDuplicate(false);
+                    item.setMergedDuplicate(false);
                     item.setDuplicateChapterId(null);
                     item.setReplacePages(false);
                     setGalleryDlOptions(item, galleryDl);
@@ -101,12 +104,14 @@ public class DownloadQueueService
                 {
                     // A waiting row takes this paste's choices too; a running attempt keeps its own.
                     if (!mode.equals(item.getCompressionMode()) || item.isAllowUpgrade() != allowUpgrade
-                            || item.isAvoidDuplicateTitles() != avoidDuplicateTitles || item.isReplacePages()
+                            || item.isAvoidDuplicateTitles() != avoidDuplicateTitles
+                            || item.isMergeDuplicateMetadata() != mergeDuplicateMetadata || item.isReplacePages()
                             || !StoredGalleryDl.of(item).equals(StoredGalleryDl.of(galleryDl)) || !isClaimed(item))
                     {
                         item.setCompressionMode(mode);
                         item.setAllowUpgrade(allowUpgrade);
                         item.setAvoidDuplicateTitles(avoidDuplicateTitles);
+                        item.setMergeDuplicateMetadata(mergeDuplicateMetadata);
                         item.setReplacePages(false);
                         setGalleryDlOptions(item, galleryDl);
                         claim(item);
@@ -124,6 +129,7 @@ public class DownloadQueueService
             item.setCompressionMode(mode);
             item.setAllowUpgrade(allowUpgrade);
             item.setAvoidDuplicateTitles(avoidDuplicateTitles);
+            item.setMergeDuplicateMetadata(mergeDuplicateMetadata);
             setGalleryDlOptions(item, galleryDl);
             item.setQueuedAt(LocalDateTime.now());
             repository.save(item);
@@ -174,6 +180,7 @@ public class DownloadQueueService
             item.setCompressionMode(mode);
             item.setAllowUpgrade(allowUpgrade);
             item.setAvoidDuplicateTitles(choices.avoidDuplicateTitles());
+            item.setMergeDuplicateMetadata(choices.mergeDuplicateMetadata());
             setGalleryDlOptions(item, choices.galleryDl());
             item.setPriority(DownloadQueueItem.FROM_SUBSCRIPTION);
             item.setSubscriptionId(subscriptionId);
@@ -261,7 +268,9 @@ public class DownloadQueueService
         item.setCompressionMode(modeKey);
         item.setAllowUpgrade(false);
         item.setAvoidDuplicateTitles(false);
+        item.setMergeDuplicateMetadata(false);
         item.setRejectedDuplicate(false);
+        item.setMergedDuplicate(false);
         item.setDuplicateChapterId(null);
         item.setReplacePages(true);
         setGalleryDlOptions(item, galleryDl);
@@ -301,6 +310,7 @@ public class DownloadQueueService
             item.setAttempts(0);
             item.setIgnoreImageErrors(false);
             item.setRejectedDuplicate(false);
+            item.setMergedDuplicate(false);
             item.setDuplicateChapterId(null);
             claim(item);
             repository.save(item);
@@ -313,6 +323,7 @@ public class DownloadQueueService
         item.setCompressionMode(mode);
         item.setAllowUpgrade(allowsUpgrade(mode, choices));
         item.setAvoidDuplicateTitles(choices.avoidDuplicateTitles());
+        item.setMergeDuplicateMetadata(choices.mergeDuplicateMetadata());
         setGalleryDlOptions(item, choices.galleryDl());
         item.setQueuedAt(LocalDateTime.now());
         repository.save(item);
@@ -407,6 +418,35 @@ public class DownloadQueueService
         return true;
     }
 
+    /**
+     * Keeps the row as the record of a merged duplicate, on its own list, unless it was rewritten while running (as
+     * {@link #complete}). A row removed meanwhile stays removed.
+     *
+     * @param message   what clashed and that the metadata was merged
+     * @param chapterId the chapter the metadata went to, which the list links to
+     * @return false when the row stays queued for the changed request
+     */
+    @Transactional
+    public boolean recordMerged(DownloadQueueItem merged, String message, int chapterId)
+    {
+        DownloadQueueItem item = repository.findById(merged.getId()).orElse(null);
+        if (item == null)
+        {
+            return true;
+        }
+        if (requestChanged(item, merged))
+        {
+            return false;
+        }
+        item.setError(StringUtils.abbreviate(message, 2000));
+        item.setMergedDuplicate(true);
+        item.setRejectedDuplicate(false);
+        item.setDuplicateChapterId(chapterId);
+        item.setNeedsLogin(false);
+        repository.save(item);
+        return true;
+    }
+
     /** Field by field rather than a version column: a row rewritten to the same choices asks for nothing new. */
     private static boolean requestChanged(DownloadQueueItem row, DownloadQueueItem attempted)
     {
@@ -414,6 +454,7 @@ public class DownloadQueueService
                 || row.isAllowUpgrade() != attempted.isAllowUpgrade()
                 || row.isIgnoreImageErrors() != attempted.isIgnoreImageErrors()
                 || row.isAvoidDuplicateTitles() != attempted.isAvoidDuplicateTitles()
+                || row.isMergeDuplicateMetadata() != attempted.isMergeDuplicateMetadata()
                 || !Objects.equals(row.getCompressionMode(), attempted.getCompressionMode())
                 || !StoredGalleryDl.of(row).equals(StoredGalleryDl.of(attempted));
     }
@@ -458,6 +499,7 @@ public class DownloadQueueService
             item.setChapterId(chapterId);
         }
         item.setRejectedDuplicate(rejectedDuplicate);
+        item.setMergedDuplicate(false);
         item.setDuplicateChapterId(rejectedDuplicate ? duplicateChapterId : null);
         item.setNeedsLogin(needsLogin);
         boolean giveUp = permanent || item.getAttempts() >= maxAttempts;
@@ -475,17 +517,23 @@ public class DownloadQueueService
         return repository.countByErrorIsNull();
     }
 
-    /** Downloads that went wrong; rejected duplicates are counted on their own list. */
+    /** Downloads that went wrong; rejected and merged duplicates are counted on their own lists. */
     @Transactional(readOnly = true)
     public long failedCount()
     {
-        return repository.countByErrorIsNotNullAndRejectedDuplicateFalse();
+        return repository.countByErrorIsNotNullAndRejectedDuplicateFalseAndMergedDuplicateFalse();
     }
 
     @Transactional(readOnly = true)
     public long rejectedCount()
     {
         return repository.countByErrorIsNotNullAndRejectedDuplicateTrue();
+    }
+
+    @Transactional(readOnly = true)
+    public long mergedCount()
+    {
+        return repository.countByErrorIsNotNullAndMergedDuplicateTrue();
     }
 
     /** In the order the worker takes them, so the list shows what runs next. */
@@ -498,7 +546,8 @@ public class DownloadQueueService
     @Transactional(readOnly = true)
     public List<DownloadQueueItem> failed()
     {
-        return repository.findByErrorIsNotNullAndRejectedDuplicateFalseOrderByPriorityAscIdAsc(Limit.of(LIST_LIMIT));
+        return repository.findByErrorIsNotNullAndRejectedDuplicateFalseAndMergedDuplicateFalseOrderByPriorityAscIdAsc(
+                Limit.of(LIST_LIMIT));
     }
 
     /** The duplicate-title check's refusals, apart from the downloads that failed. */
@@ -506,6 +555,13 @@ public class DownloadQueueService
     public List<DownloadQueueItem> rejectedDuplicates()
     {
         return repository.findByErrorIsNotNullAndRejectedDuplicateTrueOrderByPriorityAscIdAsc(Limit.of(LIST_LIMIT));
+    }
+
+    /** Galleries whose metadata went to the chapter that has their title, instead of being downloaded. */
+    @Transactional(readOnly = true)
+    public List<DownloadQueueItem> mergedDuplicates()
+    {
+        return repository.findByErrorIsNotNullAndMergedDuplicateTrueOrderByPriorityAscIdAsc(Limit.of(LIST_LIMIT));
     }
 
     @Transactional(readOnly = true)
@@ -517,7 +573,8 @@ public class DownloadQueueService
     @Transactional(readOnly = true)
     public long failedFor(int subscriptionId)
     {
-        return repository.countBySubscriptionIdAndErrorIsNotNullAndRejectedDuplicateFalse(subscriptionId);
+        return repository.countBySubscriptionIdAndErrorIsNotNullAndRejectedDuplicateFalseAndMergedDuplicateFalse(
+                subscriptionId);
     }
 
     /** Waiting rows per subscription id, every subscription in one query. */
@@ -552,10 +609,12 @@ public class DownloadQueueService
 
     /**
      * The duplicate-title check is kept unless {@code allowDuplicateTitle} clears it, and never turned on:
-     * that is a decision made on the paste form. Either way the row is no longer a rejected duplicate.
+     * that is a decision made on the paste form. {@code mergeMetadata} is for a row that has the check (a rejected
+     * duplicate): its gallery then gives its metadata to the chapter it clashes with. Either way the row is no longer
+     * a rejected or merged duplicate.
      */
     @Transactional
-    public boolean retry(int id, boolean ignoreImageErrors, boolean allowDuplicateTitle)
+    public boolean retry(int id, boolean ignoreImageErrors, boolean allowDuplicateTitle, boolean mergeMetadata)
     {
         DownloadQueueItem item = repository.findById(id).orElse(null);
         if (item == null)
@@ -565,11 +624,17 @@ public class DownloadQueueService
         item.setError(null);
         item.setAttempts(0);
         item.setRejectedDuplicate(false);
+        item.setMergedDuplicate(false);
         item.setDuplicateChapterId(null);
         item.setIgnoreImageErrors(ignoreImageErrors);
         if (allowDuplicateTitle)
         {
             item.setAvoidDuplicateTitles(false);
+            item.setMergeDuplicateMetadata(false);
+        }
+        else if (mergeMetadata && item.isAvoidDuplicateTitles())
+        {
+            item.setMergeDuplicateMetadata(true);
         }
         repository.save(item);
         return true;
@@ -606,6 +671,16 @@ public class DownloadQueueService
         return repository.retryRejected();
     }
 
+    /**
+     * Retries every rejected duplicate merging its metadata into the chapter it clashes with. One that clashed only
+     * with a past download is refused again: there is no chapter to merge into.
+     */
+    @Transactional
+    public int retryRejectedMerging()
+    {
+        return repository.retryRejectedMerging();
+    }
+
     @Transactional
     public int deleteFailed()
     {
@@ -618,6 +693,13 @@ public class DownloadQueueService
     {
         repository.rejectedChapterIds().forEach(imageService::discardStagedPages);
         return repository.deleteRejected();
+    }
+
+    /** Only the records go: a merge downloaded nothing, so there is no staging to discard. */
+    @Transactional
+    public int deleteMerged()
+    {
+        return repository.deleteMerged();
     }
 
     /**

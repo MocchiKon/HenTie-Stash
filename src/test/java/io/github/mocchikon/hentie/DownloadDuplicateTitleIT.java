@@ -2,18 +2,27 @@ package io.github.mocchikon.hentie;
 
 import io.github.mocchikon.hentie.dto.BuiltInCompressionMode;
 import io.github.mocchikon.hentie.dto.ChapterForm;
+import io.github.mocchikon.hentie.dto.MetadataType;
+import io.github.mocchikon.hentie.dto.SeriesForm;
 import io.github.mocchikon.hentie.entity.Chapter;
 import io.github.mocchikon.hentie.entity.DownloadQueueItem;
 import io.github.mocchikon.hentie.entity.DownloadStatus;
 import io.github.mocchikon.hentie.entity.DownloadedGallery;
+import io.github.mocchikon.hentie.entity.Status;
+import io.github.mocchikon.hentie.entity.Tag;
 import io.github.mocchikon.hentie.repository.ChapterRepository;
 import io.github.mocchikon.hentie.repository.DownloadQueueRepository;
 import io.github.mocchikon.hentie.repository.DownloadedGalleryRepository;
+import io.github.mocchikon.hentie.repository.SeriesRepository;
 import io.github.mocchikon.hentie.repository.TagRepository;
 import io.github.mocchikon.hentie.scrapper.DataDownloaderRegistry;
 import io.github.mocchikon.hentie.service.ChapterService;
 import io.github.mocchikon.hentie.service.ImageService;
+import io.github.mocchikon.hentie.service.MetadataService;
+import io.github.mocchikon.hentie.service.SeriesService;
+import io.github.mocchikon.hentie.service.download.DownloadChoices;
 import io.github.mocchikon.hentie.service.download.DownloadQueueService;
+import io.github.mocchikon.hentie.service.download.DownloadStatistics;
 import io.github.mocchikon.hentie.service.download.DownloadWorker;
 import io.github.mocchikon.hentie.service.download.GalleryImportService;
 import jakarta.persistence.EntityManager;
@@ -62,6 +71,10 @@ class DownloadDuplicateTitleIT
     @Autowired DownloadedGalleryRepository downloadedGalleryRepository;
     @Autowired TagRepository tagRepository;
     @Autowired ImageService imageService;
+    @Autowired MetadataService metadataService;
+    @Autowired SeriesService seriesService;
+    @Autowired SeriesRepository seriesRepository;
+    @Autowired DownloadStatistics statistics;
     @PersistenceContext EntityManager em;
 
     @BeforeEach
@@ -250,7 +263,7 @@ class DownloadDuplicateTitleIT
         try
         {
             // WHEN it is retried.
-            assertThat(queueService.retry(item.getId(), false, false)).isTrue();
+            assertThat(queueService.retry(item.getId(), false, false, false)).isTrue();
             em.flush();
             em.clear();
             assertThat(queueRepository.findById(item.getId()).orElseThrow().isAvoidDuplicateTitles()).isTrue();
@@ -296,7 +309,7 @@ class DownloadDuplicateTitleIT
         try
         {
             // WHEN it is retried allowing the duplicate title.
-            assertThat(queueService.retry(item.getId(), false, true)).isTrue();
+            assertThat(queueService.retry(item.getId(), false, true, false)).isTrue();
             em.flush();
             em.clear();
 
@@ -461,14 +474,327 @@ class DownloadDuplicateTitleIT
         assertThat(queueRepository.findById(item.getId()).orElseThrow().isAvoidDuplicateTitles()).isFalse();
     }
 
+    // ---- language ------------------------------------------------------------
+
+    /** The same title in another language is a translation, not the same gallery. */
+    @Test
+    void shouldDownloadTheGalleryWhenTheChapterHoldingTheTitleIsInAnotherLanguage()
+    {
+        // GIVEN a Japanese chapter from another source with the English gallery's title.
+        chapter(TITLE, "other:1", "Japanese");
+        queueService.enqueue(List.of("mock:9500"), TestDownloads.choices(NO_COMPRESSION, true));
+        Integer chapterId = null;
+        try
+        {
+            // WHEN
+            worker.processNext();
+            em.flush();
+
+            // THEN it is downloaded as a chapter of its own.
+            chapterId = downloaded("mock:9500");
+            assertThat(queueService.rejectedCount()).isZero();
+        }
+        finally
+        {
+            cleanUp(chapterId);
+        }
+    }
+
+    @Test
+    void shouldDownloadTheGalleryWhenOnlyAPastDownloadInAnotherLanguageHasTheTitle()
+    {
+        // GIVEN a past download from another source with the title, recorded in Japanese.
+        int gone = chapter("[Dup] Some other chapter 9500", "other:3");
+        var record = new DownloadedGallery();
+        record.setGalleryId("other:3");
+        record.setChapterId(gone);
+        record.setTitleFull(TITLE);
+        record.setLanguage("Japanese");
+        record.setDownloadedAt(LocalDateTime.now());
+        downloadedGalleryRepository.save(record);
+        queueService.enqueue(List.of("mock:9500"), TestDownloads.choices(NO_COMPRESSION, true));
+        Integer chapterId = null;
+        try
+        {
+            // WHEN
+            worker.processNext();
+            em.flush();
+
+            // THEN
+            chapterId = downloaded("mock:9500");
+        }
+        finally
+        {
+            cleanUp(chapterId);
+        }
+    }
+
+    // ---- merging metadata --------------------------------------------------------
+
+    /**
+     * Nothing is downloaded: the gallery's tag goes to the chapter that has the title, which keeps its own, and the
+     * row stays as the record of the merge, on a list of its own.
+     */
+    @Test
+    void shouldMergeTheMetadataIntoTheChapterHoldingTheTitleInsteadOfRefusingIt()
+    {
+        // GIVEN a chapter from another source with the title and a tag of its own, and the link queued to merge.
+        Tag own = tag("dup-own-tag-9500");
+        int holder = chapter(TITLE, "other:1");
+        addTag(holder, own);
+        long chaptersSavedBefore = statistics.snapshot().sinceStart().chaptersSaved();
+        long pagesSavedBefore = statistics.snapshot().sinceStart().pagesSaved();
+        queueService.enqueue(List.of("mock:9500"), TestDownloads.mergingDuplicates(NO_COMPRESSION));
+
+        // WHEN the worker takes it.
+        assertThat(worker.processNext()).isTrue();
+        em.flush();
+        em.clear();
+
+        // THEN the row is a merged duplicate naming the chapter, neither failed nor rejected, and runs no more.
+        DownloadQueueItem item = queueRepository.findByLink("mock:9500").orElseThrow();
+        assertThat(item.isMergedDuplicate()).isTrue();
+        assertThat(item.isRejectedDuplicate()).isFalse();
+        assertThat(item.getDuplicateChapterId()).isEqualTo(holder);
+        assertThat(item.getError()).startsWith("Chapter " + holder + " (from other:1)").contains(TITLE, "English",
+                "merged");
+        assertThat(queueService.nextPending()).isEmpty();
+        assertThat(queueService.failedCount()).isZero();
+        assertThat(queueService.rejectedCount()).isZero();
+        assertThat(queueService.mergedCount()).isEqualTo(1);
+        assertThat(queueService.mergedDuplicates()).extracting(DownloadQueueItem::getId).containsExactly(item.getId());
+        assertThat(queueService.failed()).isEmpty();
+        // AND the chapter has both tags, and is otherwise as it was: no pages, never a download.
+        Chapter merged = chapterRepository.findById(holder).orElseThrow();
+        assertThat(merged.getTags()).extracting(Tag::getName)
+                .containsExactlyInAnyOrder("dup-own-tag-9500", "dup-only-tag-9500");
+        assertThat(merged.getTitleFull()).isEqualTo(TITLE);
+        assertThat(merged.getGalleryId()).isEqualTo("other:1");
+        assertThat(merged.getDownloadStatus()).isEqualTo(DownloadStatus.NONE);
+        assertThat(merged.getPageNum()).isZero();
+        assertThat(merged.getCompressionMode()).isNull();
+        // AND the gallery left no chapter and no download record, and the speed table counts nothing for it.
+        assertThat(chapterRepository.findByGalleryId("mock:9500")).isEmpty();
+        assertThat(downloadedGalleryRepository.findById("mock:9500")).isEmpty();
+        assertThat(statistics.snapshot().sinceStart().chaptersSaved()).isEqualTo(chaptersSavedBefore);
+        assertThat(statistics.snapshot().sinceStart().pagesSaved()).isEqualTo(pagesSavedBefore);
+    }
+
+    /** Series search filters on the materialized effective tags, which a merge must bring up to date. */
+    @Test
+    void shouldGiveTheMergedTagsToTheSeriesOfTheChapterHoldingTheTitle()
+    {
+        // GIVEN the chapter in a series.
+        int holder = chapter(TITLE, "other:1");
+        var form = new SeriesForm();
+        form.setTitleFull("Dup series 9500");
+        form.setStatus(Status.REVIEWED);
+        int seriesId = seriesService.create(form);
+        seriesService.addChapters(seriesId, List.of(holder));
+        em.flush();
+        queueService.enqueue(List.of("mock:9500"), TestDownloads.mergingDuplicates(NO_COMPRESSION));
+
+        // WHEN
+        worker.processNext();
+        em.flush();
+        em.clear();
+
+        // THEN
+        assertThat(seriesRepository.findById(seriesId).orElseThrow().getEffectiveTags()).extracting(Tag::getName)
+                .contains("dup-only-tag-9500");
+    }
+
+    /** Merged names go through the import's resolution, so a rule the user made applies to them too. */
+    @Test
+    void shouldApplyTheMetadataRulesToTheMergedNames()
+    {
+        // GIVEN the gallery's tag renamed earlier with "Add rule" ticked.
+        Tag renamed = tag("dup-only-tag-9500");
+        assertThat(metadataService.rename(MetadataType.TAG, renamed.getId(), "dup-renamed-9500", true)).isEmpty();
+        em.flush();
+        int holder = chapter(TITLE, "other:1");
+        queueService.enqueue(List.of("mock:9500"), TestDownloads.mergingDuplicates(NO_COMPRESSION));
+
+        // WHEN
+        worker.processNext();
+        em.flush();
+        em.clear();
+
+        // THEN the chapter gets the renamed tag, and the old name is not created again.
+        assertThat(chapterRepository.findById(holder).orElseThrow().getTags()).extracting(Tag::getName)
+                .containsExactly("dup-renamed-9500");
+        assertThat(tagRepository.existsByNameIgnoreCase("dup-only-tag-9500")).isFalse();
+    }
+
+    /** A past download whose chapter is gone has nothing to receive the metadata, so it is still refused. */
+    @Test
+    void shouldRefuseInsteadOfMergingWhenOnlyAPastDownloadHasTheTitle()
+    {
+        // GIVEN a past download from another source with the title, its chapter retitled since.
+        int retitled = chapter("[Dup] Retitled 9500", "other:3");
+        pastDownload("other:3", retitled, TITLE);
+        queueService.enqueue(List.of("mock:9500"), TestDownloads.mergingDuplicates(NO_COMPRESSION));
+
+        // WHEN
+        worker.processNext();
+        em.flush();
+        em.clear();
+
+        // THEN it is a rejected duplicate, and the retitled chapter got nothing.
+        DownloadQueueItem item = queueRepository.findByLink("mock:9500").orElseThrow();
+        assertThat(item.isRejectedDuplicate()).isTrue();
+        assertThat(item.isMergedDuplicate()).isFalse();
+        assertThat(chapterRepository.findById(retitled).orElseThrow().getTags()).isEmpty();
+        assertThat(tagRepository.existsByNameIgnoreCase("dup-only-tag-9500")).isFalse();
+    }
+
+    /** The forms send the merge box even while it is hidden beside an unticked check. */
+    @Test
+    void shouldNotMergeWithoutTheDuplicateCheck()
+    {
+        // GIVEN + WHEN
+        var choices = new DownloadChoices(NO_COMPRESSION, false, false, true, TestDownloads.PLAIN_GALLERY_DL);
+        queueService.enqueue(List.of("mock:9500"), choices);
+        em.flush();
+
+        // THEN
+        assertThat(choices.mergeDuplicateMetadata()).isFalse();
+        assertThat(queueRepository.findByLink("mock:9500").orElseThrow().isMergeDuplicateMetadata()).isFalse();
+    }
+
+    @Test
+    void shouldMergeARejectedDuplicateWhenRetriedMergingMetadata()
+    {
+        // GIVEN a rejected duplicate.
+        int holder = chapter(TITLE, "other:1");
+        queueService.enqueue(List.of("mock:9500"), TestDownloads.choices(NO_COMPRESSION, true));
+        worker.processNext();
+        em.flush();
+        DownloadQueueItem item = queueRepository.findByLink("mock:9500").orElseThrow();
+        assertThat(item.isRejectedDuplicate()).isTrue();
+
+        // WHEN it is retried with "Retry and merge metadata", and the worker takes it.
+        assertThat(queueService.retry(item.getId(), false, false, true)).isTrue();
+        worker.processNext();
+        em.flush();
+        em.clear();
+
+        // THEN it moved from the rejected list to the merged one, and the chapter has the gallery's tag.
+        DownloadQueueItem merged = queueRepository.findById(item.getId()).orElseThrow();
+        assertThat(merged.isMergedDuplicate()).isTrue();
+        assertThat(merged.isRejectedDuplicate()).isFalse();
+        assertThat(merged.isAvoidDuplicateTitles()).isTrue();
+        assertThat(queueService.rejectedCount()).isZero();
+        assertThat(chapterRepository.findById(holder).orElseThrow().getTags()).extracting(Tag::getName)
+                .containsExactly("dup-only-tag-9500");
+    }
+
+    @Test
+    void shouldRetryEveryRejectedDuplicateMergingItsMetadata()
+    {
+        // GIVEN a rejected duplicate.
+        chapter(TITLE, "other:1");
+        queueService.enqueue(List.of("mock:9500"), TestDownloads.choices(NO_COMPRESSION, true));
+        worker.processNext();
+        em.flush();
+
+        // WHEN the bulk button is used.
+        assertThat(queueService.retryRejectedMerging()).isEqualTo(1);
+        em.flush();
+        em.clear();
+
+        // THEN it is waiting, keeping the check and now merging.
+        DownloadQueueItem item = queueRepository.findByLink("mock:9500").orElseThrow();
+        assertThat(item.getError()).isNull();
+        assertThat(item.isAvoidDuplicateTitles()).isTrue();
+        assertThat(item.isMergeDuplicateMetadata()).isTrue();
+        assertThat(item.isRejectedDuplicate()).isFalse();
+    }
+
+    /** "Download anyway" on the Merged duplicates list is the retry allowing the title. */
+    @Test
+    void shouldDownloadAMergedDuplicateWhenRetriedAllowingTheDuplicateTitle()
+    {
+        // GIVEN a merged duplicate.
+        chapter(TITLE, "other:1");
+        queueService.enqueue(List.of("mock:9500"), TestDownloads.mergingDuplicates(NO_COMPRESSION));
+        worker.processNext();
+        em.flush();
+        DownloadQueueItem item = queueRepository.findByLink("mock:9500").orElseThrow();
+        assertThat(item.isMergedDuplicate()).isTrue();
+        Integer chapterId = null;
+        try
+        {
+            // WHEN
+            assertThat(queueService.retry(item.getId(), false, true, false)).isTrue();
+            worker.processNext();
+            em.flush();
+
+            // THEN it is downloaded as a chapter of its own, and its row is gone.
+            chapterId = downloaded("mock:9500");
+            assertThat(queueService.mergedCount()).isZero();
+        }
+        finally
+        {
+            cleanUp(chapterId);
+        }
+    }
+
+    /** Only the records go; the bulk delete of failed rows leaves merged ones alone, and the reverse. */
+    @Test
+    void shouldKeepMergedDuplicatesApartFromTheFailedList()
+    {
+        // GIVEN a merged duplicate and a failed download (no such gallery).
+        chapter(TITLE, "other:1");
+        queueService.enqueue(List.of("mock:9500"), TestDownloads.mergingDuplicates(NO_COMPRESSION));
+        queueService.enqueue(List.of("mock:9599"), TestDownloads.choices(NO_COMPRESSION, false));
+        worker.processNext();
+        worker.processNext();
+        em.flush();
+        assertThat(queueService.failedCount()).isEqualTo(1);
+        assertThat(queueService.mergedCount()).isEqualTo(1);
+
+        // WHEN the failed rows are retried and deleted.
+        assertThat(queueService.retryFailed(false)).isEqualTo(1);
+        worker.processNext();
+        em.flush();
+        assertThat(queueService.deleteFailed()).isEqualTo(1);
+
+        // THEN the merged row is still there, until its own list is cleared.
+        assertThat(queueService.mergedCount()).isEqualTo(1);
+        assertThat(queueService.deleteMerged()).isEqualTo(1);
+        assertThat(queueService.mergedCount()).isZero();
+    }
+
     // ---- fixture -----------------------------------------------------------
+
+    private Tag tag(String name)
+    {
+        var tag = new Tag();
+        tag.setName(name);
+        return tagRepository.save(tag);
+    }
+
+    private void addTag(int chapterId, Tag tag)
+    {
+        Chapter chapter = chapterRepository.findById(chapterId).orElseThrow();
+        var tags = new java.util.ArrayList<>(chapter.getTags());
+        tags.add(tag);
+        chapter.setTags(tags);
+        em.flush();
+    }
 
     /** @param galleryId null for a hand-added chapter */
     private int chapter(String titleFull, String galleryId)
     {
+        return chapter(titleFull, galleryId, "English");
+    }
+
+    private int chapter(String titleFull, String galleryId, String language)
+    {
         var form = new ChapterForm();
         form.setTitleFull(titleFull);
-        form.setLanguage("English");
+        form.setLanguage(language);
         form.setGalleryId(galleryId);
         int id = chapterService.create(form);
         em.flush();

@@ -742,7 +742,7 @@
         }
         if (panel.getAttribute("data-active") === "true") { reloadSoon(); }
 
-        // --- Failed and rejected rows: retry or remove in place, so a long list does not jump back to the top ---
+        // --- Failed, rejected and merged rows: retry or remove in place, so a long list does not jump back to the top ---
         //     Only a 204 counts as done: an expired login also answers with a redirect. A busy library keeps the
         //     row; anything else falls back to a plain post. A retried row is waiting now, so the page reloads
         //     shortly to show it there. Registered after confirm-delete, so a declined confirmation arrives
@@ -815,6 +815,17 @@
             });
         };
         select.addEventListener("change", sync);
+        sync();
+    });
+
+    // --- Fields that belong to a ticked checkbox only (merging duplicates beside avoiding them) ---
+    //     [data-shown-with] names the checkbox's id. Hidden, never disabled, as above; the server ignores the field
+    //     while the box is not ticked.
+    document.querySelectorAll("[data-shown-with]").forEach(function (element) {
+        var box = document.getElementById(element.getAttribute("data-shown-with"));
+        if (!box) { return; }
+        var sync = function () { element.hidden = !box.checked; };
+        box.addEventListener("change", sync);
         sync();
     });
 

@@ -41,6 +41,7 @@
                 </ol>
             </li>
             <li><a href="#incomplete-downloads">Incomplete downloads</a></li>
+            <li><a href="#duplicates">Duplicated titles</a></li>
             <li><a href="#download-speed">Download speed</a></li>
             <li><a href="#subscription-priority">Subscription priority</a></li>
             <li><a href="#ehentai-account">e-hentai account</a></li>
@@ -511,6 +512,34 @@ exec python main.py --listen 127.0.0.1 --port 8188</pre>
             <strong>Download all favourites</strong> also gets the missing pages.</li>
         <li>If the download failed, it is on the queue page's Failed list. Download again retries it; a subscription
             leaves it there for you.</li>
+    </ul>
+
+    <!-- ===================================================================================== -->
+    <h2 class="section-title" id="duplicates">Duplicated titles</h2>
+    <p>Several sites often have the same gallery. <strong>Avoid duplicated titles from other sources</strong>, on the
+        Download page and on each subscription, skips a new gallery when you already have one from another site with
+        exactly the same full title and the same language.</p>
+    <ul>
+        <li>It also skips a gallery you downloaded from another site and deleted since, so it does not come back.</li>
+        <li>Galleries from the same site are never compared, and a gallery already in your library is never
+            skipped.</li>
+        <li>Skipped galleries are listed under <strong>Rejected duplicates</strong> on the
+            <a th:href="@{/chapter/queue}">download queue</a> page, with a link to the gallery and to the chapter
+            you have. <strong>Retry allowing duplicate title</strong> downloads one anyway.</li>
+    </ul>
+    <h3 id="duplicates-merge">Adding their tags and artists</h3>
+    <p>Each site tags a gallery a little differently. Tick <strong>Add their tags and artists to the chapter you
+        have</strong> (shown once the first box is ticked) and a duplicate is not downloaded, but its tags, artists,
+        characters, parodies, groups and categories are added to your chapter. Your
+        <a th:href="@{/manage/rules}">metadata rules</a> apply to them first, as to any download. Nothing your chapter
+        has is removed, and its title, pages and score stay as they are.</p>
+    <ul>
+        <li>Such galleries are listed under <strong>Merged duplicates</strong> on the queue page, with a link to the
+            gallery and to your chapter. While one is listed, a subscription does not queue it again.
+            <strong>Download anyway</strong> downloads it as a chapter of its own.</li>
+        <li>A gallery skipped earlier can be merged with <strong>Retry and merge metadata</strong> on the Rejected
+            duplicates list.</li>
+        <li>A gallery that matches only one you deleted is still skipped: there is no chapter to add to.</li>
     </ul>
 
     <!-- ===================================================================================== -->

@@ -172,6 +172,40 @@ class SubscriptionWebIT
                 .andExpect(content().string(containsString("artist:someone language:english")));
     }
 
+    /**
+     * The merge box is shown only beside a ticked check (app.js finds that box by the id th:field gives it), and
+     * ignored without the check, since a hidden field is still sent.
+     */
+    @Test
+    void shouldSaveMergingDuplicatesOnlyWithTheDuplicateCheck() throws Exception
+    {
+        // GIVEN + WHEN the form is rendered
+        mvc.perform(get("/subscriptions/new").with(user("user")))
+                // THEN the merge box follows the check's own id.
+                .andExpect(content().string(containsString("id=\"avoidDuplicateTitles1\"")))
+                .andExpect(content().string(containsString("data-shown-with=\"avoidDuplicateTitles1\"")))
+                .andExpect(content().string(containsString("name=\"mergeDuplicateMetadata\"")));
+
+        // WHEN one is saved merging with the check, and one merging without it.
+        mvc.perform(subscriptionPost().param("source", "nhentai").param("query", "merging").param("name", "Merging")
+                        .param("avoidDuplicateTitles", "true").param("mergeDuplicateMetadata", "true"))
+                .andExpect(status().is3xxRedirection());
+        mvc.perform(subscriptionPost().param("source", "nhentai").param("query", "unchecked").param("name", "Unchecked")
+                        .param("mergeDuplicateMetadata", "true"))
+                .andExpect(status().is3xxRedirection());
+
+        // THEN only the first merges, and its list entry says so.
+        var byName = subscriptionRepository.findAll().stream()
+                .collect(java.util.stream.Collectors.toMap(Subscription::getName, sub -> sub));
+        assertThat(byName.get("Merging").isMergeDuplicateMetadata()).isTrue();
+        assertThat(byName.get("Unchecked").isMergeDuplicateMetadata()).isFalse();
+        mvc.perform(get("/subscriptions").with(user("user")))
+                .andExpect(content().string(containsString("merging metadata of duplicated titles")));
+        mvc.perform(get("/subscriptions/{id}/edit", byName.get("Merging").getId()).with(user("user")))
+                .andExpect(content().string(
+                        containsString("name=\"mergeDuplicateMetadata\" value=\"true\" checked=\"checked\"")));
+    }
+
     @Test
     void shouldSaveAndShowThePriority() throws Exception
     {

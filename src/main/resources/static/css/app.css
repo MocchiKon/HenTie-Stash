@@ -740,6 +740,8 @@ a.text-link:hover, .guide a:hover { color: var(--accent); }
 .queue-item.failed { border-color: var(--danger); }
 /* A refusal, not a failure: the same weight as a warning, not the red of an error. */
 .queue-item.rejected { border-color: var(--warning-text); }
+/* Nothing went wrong: the gallery was handled, by adding to a chapter. */
+.queue-item.merged { border-color: var(--success-border); }
 .queue-item.is-busy { opacity: .5; }
 .queue-item .inline-form { margin: 0; }
 /* One wrapper: margin-left:auto on each form would spread the buttons instead of grouping them. */
@@ -804,8 +806,9 @@ a.queue-link:hover { color: var(--accent); }
 .subscription-actions .inline-form { margin: 0; }
 /* A whole search address can be long and space-less. */
 .query-input { min-height: 4.5rem; resize: vertical; font-family: ui-monospace, "Cascadia Code", Consolas, monospace; }
-/* app.js hides these while another site is chosen; a display rule of their own would win over [hidden]. */
-[data-shown-for][hidden] { display: none; }
+/* app.js hides these while another site is chosen or their box is unticked; a display rule of their own would win
+   over [hidden]. */
+[data-shown-for][hidden], [data-shown-with][hidden] { display: none; }
 
 /* ===== Responsive ===== */
 @media (max-width: 720px) {

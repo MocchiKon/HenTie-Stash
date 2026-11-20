@@ -184,7 +184,7 @@ class DownloadStagingIT
             queueService.enqueue(List.of("mock:910"), TestDownloads.choices(COMPRESSED, false));
             int id = queueRepository.findByLink("mock:910").orElseThrow().getId();
             // ...and the item in the one mode allowed to skip pages.
-            assertThat(queueService.retry(id, true, false)).isTrue();
+            assertThat(queueService.retry(id, true, false, false)).isTrue();
             em.flush();
 
             // WHEN the worker works it until it gives up or wrongly "finishes" it.

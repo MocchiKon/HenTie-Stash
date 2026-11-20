@@ -126,17 +126,19 @@ public interface ChapterRepository extends JpaRepository<Chapter, Integer>, JpaS
     Optional<Chapter> findByGalleryId(String galleryId);
 
     /**
-     * Chapters titled {@code titleFull} from another source; one with no gallery id counts as another
-     * source. Answered from {@code ix_chapter__title_full_gallery_id}. {@code substring}, not {@code like}:
-     * SQLite's {@code LIKE} folds ASCII case and treats {@code _} as a wildcard.
+     * Chapters titled {@code titleFull} in {@code language} from another source; one with no gallery id counts as
+     * another source. Answered from {@code ix_chapter__title_full_gallery_id}: the language is checked on the few
+     * rows one title has, so it needs no index. {@code substring}, not {@code like}: SQLite's {@code LIKE} folds
+     * ASCII case and treats {@code _} as a wildcard.
      */
     @Query("""
             select c.id as id, c.galleryId as galleryId from Chapter c
-            where c.titleFull = :titleFull
+            where c.titleFull = :titleFull and c.language = :language
               and (c.galleryId is null or substring(c.galleryId, 1, length(:galleryIdPrefix)) <> :galleryIdPrefix)
             order by c.id
             """)
-    List<TitleClash> findTitleFromOtherSources(String titleFull, String galleryIdPrefix, Limit limit);
+    List<TitleClash> findTitleFromOtherSources(String titleFull, String language, String galleryIdPrefix,
+                                               Limit limit);
 
     interface TitleClash
     {

@@ -896,7 +896,7 @@ class DownloadQueueIT
             int id = queueRepository.findByLink("mock:901").orElseThrow().getId();
 
             // WHEN only the first is retried.
-            assertThat(queueService.retry(id, false, false)).isTrue();
+            assertThat(queueService.retry(id, false, false, false)).isTrue();
             em.flush();
             em.clear();
 
@@ -931,7 +931,7 @@ class DownloadQueueIT
         try
         {
             // WHEN it is retried in the lenient mode.
-            assertThat(queueService.retry(id, true, false)).isTrue();
+            assertThat(queueService.retry(id, true, false, false)).isTrue();
             em.flush();
             assertThat(queueRepository.findById(id).orElseThrow().isIgnoreImageErrors()).isTrue();
             assertThat(worker.processNext()).isTrue();
@@ -967,7 +967,7 @@ class DownloadQueueIT
         Integer chapterId = chapterRepository.findByGalleryId("mock:901").map(Chapter::getId).orElse(null);
         try
         {
-            queueService.retry(id, true, false);
+            queueService.retry(id, true, false, false);
             queueService.recordFailure(queueRepository.findById(id).orElseThrow(), "something else", null, true, false,
                     null, false, 3);
             em.flush();

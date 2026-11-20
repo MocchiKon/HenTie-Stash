@@ -463,8 +463,8 @@ the pipeline hands it (gallery-dl's run folder, see "gallery-dl").
 - **Crash recovery is two pieces of state, no resume logic.** The **queue row** survives until the very
   last step, so a killed app re-runs the item from the top on next boot; every step recognizes what an
   earlier run did. The row has **no status column** — an "in progress" flag before a power cut would lie.
-  Its only states are pending (`error is null`) and stopped (`error is not null`): failed, or a rejected
-  duplicate when `rejected_duplicate` is set.
+  Its only states are pending (`error is null`) and stopped (`error is not null`): failed, a rejected
+  duplicate when `rejected_duplicate` is set, or a merged duplicate when `merged_duplicate` is set.
 - **`chapter.download_status` decides what a re-run may touch** — a page count cannot tell "download cut
   short" from "user deleted a page". Only `PENDING` lets the pipeline back in, and it fetches **only
   absent page numbers**, never overwriting a file (except the lossless re-download, see "Image
@@ -521,30 +521,48 @@ the pipeline hands it (gallery-dl's run folder, see "gallery-dl").
   - **Only the worker's thread touches the database**; the encoder's thread and gallery-dl's move files only.
     Hence the compression mode is recorded before fetching (see "Image compression"), and a gallery-dl run is not
     checked for a removed row between its pages.
-- **"Avoid duplicated titles from other sources" is an opt-in, per-paste check**
-  (`download_queue.avoid_duplicate_titles`). A gallery **new to the library** is refused when a chapter
-  with **exactly** its `titleFull` comes from a **different** source (another prefix, or no gallery id),
-  **or when `downloaded_gallery` holds that title from a different source**: the record outlives the chapter, so
-  a gallery deleted after coming from one site cannot return through another. Same-source pairs are never
-  compared (their ids already tell them apart). A gallery found by id is not checked, so a `PENDING` download can
-  always finish. It runs **before** `importChapter`, which creates metadata rows. A refusal is **permanent** but
-  is **not a failure**: the row carries `rejected_duplicate` and is listed under **Rejected duplicates**, apart
-  from the Failed list, whose retry and delete actions leave it alone. The list's own **"Retry allowing duplicate
-  title"** clears the check and the mark (bulk: "Retry all allowing duplicate title"); retrying one row with the
-  check kept only clears the mark, as the row is pending then. Re-pasting **replaces** the flag, and Retry never
-  turns the check on. Each row links to the source's own gallery page (`DataDownloaderRegistry.linkFor`, since the
-  stored link may be the short form the Download page names) and to `duplicate_chapter_id`, the chapter that
-  refused it, linked where the message names it; a past download whose chapter is gone has no chapter link. V6
-  fills that column for rows refused before it existed, from the "Chapter N" their message starts with, and only
-  while the chapter still exists. The lookups are equality seeks on
-  `ix_chapter__title_full_gallery_id` and
-  `ix_downloaded_gallery__title_full_gallery_id`; the prefix is compared with `substring` (not `LIKE`), derived via
-  `DataDownloader.galleryId("")`. The two lists are walked on partial `(priority, id)` indexes, one per list.
-  A rejected duplicate is not counted against a subscription's failed limit: it says nothing about the source.
+- **"Avoid duplicated titles from other sources" is an opt-in check, per paste and per subscription**
+  (`download_queue.avoid_duplicate_titles`, copied from `subscription.avoid_duplicate_titles`). A gallery **new to
+  the library** is refused when a chapter with **exactly** its `titleFull` **and its language** comes from a
+  **different** source (another prefix, or no gallery id), **or when `downloaded_gallery` holds that title and
+  language from a different source**: the record outlives the chapter, so a gallery deleted after coming from one
+  site cannot return through another. The gallery's language is the one the import would store (unknown → Japanese),
+  so both sides compare canonical values. Same-source pairs are never compared (their ids already tell them apart). A
+  gallery found by id is not checked, so a `PENDING` download can always finish. It runs **before** `importChapter`,
+  which creates metadata rows. A refusal is **permanent** but is **not a failure**: the row carries
+  `rejected_duplicate` and is listed under **Rejected duplicates**, apart from the Failed list, whose retry and delete
+  actions leave it alone. The list's own **"Retry allowing duplicate title"** clears the check and the mark (bulk:
+  "Retry all allowing duplicate title"); retrying one row with the check kept only clears the mark, as the row is
+  pending then. Re-pasting **replaces** the flag, and Retry never turns the check on. Each row links to the source's
+  own gallery page (`DataDownloaderRegistry.linkFor`, since the stored link may be the short form the Download page
+  names) and to `duplicate_chapter_id`, the chapter that refused it, linked where the message names it; a past
+  download whose chapter is gone has no chapter link. V6 fills that column for rows refused before it existed, from
+  the "Chapter N" their message starts with, and only while the chapter still exists. The lookups are equality seeks
+  on `ix_chapter__title_full_gallery_id` and `ix_downloaded_gallery__title_full_gallery_id`, the language checked on
+  the few rows of one title; the prefix is compared with `substring` (not `LIKE`), derived via
+  `DataDownloader.galleryId("")`. The Failed, Rejected and Merged lists are walked on partial `(priority, id)`
+  indexes, one per list (V4, V11). A rejected or merged duplicate is not counted against a subscription's failed
+  limit: it says nothing about the source.
+  - **"Merge metadata" replaces the refusal with a merge** (`merge_duplicate_metadata`, only with the check: the
+    form shows it beside a ticked check but sends it hidden too, so `DownloadChoices` and the subscription save drop
+    it without the check). The gallery's six metadata kinds go through `resolveOrCreate`, as an import's do (rules,
+    aliases, plain tags), and are **added** to the clashing chapter (`ChapterService.addMetadata`: nothing removed,
+    titles, score, pages and status untouched, series recomputed and search counts evicted only on a real
+    addition). Only a **chapter** that has the title and language is merged into: a past download's chapter may
+    have been retitled since, and one deleted has nothing to receive it, so both still refuse. Nothing is
+    downloaded, so the merge creates no chapter, no `downloaded_gallery` row and no download statistics (no page
+    was fetched), and the image pipeline never runs.
+  - **The queue row is the record of a merge**: it stays stopped (`error` holds the message, which starts with the
+    "Chapter N (" the list links), marked `merged_duplicate`, and is listed under **Merged duplicates** with links to
+    the source's gallery and to `duplicate_chapter_id`. While it is there a subscription does not queue the gallery
+    again; once removed, a re-check may queue and merge it again, which adds nothing new. "Download anyway" is the
+    retry allowing the title. Rejected duplicates offer **"Retry and merge metadata"** (bulk too), shown only where
+    the message names a chapter: a past download alone would be refused again. A merge recorded on a row rewritten
+    meanwhile (a paste) records nothing, as `complete` does.
 - **`downloaded_gallery` records the chapter's `title_full` and canonical `language`** when the download is
-  recorded. The title serves the duplicate check after the chapter is gone; the language is stored for a later
-  rule and read by nothing yet. Both come from the chapter, so the library check and the past-downloads check
-  compare the same title. V4 fills them from the chapter for rows that already existed.
+  recorded. Both serve the duplicate check after the chapter is gone, and both come from the chapter, so the
+  library check and the past-downloads check compare the same values. V4 fills them from the chapter for rows that
+  already existed.
 - **Failures**: `app.download.max-attempts` attempts with growing backoff, staying at the queue head.
   `PermanentDownloadException` / `GalleryNotFoundException` skip the remaining attempts. Successful rows
   are **deleted**; `downloaded_gallery` is the permanent record. A `LoginRequiredException` marks the row
@@ -584,7 +602,7 @@ the pipeline hands it (gallery-dl's run folder, see "gallery-dl").
   tidying up sets it aside the same way) and after the item, so it never reaches the next one. The pages that
   landed stay, with the chapter `PENDING`, as after a crash. **"Clear all"**
   deletes every waiting row and aborts the running one, whose staging the worker discards itself; its row is gone, so
-  it does not land on the Failed list. **Failed and rejected rows stay**: they wait for the user's retry or removal.
+  it does not land on the Failed list. **Failed, rejected and merged rows stay**: they wait for the user's retry or removal.
 - **Progress is `[done/total]` for the current batch** — successful rows are deleted, so no lifetime total.
 - **The queue page's three lists are capped (`DownloadQueueService.LIST_LIMIT`) with no pagination — don't add
   it.** Counts are exact; only rows are cut, and the page says so. The queue empties itself: the waiting list is

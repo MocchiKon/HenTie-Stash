@@ -269,7 +269,7 @@ class CompressionUpgradeIT
     private void queue(String id, String mode, boolean allowUpgrade)
     {
         queueService.enqueue(List.of("mock:" + id),
-                new DownloadChoices(mode, allowUpgrade, false, new GalleryDlOptions(false, "0")));
+                new DownloadChoices(mode, allowUpgrade, false, false, new GalleryDlOptions(false, "0")));
     }
 
     private Chapter chapter(String id)

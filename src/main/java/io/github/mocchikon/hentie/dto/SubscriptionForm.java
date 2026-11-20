@@ -49,6 +49,8 @@ public class SubscriptionForm
 
     private boolean avoidDuplicateTitles;
 
+    private boolean mergeDuplicateMetadata;
+
     private boolean downloadOriginals;
 
     @Size(max = 20, message = "The delay must be at most 20 characters")

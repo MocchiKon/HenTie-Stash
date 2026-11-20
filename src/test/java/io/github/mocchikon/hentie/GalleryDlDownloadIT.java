@@ -121,7 +121,7 @@ class GalleryDlDownloadIT
 
     private static DownloadChoices choices(boolean originals, String delay)
     {
-        return new DownloadChoices(NO_COMPRESSION, false, false, new GalleryDlOptions(originals, delay));
+        return new DownloadChoices(NO_COMPRESSION, false, false, false, new GalleryDlOptions(originals, delay));
     }
 
     // ---- hitomi --------------------------------------------------------------------------------------------

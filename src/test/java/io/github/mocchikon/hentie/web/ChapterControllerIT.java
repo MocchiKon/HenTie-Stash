@@ -273,6 +273,39 @@ class ChapterControllerIT
         }
     }
 
+    /** The merge box belongs to the check: shown beside it by app.js, and ignored without it. */
+    @Test
+    void shouldCarryTheMergeChoiceFromTheDownloadFormOnlyWithTheDuplicateCheck() throws Exception
+    {
+        // GIVEN + WHEN the form is rendered
+        mvc.perform(get("/chapter/download").with(user("user")))
+                // THEN the merge box is there, off, and tied to the check's id.
+                .andExpect(content().string(containsString("id=\"avoidDuplicateTitles\"")))
+                .andExpect(content().string(containsString("data-shown-with=\"avoidDuplicateTitles\"")))
+                .andExpect(content().string(containsString("name=\"mergeDuplicateMetadata\" value=\"true\">")));
+        try
+        {
+            // WHEN one link is queued merging with the check, and one merging without it.
+            mvc.perform(post("/chapter/download").with(user("user")).with(csrf()).param("links", "mock:8013")
+                            .param("avoidDuplicateTitles", "true").param("mergeDuplicateMetadata", "true"))
+                    .andExpect(status().is3xxRedirection());
+            mvc.perform(post("/chapter/download").with(user("user")).with(csrf()).param("links", "mock:8014")
+                            .param("mergeDuplicateMetadata", "true"))
+                    .andExpect(status().is3xxRedirection());
+
+            // THEN only the first row merges.
+            assertThat(downloadQueueRepository.findByLink("mock:8013").orElseThrow().isMergeDuplicateMetadata())
+                    .isTrue();
+            assertThat(downloadQueueRepository.findByLink("mock:8014").orElseThrow().isMergeDuplicateMetadata())
+                    .isFalse();
+        }
+        finally
+        {
+            downloadQueueRepository.findByLink("mock:8013").ifPresent(downloadQueueRepository::delete);
+            downloadQueueRepository.findByLink("mock:8014").ifPresent(downloadQueueRepository::delete);
+        }
+    }
+
     @Test
     void shouldRedirectToTheQueueWhenDownloadSubmitted() throws Exception
     {
@@ -1001,6 +1034,82 @@ class ChapterControllerIT
         finally
         {
             downloadQueueRepository.deleteById(id);
+        }
+    }
+
+    /**
+     * A merged duplicate has a list of its own, linking the gallery and the chapter it went to. "Retry and merge
+     * metadata" shows only on a rejected duplicate whose message names a chapter: a past download alone has none.
+     */
+    @Test
+    void shouldListAMergedDuplicateAndOfferMergingOnlyWhereARejectedOneNamesAChapter() throws Exception
+    {
+        // GIVEN a merged nhentai link, a rejected one that clashed with chapter 42, and one that clashed with a past
+        // download.
+        var merged = TestDownloads.queueItem("nhentai:8015", "nhentai:8015");
+        merged.setError("Chapter 42 (from mock:1) already has the title \"T\" in English; this gallery's metadata "
+                + "was merged into it.");
+        merged.setAvoidDuplicateTitles(true);
+        merged.setMergeDuplicateMetadata(true);
+        merged.setMergedDuplicate(true);
+        merged.setDuplicateChapterId(42);
+        var withChapter = TestDownloads.queueItem("mock:8016", "mock:8016");
+        withChapter.setError("Chapter 43 (from other:1) already has the title");
+        withChapter.setAvoidDuplicateTitles(true);
+        withChapter.setRejectedDuplicate(true);
+        withChapter.setDuplicateChapterId(43);
+        var pastOnly = TestDownloads.queueItem("mock:8017", "mock:8017");
+        pastOnly.setError("Gallery other:2 was downloaded before from another source with the title");
+        pastOnly.setAvoidDuplicateTitles(true);
+        pastOnly.setRejectedDuplicate(true);
+        var ids = List.of(downloadQueueRepository.save(merged).getId(), downloadQueueRepository.save(withChapter).getId(),
+                downloadQueueRepository.save(pastOnly).getId());
+        try
+        {
+            // WHEN the queue page is rendered.
+            String html = mvc.perform(get("/chapter/queue").with(user("user")))
+                    .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+
+            // THEN the merged row has its own list, after the rejected one, with both links and its actions.
+            assertThat(html).contains("Merged duplicates (", "action=\"/chapter/queue/clear-merged\"",
+                    "action=\"/chapter/queue/retry-rejected-merging\"");
+            assertThat(html.indexOf("Rejected duplicates (")).isLessThan(html.indexOf("Merged duplicates ("));
+            String mergedList = html.substring(html.indexOf("id=\"merged-list\""));
+            assertThat(mergedList).containsPattern("<a class=\"queue-link\" href=\"https://nhentai.net/g/8015/\"[^>]*>"
+                    + "nhentai:8015</a>");
+            assertThat(mergedList).containsPattern("<a href=\"/chapter/42\">Chapter 42</a><span> \\(from mock:1\\)");
+            assertThat(mergedList).contains("Download anyway", "Remove from list");
+            // AND only the rejected row naming a chapter offers to merge.
+            String rejectedList = html.substring(html.indexOf("id=\"rejected-list\""), html.indexOf("id=\"merged-list\""));
+            assertThat(rejectedList.split("Retry and merge metadata", -1)).hasSize(2);
+            assertThat(rejectedList.indexOf("Retry and merge metadata")).isLessThan(rejectedList.indexOf("mock:8017"));
+            assertThat(html).doesNotContain("Failed (");
+
+            // WHEN the rejected row naming a chapter is retried merging, in place.
+            mvc.perform(post("/chapter/queue/{id}/retry", ids.get(1)).with(user("user")).with(csrf())
+                            .param("mergeMetadata", "true").param("inPlace", "true"))
+                    .andExpect(status().isNoContent());
+
+            // THEN it waits again, merging, with the check kept.
+            DownloadQueueItem retried = downloadQueueRepository.findById(ids.get(1)).orElseThrow();
+            assertThat(retried.getError()).isNull();
+            assertThat(retried.isAvoidDuplicateTitles()).isTrue();
+            assertThat(retried.isMergeDuplicateMetadata()).isTrue();
+            assertThat(retried.isRejectedDuplicate()).isFalse();
+
+            // WHEN the merged list is cleared.
+            mvc.perform(post("/chapter/queue/clear-merged").with(user("user")).with(csrf()))
+                    .andExpect(status().is3xxRedirection())
+                    .andExpect(redirectedUrl("/chapter/queue"))
+                    .andExpect(flash().attribute("clearedMergedCount", 1));
+
+            // THEN only the merged row is gone.
+            assertThat(downloadQueueRepository.existsById(ids.get(0))).isFalse();
+            assertThat(downloadQueueRepository.existsById(ids.get(2))).isTrue();
+        }
+        finally
+        {
+            ids.forEach(id -> downloadQueueRepository.findById(id).ifPresent(downloadQueueRepository::delete));
         }
     }
 

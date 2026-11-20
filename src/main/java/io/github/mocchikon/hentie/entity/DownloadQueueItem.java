@@ -51,7 +51,10 @@ public class DownloadQueueItem
     @Column(name = "attempts", nullable = false)
     private Integer attempts = 0;
 
-    /** Null while pending; non-null is the only "failed" marker. */
+    /**
+     * Null while pending; non-null is the only "stopped" marker: a failure, or a rejected or merged duplicate, whose
+     * message it is.
+     */
     @Column(name = "error", length = 2000)
     private String error;
 
@@ -80,12 +83,20 @@ public class DownloadQueueItem
     private boolean allowUpgrade = false;
 
     /**
-     * Refuse a new gallery whose full title a chapter from another source already has. A paste replaces it;
-     * retries keep it, except "Retry allowing duplicate title", which clears it - any other retry of a
+     * Refuse a new gallery whose full title and language a chapter from another source already has. A paste
+     * replaces it; retries keep it, except "Retry allowing duplicate title", which clears it - any other retry of a
      * refusal would only be refused again.
      */
     @Column(name = "avoid_duplicate_titles", nullable = false, columnDefinition = "boolean not null default 0")
     private boolean avoidDuplicateTitles = false;
+
+    /**
+     * Instead of refusing such a gallery, add its metadata to the chapter that has the title. Only with
+     * {@link #avoidDuplicateTitles}, which it never sets on its own. A paste replaces it, retries keep it, and
+     * "Retry and merge metadata" sets it on a rejected duplicate.
+     */
+    @Column(name = "merge_duplicate_metadata", nullable = false, columnDefinition = "boolean not null default 0")
+    private boolean mergeDuplicateMetadata = false;
 
     /**
      * Its recorded failure is the duplicate-title check, so the queue lists it under "Rejected duplicates"
@@ -95,8 +106,16 @@ public class DownloadQueueItem
     private boolean rejectedDuplicate = false;
 
     /**
-     * The chapter that already holds the title, for the Rejected duplicates list to link to it. Null when the
-     * clash was a past download whose chapter is gone, or when the row's failure was not a refusal.
+     * Its gallery was merged into the chapter that has its title, so the queue lists it under "Merged duplicates".
+     * The row stays as the record of the merge (its {@link #error} says what happened), which also keeps a
+     * subscription from queueing the gallery again. A retry clears it.
+     */
+    @Column(name = "merged_duplicate", nullable = false, columnDefinition = "boolean not null default 0")
+    private boolean mergedDuplicate = false;
+
+    /**
+     * The chapter that already holds the title, for the Rejected and Merged duplicates lists to link to it. Null
+     * when the clash was a past download whose chapter is gone, or when the row is neither.
      */
     @Column(name = "duplicate_chapter_id")
     private Integer duplicateChapterId;

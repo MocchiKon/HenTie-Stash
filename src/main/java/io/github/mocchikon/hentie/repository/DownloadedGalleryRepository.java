@@ -10,15 +10,16 @@ import java.util.List;
 public interface DownloadedGalleryRepository extends JpaRepository<DownloadedGallery, String>
 {
     /**
-     * Past downloads titled {@code titleFull} from another source. The prefix is compared with {@code substring},
-     * not {@code like}, for the same reason as on chapters. Answered from
-     * {@code ix_downloaded_gallery__title_full_gallery_id}.
+     * Past downloads titled {@code titleFull} in {@code language} from another source. The prefix is compared with
+     * {@code substring}, not {@code like}, for the same reason as on chapters. Answered from
+     * {@code ix_downloaded_gallery__title_full_gallery_id}, the language checked on the rows of one title.
      */
     @Query("""
             select g from DownloadedGallery g
-            where g.titleFull = :titleFull
+            where g.titleFull = :titleFull and g.language = :language
               and substring(g.galleryId, 1, length(:galleryIdPrefix)) <> :galleryIdPrefix
             order by g.galleryId
             """)
-    List<DownloadedGallery> findTitleFromOtherSources(String titleFull, String galleryIdPrefix, Limit limit);
+    List<DownloadedGallery> findTitleFromOtherSources(String titleFull, String language, String galleryIdPrefix,
+                                                      Limit limit);
 }

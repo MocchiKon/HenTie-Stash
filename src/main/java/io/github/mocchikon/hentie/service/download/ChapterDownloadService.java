@@ -84,13 +84,26 @@ public class ChapterDownloadService
     private volatile StagedRun stagedByThisProcess;
 
     /**
+     * What became of a queue item that did not fail.
+     *
+     * @param chapterId the chapter downloaded into, or the one a duplicate's metadata was merged into
+     * @param merged    for a merged duplicate, the sentence its row keeps; null for a download
+     */
+    public record Result(int chapterId, String merged)
+    {
+        static Result downloaded(int chapterId)
+        {
+            return new Result(chapterId, null);
+        }
+    }
+
+    /**
      * @param phase told each step's name, only for the queue page
-     * @return the chapter downloaded into
      * @throws PermanentDownloadException when retrying cannot help (unknown link, missing gallery,
-     *                                    metadata that cannot become a chapter)
+     *                                    metadata that cannot become a chapter, a refused duplicate title)
      * @throws UncheckedIOException on a transient failure, so the worker retries the item
      */
-    public int download(DownloadQueueItem item, Consumer<String> phase)
+    public Result download(DownloadQueueItem item, Consumer<String> phase)
     {
         long started = statistics.now();
         ResourceLink link = registry.parse(item.getLink())
@@ -126,7 +139,11 @@ public class ChapterDownloadService
             // Only a new gallery is checked, so a re-run of one already here can always finish.
             if (item.isAvoidDuplicateTitles())
             {
-                importService.rejectTitleFromOtherSources(data, link);
+                var duplicate = importService.findDuplicateTitle(data, link).orElse(null);
+                if (duplicate != null)
+                {
+                    return mergeOrRefuse(item, data, link, duplicate, phase);
+                }
             }
             chapterId = importService.importChapter(data, link.galleryId());
             status = DownloadStatus.PENDING;
@@ -190,7 +207,7 @@ public class ChapterDownloadService
                     + "status {}", chapterId, link.galleryId(), onDisk.size(), status);
             // These pages may never have been through this pipeline, so page_num/disk_size may still be 0.
             chapterService.syncImageStats(chapterId);
-            return chapterId;
+            return Result.downloaded(chapterId);
         }
         // An empty page list must not reach markSuccessful below: an empty SUCCESSFUL chapter can never be
         // fixed by re-queueing. Transient, because a source may serve metadata before its images are ready;
@@ -215,7 +232,7 @@ public class ChapterDownloadService
             log.info("Not downloading chapter {} ({}) again in {} - none of its pages is one of the {} the source "
                     + "lists, named the way this app names them", chapterId, link.galleryId(), mode, pageCount);
             chapterService.syncImageStats(chapterId);
-            return chapterId;
+            return Result.downloaded(chapterId);
         }
         if (missing.isEmpty() && replacing)
         {
@@ -230,7 +247,7 @@ public class ChapterDownloadService
                     chapterId, link.galleryId(), pageCount);
             chapterService.syncImageStats(chapterId);
             markSuccessful(chapterId, status);
-            return chapterId;
+            return Result.downloaded(chapterId);
         }
 
         // Checked before fetching too: publishReplacing would be refused anyway, a sweep holds the lock for
@@ -253,12 +270,39 @@ public class ChapterDownloadService
         {
             int saved = replacing ? replacePages(attempt, mode) : fillIn(attempt, recordedMode, mode);
             statistics.chapterSaved(started);
-            return saved;
+            return Result.downloaded(saved);
         }
         finally
         {
             statistics.stopSaving();
         }
+    }
+
+    /**
+     * A gallery new to the library whose title and language another source's chapter has: refused, or, when the row
+     * asks for it, its metadata goes to that chapter and nothing is downloaded. So no chapter, no pages and no
+     * {@code downloaded_gallery} row come of it, and the download statistics count nothing: it fetched no page.
+     * A past download whose chapter is gone, or was retitled since, has nothing to merge into and refuses.
+     */
+    private Result mergeOrRefuse(DownloadQueueItem item, GalleryData data, ResourceLink link,
+                                 GalleryImportService.DuplicateTitle duplicate, Consumer<String> phase)
+    {
+        if (!item.isMergeDuplicateMetadata() || !duplicate.mergeable())
+        {
+            throw new DuplicateTitleException(duplicate.reason()
+                    + ", and this link was queued to avoid duplicated titles from other sources.",
+                    duplicate.chapterId());
+        }
+        phase.accept("Merging metadata");
+        if (!importService.mergeMetadata(data, duplicate.chapterId()))
+        {
+            // Deleted since the check: the next attempt checks again, and finds the past download or nothing.
+            throw new UncheckedIOException(new IOException("Chapter " + duplicate.chapterId()
+                    + " was deleted before " + link.galleryId() + "'s metadata could be merged into it"));
+        }
+        log.info("Merged the metadata of {} into chapter {}, which has its title", link.galleryId(),
+                duplicate.chapterId());
+        return new Result(duplicate.chapterId(), duplicate.reason() + "; this gallery's metadata was merged into it.");
     }
 
     /** One attempt at a queue item, from the moment it is known which pages it fetches. */

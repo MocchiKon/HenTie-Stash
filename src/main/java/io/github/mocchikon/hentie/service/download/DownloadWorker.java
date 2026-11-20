@@ -269,8 +269,13 @@ public class DownloadWorker
     {
         try
         {
-            int chapterId = chapterDownloadService.download(item, phase -> current = new Current(item.getLink(), phase));
-            if (queueService.complete(item))
+            var result = chapterDownloadService.download(item, phase -> current = new Current(item.getLink(), phase));
+            int chapterId = result.chapterId();
+            if (result.merged() != null)
+            {
+                recordMerged(item, result, index, total);
+            }
+            else if (queueService.complete(item))
             {
                 processed.incrementAndGet();
                 log.info("Finished {} -> chapter {} [{}/{}]", item.getLink(), chapterId, index, total);
@@ -290,6 +295,21 @@ public class DownloadWorker
                 return;
             }
             handleFailure(item, e, index, total);
+        }
+    }
+
+    /** Its row stays, on the Merged duplicates list, as the record of what happened to the link. */
+    private void recordMerged(DownloadQueueItem item, ChapterDownloadService.Result result, int index, long total)
+    {
+        if (queueService.recordMerged(item, result.merged(), result.chapterId()))
+        {
+            processed.incrementAndGet();
+            log.info("Merged {} into chapter {} [{}/{}]", item.getLink(), result.chapterId(), index, total);
+        }
+        else
+        {
+            log.info("Merged {} into chapter {}; its queued link now asks for another download, which runs next",
+                    item.getLink(), result.chapterId());
         }
     }
 
@@ -463,7 +483,7 @@ public class DownloadWorker
         long runnable = queueService.anySourceRefusing() ? queueService.runnableCount() : pending;
         Current now = current;
         return new DownloadProgress(done, done + runnable, pending, runnable, queueService.failedCount(),
-                queueService.rejectedCount(), now == null ? null : now.link(),
+                queueService.rejectedCount(), queueService.mergedCount(), now == null ? null : now.link(),
                 now == null ? null : now.phase(), isPaused());
     }
 

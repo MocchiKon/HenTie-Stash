@@ -61,6 +61,10 @@ public class Subscription
     @Column(name = "avoid_duplicate_titles", nullable = false, columnDefinition = "boolean not null default 0")
     private boolean avoidDuplicateTitles;
 
+    /** Read only with {@link #avoidDuplicateTitles}, as on the queue rows it is copied to. */
+    @Column(name = "merge_duplicate_metadata", nullable = false, columnDefinition = "boolean not null default 0")
+    private boolean mergeDuplicateMetadata;
+
     /** gallery-dl's choices, as on the Download page; read only by gallery-dl sources. */
     @Column(name = "download_originals", nullable = false, columnDefinition = "boolean not null default 0")
     private boolean downloadOriginals;

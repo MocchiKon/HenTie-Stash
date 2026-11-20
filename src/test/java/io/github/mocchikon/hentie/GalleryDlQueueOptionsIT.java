@@ -32,7 +32,7 @@ class GalleryDlQueueOptionsIT
 
     private static DownloadChoices choices(boolean originals, String delay)
     {
-        return new DownloadChoices(NONE, false, false, new GalleryDlOptions(originals, delay));
+        return new DownloadChoices(NONE, false, false, false, new GalleryDlOptions(originals, delay));
     }
 
     @Test
@@ -78,7 +78,7 @@ class GalleryDlQueueOptionsIT
         queueRepository.save(item);
 
         // WHEN it is retried, in lenient mode
-        assertThat(queueService.retry(item.getId(), true, false)).isTrue();
+        assertThat(queueService.retry(item.getId(), true, false, false)).isTrue();
 
         // THEN its choices are the paste's.
         DownloadQueueItem retried = queueRepository.findByLink("hitomi:7104").orElseThrow();

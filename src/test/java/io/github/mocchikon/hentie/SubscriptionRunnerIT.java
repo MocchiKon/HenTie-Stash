@@ -389,7 +389,7 @@ class SubscriptionRunnerIT
         chapter("nhentai:5", DownloadStatus.SUCCESSFUL);
         downloadedAndDeleted("nhentai:4");
         chapter("nhentai:3", DownloadStatus.PENDING);
-        queueService.enqueue(List.of("nhentai:2"), new DownloadChoices("LOSSLESS", false, true, TestDownloads.PLAIN_GALLERY_DL));
+        queueService.enqueue(List.of("nhentai:2"), new DownloadChoices("LOSSLESS", false, true, false, TestDownloads.PLAIN_GALLERY_DL));
         int id = subscribe("nhentai", "q");
 
         // WHEN
@@ -416,7 +416,7 @@ class SubscriptionRunnerIT
         // GIVEN an unfinished chapter whose pasted download failed
         searchable(1, 1, Duration.ofHours(5));
         chapter("nhentai:1", DownloadStatus.PENDING);
-        queueService.enqueue(List.of("nhentai:1"), new DownloadChoices("LOSSLESS", false, false, TestDownloads.PLAIN_GALLERY_DL));
+        queueService.enqueue(List.of("nhentai:1"), new DownloadChoices("LOSSLESS", false, false, false, TestDownloads.PLAIN_GALLERY_DL));
         DownloadQueueItem failed = queueRepository.findFirstByGalleryIdOrderByIdAsc("nhentai:1").orElseThrow();
         failed.setError("failed");
         queueRepository.save(failed);

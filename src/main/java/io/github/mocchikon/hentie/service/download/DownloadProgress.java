@@ -10,11 +10,12 @@ package io.github.mocchikon.hentie.service.download;
  * @param runnable  {@code pending} without the rows waiting for a ban: a batch cannot finish them
  * @param failed    downloads that went wrong, not the duplicate-title refusals: those are {@code rejected}
  * @param rejected  galleries the duplicate-title check refused, on their own list
+ * @param merged    galleries whose metadata went to the chapter with their title, on their own list
  * @param currentLink null between items
  * @param currentPhase null between items
  */
 public record DownloadProgress(int done, long total, long pending, long runnable, long failed, long rejected,
-                               String currentLink, String currentPhase, boolean paused)
+                               long merged, String currentLink, String currentPhase, boolean paused)
 {
     /** Drives the queue page's auto-refresh; rows waiting hours for a ban are nothing to watch. */
     public boolean isActive()
@@ -22,9 +23,9 @@ public record DownloadProgress(int done, long total, long pending, long runnable
         return runnable > 0;
     }
 
-    /** What is left below the progress bar, failed and rejected together: neither runs on its own. */
+    /** What is left below the progress bar: failed, rejected and merged rows. None of them runs on its own. */
     public boolean hasStoppedItems()
     {
-        return failed > 0 || rejected > 0;
+        return failed > 0 || rejected > 0 || merged > 0;
     }
 }

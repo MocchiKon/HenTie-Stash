@@ -117,6 +117,7 @@ public class SubscriptionService
             form.setRecheckEveryHours(subscription.getRecheckEveryHours());
             form.setRecheckDepthHours(subscription.getRecheckDepthHours());
             form.setAvoidDuplicateTitles(subscription.isAvoidDuplicateTitles());
+            form.setMergeDuplicateMetadata(subscription.isMergeDuplicateMetadata());
             form.setDownloadOriginals(subscription.isDownloadOriginals());
             form.setRequestDelay(subscription.getRequestDelay());
             return form;
@@ -181,6 +182,8 @@ public class SubscriptionService
         subscription.setRecheckEveryHours(form.getRecheckEveryHours());
         subscription.setRecheckDepthHours(form.getRecheckDepthHours());
         subscription.setAvoidDuplicateTitles(form.isAvoidDuplicateTitles());
+        // Only with the check, as on a queue row: hidden beside an unticked check, the box is still sent.
+        subscription.setMergeDuplicateMetadata(form.isAvoidDuplicateTitles() && form.isMergeDuplicateMetadata());
         subscription.setDownloadOriginals(galleryDl.originals());
         subscription.setRequestDelay(galleryDl.delay());
         if (subscription.getId() == null)
@@ -446,7 +449,8 @@ public class SubscriptionService
         var parts = new ArrayList<String>();
         if (subscription.isAvoidDuplicateTitles())
         {
-            parts.add("avoiding duplicated titles");
+            parts.add(subscription.isMergeDuplicateMetadata()
+                    ? "merging metadata of duplicated titles" : "avoiding duplicated titles");
         }
         if (usesGalleryDl(subscription.getSource()))
         {
@@ -823,7 +827,7 @@ public class SubscriptionService
                     settingsService.getGalleryDlDefaults().delay());
         }
         return new DownloadChoices(BuiltInCompressionMode.RULES_KEY, false, subscription.isAvoidDuplicateTitles(),
-                galleryDl);
+                subscription.isMergeDuplicateMetadata(), galleryDl);
     }
 
     private void recordCheckpoint(int subscriptionId, String newest, LocalDateTime at)

@@ -109,38 +109,74 @@ public class GalleryImportService
     }
 
     /**
-     * Catches the same work from two sites, which the gallery-id check cannot see. Both the library and the
-     * permanent record of past downloads are checked, so a gallery deleted after a download from another source
-     * does not come back through this one. Galleries of one source are never compared: a source can hold two
-     * with one title. A chapter with no gallery id counts as another source. Must run before
-     * {@link #importChapter}, which creates new metadata rows a refused gallery must not leave behind.
+     * Catches the same work from two sites, which the gallery-id check cannot see: the same full title in the same
+     * language. Both the library and the permanent record of past downloads are checked, so a gallery deleted after
+     * a download from another source does not come back through this one. Galleries of one source are never
+     * compared: a source can hold two with one title. A chapter with no gallery id counts as another source. Must
+     * run before {@link #importChapter}, which creates new metadata rows a refused gallery must not leave behind.
      *
-     * @throws DuplicateTitleException naming the chapter or past download that holds the title
+     * @return what holds the title and language, or empty when nothing does
+     * @throws PermanentDownloadException when the gallery has no title
      */
     @Transactional(readOnly = true)
-    public void rejectTitleFromOtherSources(GalleryData data, ResourceLink link)
+    public Optional<DuplicateTitle> findDuplicateTitle(GalleryData data, ResourceLink link)
     {
         String titleFull = requireTitle(data, link.galleryId());
-        var clashes = chapterRepository.findTitleFromOtherSources(titleFull, link.galleryIdPrefix(), Limit.of(1));
+        String language = knownLanguageOf(data);
+        var clashes = chapterRepository.findTitleFromOtherSources(titleFull, language, link.galleryIdPrefix(),
+                Limit.of(1));
         if (!clashes.isEmpty())
         {
             var clash = clashes.getFirst();
             String source = clash.getGalleryId() == null ? "added without a gallery id" : "from " + clash.getGalleryId();
-            throw new DuplicateTitleException("Chapter " + clash.getId() + " (" + source + ") already has the title \""
-                    + titleFull + "\", and this link was queued to avoid duplicated titles from other sources.",
-                    clash.getId());
+            return Optional.of(new DuplicateTitle(clash.getId(), true, "Chapter " + clash.getId() + " (" + source
+                    + ") already has the title \"" + titleFull + "\" in " + language));
         }
-        var pastDownloads = downloadedGalleryRepository.findTitleFromOtherSources(titleFull, link.galleryIdPrefix(),
-                Limit.of(1));
+        var pastDownloads = downloadedGalleryRepository.findTitleFromOtherSources(titleFull, language,
+                link.galleryIdPrefix(), Limit.of(1));
         if (!pastDownloads.isEmpty())
         {
             var past = pastDownloads.getFirst();
             // Its chapter may name one deleted since; only a link to a chapter that still opens is offered.
             Integer chapterId = chapterRepository.existsById(past.getChapterId()) ? past.getChapterId() : null;
-            throw new DuplicateTitleException("Gallery " + past.getGalleryId() + " was downloaded before from another "
-                    + "source with the title \"" + titleFull + "\", and this link was queued to avoid duplicated "
-                    + "titles from other sources.", chapterId);
+            return Optional.of(new DuplicateTitle(chapterId, false, "Gallery " + past.getGalleryId()
+                    + " was downloaded before from another source with the title \"" + titleFull + "\" in "
+                    + language));
         }
+        return Optional.empty();
+    }
+
+    /**
+     * What the duplicate-title check found.
+     *
+     * @param chapterId the chapter to link to, or null when a past download's chapter is gone
+     * @param mergeable whether that chapter itself has the title and language, so the gallery's metadata may be
+     *                  merged into it. Not for a past download: its chapter may have been retitled since, and then it
+     *                  is not the same work any more.
+     * @param reason    a sentence without its full stop, naming what clashed
+     */
+    public record DuplicateTitle(Integer chapterId, boolean mergeable, String reason)
+    {
+    }
+
+    /**
+     * Gives a duplicate's metadata to the chapter that has its title, in place of downloading it. The names go
+     * through {@link MetadataService#resolveOrCreate} as an import's do, so the metadata rules, aliases and plain
+     * tags apply; nothing the chapter has is removed. Created rows commit only with the merge.
+     *
+     * @return false when the chapter is gone, so nothing was merged
+     */
+    @Transactional
+    public boolean mergeMetadata(GalleryData data, int chapterId)
+    {
+        var additions = new ChapterForm();
+        additions.setTagIds(metadataService.resolveOrCreate(MetadataType.TAG, names(data.getTags())));
+        additions.setArtistIds(metadataService.resolveOrCreate(MetadataType.ARTIST, names(data.getArtists())));
+        additions.setCharacterIds(metadataService.resolveOrCreate(MetadataType.CHARACTER, names(data.getCharacters())));
+        additions.setParodyIds(metadataService.resolveOrCreate(MetadataType.PARODY, names(data.getParodies())));
+        additions.setGroupIds(metadataService.resolveOrCreate(MetadataType.GROUP, names(data.getGroups())));
+        additions.setCategoryIds(metadataService.resolveOrCreate(MetadataType.CATEGORY, names(data.getCategories())));
+        return chapterService.addMetadata(chapterId, additions);
     }
 
     /**
@@ -210,13 +246,19 @@ public class GalleryImportService
      */
     private static String languageOf(GalleryData data, String galleryId)
     {
-        if (LanguageService.isKnown(data.getLanguage()))
+        if (!LanguageService.isKnown(data.getLanguage()))
         {
-            return LanguageService.canonical(data.getLanguage());
+            log.info("Gallery {} has no language the app knows ({}); saving it as {}", galleryId, data.getLanguage(),
+                    EhTags.DEFAULT_LANGUAGE);
         }
-        log.info("Gallery {} has no language the app knows ({}); saving it as {}", galleryId, data.getLanguage(),
-                EhTags.DEFAULT_LANGUAGE);
-        return EhTags.DEFAULT_LANGUAGE;
+        return knownLanguageOf(data);
+    }
+
+    /** The language {@link #importChapter} saves, so the duplicate-title check compares what would be stored. */
+    private static String knownLanguageOf(GalleryData data)
+    {
+        return LanguageService.isKnown(data.getLanguage())
+                ? LanguageService.canonical(data.getLanguage()) : EhTags.DEFAULT_LANGUAGE;
     }
 
     private static Collection<String> names(Set<String> values)

@@ -295,7 +295,7 @@ class DownloadCompressionIT
         String key = modeService.save(mode("Cannot save", "-q 40 -e 1"));
         queueService.enqueue(List.of("mock:8103"), TestDownloads.choices(key, false));
         int id = queueRepository.findByLink("mock:8103").orElseThrow().getId();
-        assertThat(queueService.retry(id, true, false)).isTrue();
+        assertThat(queueService.retry(id, true, false, false)).isTrue();
         em.flush();
 
         // WHEN the worker takes it.

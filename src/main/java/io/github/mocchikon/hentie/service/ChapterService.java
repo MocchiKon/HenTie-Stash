@@ -26,6 +26,7 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.util.*;
+import java.util.stream.Stream;
 
 @Service
 @RequiredArgsConstructor
@@ -231,6 +232,62 @@ public class ChapterService
 
         Integer seriesId = chapter.getSeries() == null ? null : chapter.getSeries().getId();
         seriesService.recomputeDerived(seriesId);
+    }
+
+    /**
+     * Adds metadata a chapter lacks and removes none, for a duplicate from another source whose metadata is merged
+     * into it. Only the ids of {@code additions}' six metadata lists are read. A version picked brings its plain tag,
+     * as on {@link #update}. Search counts are evicted and the series recomputed only when something was added.
+     *
+     * @return false when the chapter does not exist
+     */
+    @Transactional
+    public boolean addMetadata(int id, ChapterForm additions)
+    {
+        Chapter chapter = chapterRepository.findById(id).orElse(null);
+        if (chapter == null)
+        {
+            return false;
+        }
+        var tags = withMissing(chapter.getTags(),
+                tagRepository.findAllById(metadataService.withPlainTags(additions.getTagIds())));
+        var artists = withMissing(chapter.getArtists(), artistRepository.findAllById(additions.getArtistIds()));
+        var characters = withMissing(chapter.getCharacters(),
+                characterRepository.findAllById(additions.getCharacterIds()));
+        var parodies = withMissing(chapter.getParodies(), parodyRepository.findAllById(additions.getParodyIds()));
+        var groups = withMissing(chapter.getGroups(), groupRepository.findAllById(additions.getGroupIds()));
+        var categories = withMissing(chapter.getCategories(),
+                categoryRepository.findAllById(additions.getCategoryIds()));
+        tags.ifPresent(chapter::setTags);
+        artists.ifPresent(chapter::setArtists);
+        characters.ifPresent(chapter::setCharacters);
+        parodies.ifPresent(chapter::setParodies);
+        groups.ifPresent(chapter::setGroups);
+        categories.ifPresent(chapter::setCategories);
+        boolean added = Stream.of(tags, artists, characters, parodies, groups, categories)
+                .anyMatch(Optional::isPresent);
+        if (added)
+        {
+            chapterRepository.save(chapter);
+            seriesService.recomputeDerived(chapter.getSeries() == null ? null : chapter.getSeries().getId());
+            searchCountCache.clear();
+        }
+        return true;
+    }
+
+    /**
+     * A new list rather than an addition to {@code current}: a loaded collection may be the unmodifiable list it was
+     * set from.
+     *
+     * @return {@code current} with the values of {@code more} it lacks, or empty when it lacks none
+     */
+    private static <T extends Metadata> Optional<List<T>> withMissing(List<T> current, List<T> more)
+    {
+        Set<Integer> have = new HashSet<>();
+        current.forEach(value -> have.add(value.getId()));
+        List<T> merged = new ArrayList<>(current);
+        more.stream().filter(value -> have.add(value.getId())).forEach(merged::add);
+        return merged.size() == current.size() ? Optional.empty() : Optional.of(merged);
     }
 
     /**

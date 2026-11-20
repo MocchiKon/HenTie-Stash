@@ -321,7 +321,7 @@ class RedownloadIT
         DownloadQueueItem failed = queueRepository.findByLink("mock:8404").orElseThrow();
 
         // WHEN it is retried ignoring image errors.
-        assertThat(queueService.retry(failed.getId(), true, false)).isTrue();
+        assertThat(queueService.retry(failed.getId(), true, false, false)).isTrue();
         assertThat(worker.processNext()).isTrue();
 
         // THEN page 1 is the original, page 2 is still the compressed one...
@@ -359,7 +359,7 @@ class RedownloadIT
         queueService.enqueue(List.of("mock:8406"), TestDownloads.choices(LOSSLESS, true));
         DownloadQueueItem row = queueRepository.findByLink("mock:8406").orElseThrow();
         queueService.recordFailure(row, "boom", null, true, false, null, false, 3);
-        queueService.retry(row.getId(), true, false);
+        queueService.retry(row.getId(), true, false, false);
         queueService.recordFailure(row, "boom again", null, true, false, null, false, 3);
 
         // WHEN a full-quality re-download is queued for it.

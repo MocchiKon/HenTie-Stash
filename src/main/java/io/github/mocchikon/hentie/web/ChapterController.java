@@ -36,6 +36,7 @@ import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 import java.io.IOException;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -131,13 +132,13 @@ public class ChapterController
         // Settings' choices, never the last paste's: those were for one paste only. storableKey turns a deleted
         // mode into None, an option the list really has.
         addDownloadModel(model, "", compressionModeService.storableKey(settingsService.getImageCompressionMode()),
-                false, false, settingsService.getGalleryDlDefaults(), null, null);
+                false, false, false, settingsService.getGalleryDlDefaults(), null, null);
         return "chapter-download";
     }
 
     private void addDownloadModel(Model model, String links, String compressionMode, boolean allowUpgrade,
-                                  boolean avoidDuplicateTitles, GalleryDlOptions galleryDl, String requestDelay,
-                                  String delayError)
+                                  boolean avoidDuplicateTitles, boolean mergeDuplicateMetadata,
+                                  GalleryDlOptions galleryDl, String requestDelay, String delayError)
     {
         model.addAttribute("links", links);
         model.addAttribute("linkExamples", downloaderRegistry.linkExamples());
@@ -156,6 +157,7 @@ public class ChapterController
                 .collect(Collectors.joining(" ")));
         model.addAttribute("allowUpgrade", allowUpgrade);
         model.addAttribute("avoidDuplicateTitles", avoidDuplicateTitles);
+        model.addAttribute("mergeDuplicateMetadata", mergeDuplicateMetadata);
         model.addAttribute("downloadOriginals", galleryDl.originals());
         model.addAttribute("requestDelay", requestDelay == null ? galleryDl.delay() : requestDelay);
         model.addAttribute("delayError", delayError);
@@ -181,6 +183,8 @@ public class ChapterController
                                  @RequestParam(name = "allowUpgrade", defaultValue = "false") boolean allowUpgrade,
                                  @RequestParam(name = "avoidDuplicateTitles", defaultValue = "false")
                                  boolean avoidDuplicateTitles,
+                                 @RequestParam(name = "mergeDuplicateMetadata", defaultValue = "false")
+                                 boolean mergeDuplicateMetadata,
                                  @RequestParam(name = "downloadOriginals", defaultValue = "false")
                                  boolean downloadOriginals,
                                  @RequestParam(name = "requestDelay", required = false) String requestDelay,
@@ -189,11 +193,11 @@ public class ChapterController
         List<String> parsed = downloadService.parseLinks(links);
         boolean usesGalleryDl = usesGalleryDl(parsed);
         Optional<DownloadChoices> choices = downloadChoices(compressionMode, allowUpgrade, avoidDuplicateTitles,
-                downloadOriginals, requestDelay, usesGalleryDl, usesSlowDelaySource(parsed));
+                mergeDuplicateMetadata, downloadOriginals, requestDelay, usesGalleryDl, usesSlowDelaySource(parsed));
         if (choices.isEmpty())
         {
             return downloadFormWithDelayError(model, links, compressionMode, allowUpgrade, avoidDuplicateTitles,
-                    downloadOriginals, requestDelay);
+                    mergeDuplicateMetadata, downloadOriginals, requestDelay);
         }
         var result = downloadService.queue(parsed, choices.get());
         redirectAttributes.addFlashAttribute("enqueued", result);
@@ -219,7 +223,8 @@ public class ChapterController
 
     /** Empty when the delay is refused (see {@link #delayOrDefault}). */
     private Optional<DownloadChoices> downloadChoices(String compressionMode, boolean allowUpgrade,
-                                                      boolean avoidDuplicateTitles, boolean downloadOriginals,
+                                                      boolean avoidDuplicateTitles, boolean mergeDuplicateMetadata,
+                                                      boolean downloadOriginals,
                                                       String requestDelay,
                                                       boolean usesGalleryDl, boolean sourceNeedsSlowDelay)
     {
@@ -229,7 +234,7 @@ public class ChapterController
                 : settingsService.getGalleryDlDefaults().delay();
         return delayOrDefault(requestDelay, usesGalleryDl, defaultDelay)
                 .map(d -> new DownloadChoices(compressionMode, allowUpgrade, avoidDuplicateTitles,
-                        new GalleryDlOptions(downloadOriginals, d)));
+                        mergeDuplicateMetadata, new GalleryDlOptions(downloadOriginals, d)));
     }
 
     /**
@@ -246,10 +251,12 @@ public class ChapterController
 
     private String downloadFormWithDelayError(Model model, String links, String compressionMode,
                                               boolean allowUpgrade, boolean avoidDuplicateTitles,
-                                              boolean downloadOriginals, String requestDelay)
+                                              boolean mergeDuplicateMetadata, boolean downloadOriginals,
+                                              String requestDelay)
     {
         addDownloadModel(model, StringUtils.defaultString(links),
                 compressionModeService.storableDownloadKey(compressionMode), allowUpgrade, avoidDuplicateTitles,
+                mergeDuplicateMetadata,
                 new GalleryDlOptions(downloadOriginals, "0"),
                 StringUtils.abbreviate(StringUtils.defaultString(requestDelay), 100),
                 delayProblem(requestDelay));
@@ -274,6 +281,8 @@ public class ChapterController
                                      @RequestParam(name = "allowUpgrade", defaultValue = "false") boolean allowUpgrade,
                                      @RequestParam(name = "avoidDuplicateTitles", defaultValue = "false")
                                      boolean avoidDuplicateTitles,
+                                     @RequestParam(name = "mergeDuplicateMetadata", defaultValue = "false")
+                                     boolean mergeDuplicateMetadata,
                                      @RequestParam(name = "downloadOriginals", defaultValue = "false")
                                      boolean downloadOriginals,
                                      @RequestParam(name = "requestDelay", required = false) String requestDelay,
@@ -286,11 +295,11 @@ public class ChapterController
                 .map(GalleryDlDownloader::needsSlowDelay)
                 .orElse(false);
         Optional<DownloadChoices> choices = downloadChoices(compressionMode, allowUpgrade, avoidDuplicateTitles,
-                downloadOriginals, requestDelay, usesGalleryDl, needsSlowDelay);
+                mergeDuplicateMetadata, downloadOriginals, requestDelay, usesGalleryDl, needsSlowDelay);
         if (choices.isEmpty())
         {
             return downloadFormWithDelayError(model, links, compressionMode, allowUpgrade, avoidDuplicateTitles,
-                    downloadOriginals, requestDelay);
+                    mergeDuplicateMetadata, downloadOriginals, requestDelay);
         }
         var outcome = favouritesDownloadService.queueAll(source, choices.get());
         if (outcome.isRefused())
@@ -314,7 +323,11 @@ public class ChapterController
         model.addAttribute("failed", downloadQueueService.failed());
         var rejected = downloadQueueService.rejectedDuplicates();
         model.addAttribute("rejectedDuplicates", rejected);
-        model.addAttribute("sourceLinks", sourceLinks(rejected));
+        var merged = downloadQueueService.mergedDuplicates();
+        model.addAttribute("mergedDuplicates", merged);
+        var duplicates = new ArrayList<>(rejected);
+        duplicates.addAll(merged);
+        model.addAttribute("sourceLinks", sourceLinks(duplicates));
         model.addAttribute("subscriptionTitles", subscriptionService.titlesById());
         model.addAttribute("deferredUntil", deferredUntil(pending));
         model.addAttribute("listLimit", DownloadQueueService.LIST_LIMIT);
@@ -327,10 +340,10 @@ public class ChapterController
      * The gallery's page on its source's website, keyed by queue row. A source with no website (the mock) or a
      * gallery id no source recognizes gets none, and the row shows its link as plain text.
      */
-    private Map<Integer, String> sourceLinks(List<DownloadQueueItem> rejected)
+    private Map<Integer, String> sourceLinks(List<DownloadQueueItem> items)
     {
         var links = new HashMap<Integer, String>();
-        for (var item : rejected)
+        for (var item : items)
         {
             String link = item.getGalleryId() == null ? null
                     : downloaderRegistry.linkFor(item.getGalleryId()).orElse(null);
@@ -386,17 +399,18 @@ public class ChapterController
     }
 
     /**
-     * {@code allowDuplicateTitle} is the only way past a duplicate-title refusal: a plain retry keeps the
-     * check, so it would only fail again.
+     * {@code allowDuplicateTitle} and {@code mergeMetadata} are the ways past a duplicate-title refusal: a plain
+     * retry keeps the check, so it would only fail again unless what clashed is gone.
      */
     @PostMapping("/queue/{id:\\d+}/retry")
     public String retryQueued(@PathVariable int id,
                               @RequestParam(defaultValue = "false") boolean ignoreImageErrors,
                               @RequestParam(name = "allowDuplicateTitle", defaultValue = "false")
                               boolean allowDuplicateTitle,
+                              @RequestParam(name = "mergeMetadata", defaultValue = "false") boolean mergeMetadata,
                               RedirectAttributes redirectAttributes)
     {
-        if (downloadQueueService.retry(id, ignoreImageErrors, allowDuplicateTitle))
+        if (downloadQueueService.retry(id, ignoreImageErrors, allowDuplicateTitle, mergeMetadata))
         {
             redirectAttributes.addFlashAttribute("retriedCount", 1);
             redirectAttributes.addFlashAttribute("retriedIgnoringImageErrors", ignoreImageErrors);
@@ -415,9 +429,11 @@ public class ChapterController
     public ResponseEntity<Void> retryQueuedInPlace(@PathVariable int id,
                                                    @RequestParam(defaultValue = "false") boolean ignoreImageErrors,
                                                    @RequestParam(name = "allowDuplicateTitle", defaultValue = "false")
-                                                   boolean allowDuplicateTitle)
+                                                   boolean allowDuplicateTitle,
+                                                   @RequestParam(name = "mergeMetadata", defaultValue = "false")
+                                                   boolean mergeMetadata)
     {
-        if (downloadQueueService.retry(id, ignoreImageErrors, allowDuplicateTitle))
+        if (downloadQueueService.retry(id, ignoreImageErrors, allowDuplicateTitle, mergeMetadata))
         {
             downloadWorker.kick();
         }
@@ -430,6 +446,23 @@ public class ChapterController
     {
         redirectAttributes.addFlashAttribute("retriedRejectedCount", downloadQueueService.retryRejected());
         downloadWorker.kick();
+        return REDIRECT_CHAPTER_QUEUE;
+    }
+
+    /** As {@link #retryRejected}, merging each gallery's metadata into the chapter that has its title. */
+    @PostMapping("/queue/retry-rejected-merging")
+    public String retryRejectedMerging(RedirectAttributes redirectAttributes)
+    {
+        redirectAttributes.addFlashAttribute("retriedRejectedMergingCount", downloadQueueService.retryRejectedMerging());
+        downloadWorker.kick();
+        return REDIRECT_CHAPTER_QUEUE;
+    }
+
+    /** Only the records: what was merged stays in the chapters. */
+    @PostMapping("/queue/clear-merged")
+    public String clearMerged(RedirectAttributes redirectAttributes)
+    {
+        redirectAttributes.addFlashAttribute("clearedMergedCount", downloadQueueService.deleteMerged());
         return REDIRECT_CHAPTER_QUEUE;
     }
 

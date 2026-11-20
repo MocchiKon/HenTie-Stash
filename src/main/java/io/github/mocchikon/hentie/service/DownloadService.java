@@ -53,7 +53,9 @@ public class DownloadService
         DownloadQueueService.EnqueueResult result = queueService.enqueue(links, choices);
         log.info("Queued {} link(s) for download with Image Compression mode {}{}, gallery-dl {} ({} new, {} retried, "
                         + "{} already waiting, {} unsupported)", result.queued(), choices.compressionMode(),
-                choices.avoidDuplicateTitles() ? ", avoiding duplicated titles from other sources" : "",
+                !choices.avoidDuplicateTitles() ? ""
+                        : choices.mergeDuplicateMetadata() ? ", merging the metadata of duplicated titles from other "
+                        + "sources" : ", avoiding duplicated titles from other sources",
                 choices.galleryDl(), result.accepted(), result.requeued(), result.alreadyQueued(), result.rejected());
         worker.kick();
         return result;
@@ -146,7 +148,7 @@ public class DownloadService
         String mode = modeService.storableKey(chapter.getCompressionMode() != null
                 ? chapter.getCompressionMode() : settingsService.getImageCompressionMode());
         boolean queued = queueService.resume(link, chapter.getGalleryId(),
-                new DownloadChoices(mode, false, false, settingsService.getGalleryDlDefaults()));
+                new DownloadChoices(mode, false, false, false, settingsService.getGalleryDlDefaults()));
         if (queued)
         {
             log.info("Queued the rest of chapter {} ({})", chapter.getId(), chapter.getGalleryId());

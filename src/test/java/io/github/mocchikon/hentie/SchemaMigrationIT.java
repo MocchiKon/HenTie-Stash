@@ -31,7 +31,8 @@ class SchemaMigrationIT
     void shouldMatchTheEntityMappingsWhenSchemaComesFromMigrations()
     {
         // Starting the context is the real check; this assertion keeps the test from passing vacuously.
-        assertThat(appliedMigrations()).containsExactly("1", "2", "3", "4", "5", "6", "7", "8", "9", "10");
+        assertThat(appliedMigrations()).containsExactly("1", "2", "3", "4", "5", "6", "7", "8", "9", "10",
+                "11");
     }
 
     /** Status is ORDINAL and the column is CHECKed, which validation does not see: a new value needs a migration. */
@@ -175,26 +176,31 @@ class SchemaMigrationIT
     {
         // GIVEN + WHEN + THEN
         assertThat(columnNames("download_queue")).contains("avoid_duplicate_titles", "rejected_duplicate",
-                "duplicate_chapter_id");
+                "duplicate_chapter_id", "merge_duplicate_metadata", "merged_duplicate");
+        assertThat(columnNames("subscription")).contains("avoid_duplicate_titles", "merge_duplicate_metadata");
         assertThat(columnNames("downloaded_gallery")).contains("title_full", "language");
         assertThat(objectNames("type = 'index'")).contains("ix_chapter__title_full_gallery_id",
                 "ix_downloaded_gallery__title_full_gallery_id",
-                "ix_download_queue__failed_priority_id", "ix_download_queue__rejected_priority_id");
+                "ix_download_queue__failed_priority_id", "ix_download_queue__rejected_priority_id",
+                "ix_download_queue__merged_priority_id");
     }
 
     /**
-     * The two lists are walked in (priority, id) order without reading each other's rows, so each partial index
+     * The three lists are walked in (priority, id) order without reading each other's rows, so each partial index
      * has to keep its own condition; without one the queue would sort every failed row on each page.
      */
     @Test
-    void shouldKeepTheFailedAndRejectedListsOnTheirOwnPartialIndexesWhenMigrating()
+    void shouldKeepTheFailedRejectedAndMergedListsOnTheirOwnPartialIndexesWhenMigrating()
     {
         // GIVEN + WHEN + THEN
         assertThat(jdbc.queryForList("SELECT sql FROM sqlite_master WHERE type = 'index' AND name IN "
-                + "('ix_download_queue__failed_priority_id', 'ix_download_queue__rejected_priority_id')", String.class))
-                .hasSize(2)
-                .anySatisfy(sql -> assertThat(sql).contains("where error is not null and rejected_duplicate = 0"))
-                .anySatisfy(sql -> assertThat(sql).contains("where error is not null and rejected_duplicate = 1"));
+                + "('ix_download_queue__failed_priority_id', 'ix_download_queue__rejected_priority_id', "
+                + "'ix_download_queue__merged_priority_id')", String.class))
+                .hasSize(3)
+                .anySatisfy(sql -> assertThat(sql)
+                        .contains("where error is not null and rejected_duplicate = 0 and merged_duplicate = 0"))
+                .anySatisfy(sql -> assertThat(sql).contains("where error is not null and rejected_duplicate = 1"))
+                .anySatisfy(sql -> assertThat(sql).contains("where error is not null and merged_duplicate = 1"));
     }
 
     /**
