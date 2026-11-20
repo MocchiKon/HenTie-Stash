@@ -37,6 +37,9 @@
                 <form th:replace="~{fragments/components :: favouriteToggle(@{/series/{id}/favourite(id=${vm.series.id})}, ${vm.series.favourite})}"></form>
                 <a class="btn btn-ghost" th:href="@{/series/{id}/edit(id=${vm.series.id})}">Edit</a>
                 <a class="btn btn-ghost" th:href="@{/series/{id}/link-chapters(id=${vm.series.id})}">Link chapters</a>
+                <th:block th:if="${vm.chapterCount > 0}">
+                    <th:block th:replace="~{fragments/components :: exportButton(@{/export/series/{id}(id=${vm.series.id},lang=${vm.selectedLanguage})}, @{/export/series/{id}/outline(id=${vm.series.id},lang=${vm.selectedLanguage})}, true, ${vm.selectedLanguage})}"></th:block>
+                </th:block>
             </div>
         </div>
     </section>

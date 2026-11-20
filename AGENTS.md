@@ -77,7 +77,7 @@ live under `app.data-dir`, served at `/data/**`. `mock_server/` stands in for a 
 ## Package layout (`io.github.mocchikon.hentie`)
 `entity/` JPA entities, ORDINAL enums, `entity/link/` read-only search projections · `repository/` +
 `repository/spec/` search predicates · `service/` business logic, with `match/` (chapter→series matching),
-`download/` (download pipeline), `subscription/` (saved searches that queue downloads), `compress/` (downscaling +
+`download/` (download pipeline), `subscription/` (saved searches that queue downloads), `export/` (CBZ export), `compress/` (downscaling +
 re-encoding, and the image compression rules that pick a download's mode), `comfy/` (ComfyUI in the image viewer), `scratch/` (temporary image files) · `scrapper/` data
 sources (a real one in its own package, `scrapper/nhentai/`, `ehentai/`, `hitomi/`, `chaika/`;
 `scrapper/gallerydl/` runs gallery-dl for the sources that use it; `SearchSource` is what a subscription walks)
@@ -1311,6 +1311,36 @@ process.
   `ConnectionResetError` per page into the console shown in Settings.
 - **ComfyUI Settings fields are refused one by one**: a bad address, folder, workflow or missing script
   keeps its old value with a reason; the rest are saved, without "Settings saved.".
+
+## CBZ export (`service/export`, `web/ExportController`)
+"Export CBZ" on the chapter and series pages saves a CBZ through the browser. The Guide's Exporting CBZ files section
+explains it.
+- **The browser picks the destination, never the server.** The app is used from phones on the LAN, so a server
+  folder would be the wrong machine's. Chromium's `showSaveFilePicker` is called **at the click** (browsers allow it
+  only right after one), hence the popup fetches the outline (file names) when it opens; elsewhere a plain
+  download.
+- **Progress comes from the server** (`ExportProgress`, in memory, keyed by an id the popup sends with the download),
+  since a plain download shows the popup nothing, not even why it failed. A refusal is recorded there too. Cancel
+  goes there as well: the browser does not end a download it saves itself, and an ended request is noticed only at
+  the next write, which may wait minutes for ComfyUI.
+- **Streamed into the response, never built in a file first**: a series can be gigabytes. Everything from the
+  database is read before the first byte in one read-only transaction, so no connection is held while pages go
+  out. **An archive is finished, never closed, and not at all after a failure**: closing writes the central
+  directory, so an export cut short would arrive as a valid file missing pages. Refusals that can come before the
+  first byte (unknown workflow, a page ComfyUI fails on) are JSON with a message.
+- **Only PNG and JPEG go in as they are**; the rest become PNG (JPEG XL through the viewer's decode cache, the rest
+  through ImageMagick, first frame). A page that cannot be converted goes in as it is with a log line: one page a
+  reader cannot show beats no export. A ComfyUI failure fails the export instead.
+- **A workflow export processes each page during the download and writes it at once**, never in a pass ahead of
+  it: results waiting in the results cache would be pruned once an export outgrows it, and processed twice. The
+  download asks as a prefetch under an `export-<uuid>` asker it leaves at the end or on cancel, so a reader's page
+  goes first. **Don't add an export queue or job**: the request is the export. The cost is a download that sends
+  nothing while a page is processed (Firefox gives up after 5 idle minutes).
+- **Pages are stored entries** (images do not deflate); each is read twice from one open file for the CRC, since a
+  cached decode or result may be pruned between two opens. A CBZ inside the series ZIP is deflated at level 0.
+- **Entry names sort as reading order** (`001.png`, `<chapter>-<page>` in one series file), and a series exports the
+  language picked on its page, as the page shows it. `ComicInfo.xml` is written in the schema's element order with
+  only the values that exist.
 
 ## Update check (`service/UpdateCheckService`)
 A yellow "Update Available" badge beside the logo when GitHub's latest release of `MocchiKon/HenTie-Stash` is

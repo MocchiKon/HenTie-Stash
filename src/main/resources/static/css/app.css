@@ -816,3 +816,32 @@ a.queue-link:hover { color: var(--accent); }
     .detail-block { flex-direction: column; }
     .detail-thumb { flex-basis: auto; max-width: 260px; }
 }
+
+/* ===== Export CBZ popup =====
+   A modal over the page: centred on a wide screen, the whole screen on a phone. */
+.export-dialog {
+    width: min(100% - 2rem, 34rem); max-width: none; max-height: calc(100dvh - 2rem);
+    padding: 1.25rem; overflow: auto;
+    background: var(--surface); color: var(--text);
+    border: 1px solid var(--border); border-radius: var(--radius);
+}
+.export-dialog::backdrop { background: var(--overlay-bg); }
+.export-dialog h2 { margin-top: 0; }
+.export-dialog .hint { overflow-wrap: anywhere; }
+.export-dialog .hint a { text-decoration: underline; }
+.export-layout {
+    border: 1px solid var(--border); border-radius: var(--radius);
+    padding: .5rem 1rem; margin: 0 0 1rem; min-width: 0;
+}
+.export-layout legend { font-weight: 600; padding: 0 .35rem; }
+.export-layout label { display: flex; align-items: center; gap: .5rem; margin: .25rem 0; }
+.export-progress { display: block; width: 100%; }
+.export-progress[hidden] { display: none; }
+.export-status { min-height: 1.5em; overflow-wrap: anywhere; }
+.export-status.error { color: var(--danger-text); }
+@media (max-width: 40rem) {
+    .export-dialog {
+        width: 100%; height: 100%; max-height: none; margin: 0;
+        border: 0; border-radius: 0;
+    }
+}

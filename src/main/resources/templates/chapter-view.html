@@ -55,6 +55,9 @@
                  th:with="lang=${vm.chapter.language == null ? '' : vm.chapter.language}">
                 <form th:replace="~{fragments/components :: favouriteToggle(@{/chapter/{id}/favourite(id=${vm.chapter.id})}, ${vm.chapter.favourite})}"></form>
                 <a class="btn btn-ghost" th:href="@{/chapter/{id}/edit(id=${vm.chapter.id})}">Edit</a>
+                <th:block th:if="${vm.pageCount > 0}">
+                    <th:block th:replace="~{fragments/components :: exportButton(@{/export/chapter/{id}(id=${vm.chapter.id})}, @{/export/chapter/{id}/outline(id=${vm.chapter.id})}, false, null)}"></th:block>
+                </th:block>
                 <a class="btn btn-ghost" th:if="${vm.hasSeries()}"
                    th:href="@{/series/{id}(id=${vm.seriesId})}">View all chapters</a>
                 <!-- Prev/Next wrap together. Rendered only when non-empty, or it would add a stray gap. -->

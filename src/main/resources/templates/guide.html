@@ -46,6 +46,7 @@
             <li><a href="#ehentai-account">e-hentai account</a></li>
             <li><a href="#statuses">Statuses and favourites</a></li>
             <li><a href="#review-mode">Review mode</a></li>
+            <li><a href="#export">Exporting CBZ files</a></li>
         </ol>
     </nav>
 
@@ -622,6 +623,31 @@ exec python main.py --listen 127.0.0.1 --port 8188</pre>
             on the item: <kbd>1</kbd> is &#189; star, <kbd>9</kbd> is 4&#189; stars and <kbd>0</kbd> is 5 stars.
             Press <kbd>F</kbd> or <kbd>S</kbd> next to move on.</td></tr>
     </table>
+    <!-- ===================================================================================== -->
+    <h2 class="section-title" id="export">Exporting CBZ files</h2>
+    <p><strong>Export CBZ</strong> on a chapter or series page saves it as a CBZ file, which comic reader apps open
+        (Komga, Kavita, Mihon, CDisplayEx, YACReader and others).</p>
+    <ul>
+        <li><strong>Where it goes:</strong> Chrome and Edge on a computer ask where to save the file. Other browsers
+            and phones save it like any download, usually to the Downloads folder.</li>
+        <li><strong>Pages:</strong> PNG and JPEG pages go in as they are. Others (WebP, AVIF, JPEG XL, GIF, BMP) are
+            converted to PNG, which every reader shows. A PNG is often larger than the page it was made from. If a
+            page cannot be converted (ImageMagick or <code>djxl</code> missing, see Settings → Image Compression),
+            it goes in as it is and the log says so.</li>
+        <li><strong>Details:</strong> each CBZ carries a <code>ComicInfo.xml</code> with the title, series, chapter
+            number, artists, tags, characters, language, score and source link, which most readers show. Artists
+            are listed as writers, groups as publisher and parodies as the series group.</li>
+        <li><strong>A series</strong> can be saved as one CBZ per chapter, packed in a ZIP file (unpack it into your
+            reader's library folder), or as one CBZ with every chapter. If you picked a language on the series
+            page, only chapters in that language are exported.</li>
+        <li><strong>ComfyUI workflow:</strong> pick one to export every page as the workflow makes it, as in the
+            viewer (see <a href="#comfyui">Processing pages with ComfyUI</a>). Each page is processed and goes into
+            the file straight away, so the file grows while you wait. This can take a long time. Pages you read in
+            the viewer meanwhile go first. A page that cannot be processed stops the export with the reason.</li>
+        <li>The popup shows which page the export is on. <strong>Cancel</strong> stops it, and no file is kept.
+            Where the browser saves the file itself, you can close the popup; the download carries on in the
+            browser's downloads list.</li>
+    </ul>
 </main>
 <script th:src="@{/js/app.js}"></script>
 </body>

@@ -273,5 +273,43 @@
     </div>
 </fieldset>
 
+<!-- Export CBZ on a chapter or series page. Without JavaScript the link downloads the pages as stored; app.js opens
+     the popup instead. series: offers the two series layouts. language: the series page's language filter, or null. -->
+<th:block th:fragment="exportButton(downloadUrl, outlineUrl, series, language)">
+    <a class="btn btn-ghost" th:href="${downloadUrl}" download data-export-open
+       title="Save as a CBZ file for comic reader apps">Export CBZ</a>
+    <dialog class="export-dialog" data-export aria-labelledby="export-title"
+            th:attr="data-download-url=${downloadUrl},data-outline-url=${outlineUrl},
+                     data-workflows-url=@{/comfyui/workflows},data-progress-url=@{/export/progress/}">
+        <h2 id="export-title">Export CBZ</h2>
+        <p class="hint">
+            A CBZ file opens in comic reader apps. Pages that are not PNG or JPEG are converted to PNG, so every
+            reader can show them. <a th:href="@{/guide#export}">More in the Guide</a>
+        </p>
+        <p class="hint" th:if="${language != null}"
+           th:text="'Only the ' + ${language} + ' chapters, as picked on this page.'">Only one language.</p>
+        <fieldset class="export-layout" th:if="${series}">
+            <legend>Files</legend>
+            <label class="checkbox"><input type="radio" name="exportLayout" value="CHAPTERS" checked>
+                <span>One CBZ per chapter, in a ZIP file</span></label>
+            <label class="checkbox"><input type="radio" name="exportLayout" value="ONE_FILE">
+                <span>One CBZ with every chapter</span></label>
+        </fieldset>
+        <div class="field">
+            <label for="export-workflow">ComfyUI workflow</label>
+            <select id="export-workflow" class="capped-select" data-export-workflow>
+                <option value="">None: pages as stored</option>
+            </select>
+            <p class="hint" data-export-workflow-note hidden></p>
+        </div>
+        <progress class="export-progress" data-export-progress hidden></progress>
+        <p class="export-status" data-export-status role="status"></p>
+        <div class="btn-row">
+            <button type="button" class="btn btn-accent" data-export-start disabled>Export</button>
+            <button type="button" class="btn btn-ghost" data-export-close>Close</button>
+        </div>
+    </dialog>
+</th:block>
+
 </body>
 </html>

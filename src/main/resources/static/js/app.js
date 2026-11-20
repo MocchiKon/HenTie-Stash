@@ -1220,6 +1220,286 @@
         }
     });
 
+    // --- Export CBZ (chapter and series pages) ---
+    //     The outline (file names) is fetched when the popup opens, so Export can open the browser's save dialog at
+    //     once: browsers allow that only right after a click. The server processes and writes the pages one by one;
+    //     the popup follows by an id sent with the download. That id also cancels it, and tells why an export failed
+    //     when the browser saves the file itself (Firefox, phones) and shows no reason.
+    (function () {
+        var link = document.querySelector("[data-export-open]");
+        var dialog = document.querySelector("dialog[data-export]");
+        if (!link || !dialog || typeof dialog.showModal !== "function") { return; }
+        var select = dialog.querySelector("[data-export-workflow]");
+        var workflowNote = dialog.querySelector("[data-export-workflow-note]");
+        var progress = dialog.querySelector("[data-export-progress]");
+        var statusLine = dialog.querySelector("[data-export-status]");
+        var startBtn = dialog.querySelector("[data-export-start]");
+        var closeBtn = dialog.querySelector("[data-export-close]");
+        var progressUrl = dialog.getAttribute("data-progress-url");
+        // How long a download the browser started itself may go unseen by the server before the popup stops asking.
+        var UNSEEN_LIMIT_MS = 30000;
+        var outline = null;
+        var job = null;
+
+        function setStatus(text, isError) {
+            statusLine.textContent = text || "";
+            statusLine.classList.toggle("error", !!isError);
+        }
+
+        // total undefined: busy without a known end; null: hidden.
+        function setProgress(done, total) {
+            progress.hidden = total === null;
+            if (total === undefined) {
+                progress.removeAttribute("value");
+            } else if (total !== null) {
+                progress.max = total;
+                progress.value = done;
+            }
+        }
+
+        function bytes(n) {
+            var units = ["B", "KB", "MB", "GB"];
+            var i = 0;
+            while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
+            return (i === 0 ? n : n.toFixed(1)) + " " + units[i];
+        }
+
+        function errorOf(response, fallback) {
+            return response.json()
+                .then(function (body) { return (body && (body.error || body.message)) || fallback; },
+                    function () { return fallback; })
+                .then(function (message) { throw new Error(message); });
+        }
+
+        function layout() {
+            var checked = dialog.querySelector('input[name="exportLayout"]:checked');
+            return checked ? checked.value : null;
+        }
+
+        function withParams(url, params) {
+            var u = new URL(url, location.href);
+            Object.keys(params).forEach(function (key) {
+                if (params[key]) { u.searchParams.set(key, params[key]); }
+            });
+            return u.pathname + u.search;
+        }
+
+        function setRunning(running) {
+            startBtn.disabled = running || !outline;
+            select.disabled = running;
+            dialog.querySelectorAll('input[name="exportLayout"]').forEach(function (r) { r.disabled = running; });
+            closeBtn.textContent = running ? "Cancel" : "Close";
+        }
+
+        function loadOutline() {
+            if (outline) { return; }
+            setStatus("Reading the pages…");
+            fetch(dialog.getAttribute("data-outline-url"), { headers: JSON_ANSWER })
+                .then(function (r) { return r.ok ? r.json() : errorOf(r, "The pages could not be read."); })
+                .then(function (data) {
+                    outline = data;
+                    var pages = data.chapters.reduce(function (n, c) { return n + c.pages.length; }, 0);
+                    setStatus(pages + " page(s)" + (data.chapters.length > 1 ? " in " + data.chapters.length
+                        + " chapters" : "") + ".");
+                    setRunning(false);
+                })
+                .catch(function (e) { setStatus(e.message, true); });
+        }
+
+        function loadWorkflows() {
+            fetch(dialog.getAttribute("data-workflows-url"), { headers: JSON_ANSWER })
+                .then(function (r) { return r.ok ? r.json() : null; })
+                .then(function (list) {
+                    var usable = list ? list.workflows.filter(function (w) { return w.valid; }) : [];
+                    if (list) { fillWorkflowSelect(select, list.workflows, false); }
+                    workflowNote.hidden = usable.length > 0;
+                    workflowNote.textContent = list && !list.reachable
+                        ? "ComfyUI is not answering, so no workflow can be used. See Guide → ComfyUI."
+                        : "There is no ComfyUI workflow to use. See Guide → ComfyUI.";
+                })
+                .catch(function () { /* the select keeps "None" */ });
+        }
+
+        function describe(current) {
+            var p = current.progress;
+            var text = !p || !p.total ? "Starting…"
+                : "Page " + Math.min(p.done + 1, p.total) + " of " + p.total + (p.message ? ": " + p.message : "");
+            return current.saved ? text + " (" + bytes(current.saved) + " saved)" : text;
+        }
+
+        function progressOf(current) {
+            return fetch(progressUrl + current.id, { headers: JSON_ANSWER, cache: "no-store" })
+                .then(function (r) { return r.ok ? r.json() : null; }, function () { return null; });
+        }
+
+        // Asks every second until the export ends; resolves with how it ended, or null when the popup stopped
+        // following it (cancelled, finished by the save, or never seen by the server).
+        function follow(current) {
+            var started = Date.now();
+            return new Promise(function (resolve) {
+                function poll() {
+                    if (current.ended) { resolve(null); return; }
+                    progressOf(current).then(function (p) {
+                        if (current.ended) { resolve(null); return; }
+                        if (p) {
+                            current.progress = p;
+                            if (p.state !== "RUNNING") { resolve(p); return; }
+                            setProgress(p.done, p.total || undefined);
+                            setStatus(describe(current));
+                        } else if (!current.handle && Date.now() - started > UNSEEN_LIMIT_MS) {
+                            resolve(null);
+                            return;
+                        }
+                        setTimeout(poll, 1000);
+                    });
+                }
+                poll();
+            });
+        }
+
+        // The browser saves the file itself; only the server's progress says how it went.
+        function download(current, url) {
+            var a = document.createElement("a");
+            a.href = url;
+            a.download = "";
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            return follow(current).then(function (p) {
+                current.ended = true;
+                if (current.cancelled) { return; }
+                if (!p) {
+                    setStatus("Your browser is saving the file. Its downloads list shows how far it got.");
+                } else if (p.state === "DONE") {
+                    setStatus("Done. Your browser has saved the file; its downloads list shows where.");
+                } else if (p.state === "FAILED") {
+                    throw new Error(p.message || "The export failed.");
+                }
+            });
+        }
+
+        // Through the file the save dialog gave, so the popup sees every byte arrive.
+        function save(current, url) {
+            follow(current);
+            return fetch(url, { signal: current.controller.signal })
+                .then(function (r) { return r.ok ? r : errorOf(r, "The export failed."); })
+                .then(function (r) {
+                    return current.handle.createWritable().then(function (writable) {
+                        var counter = new TransformStream({
+                            transform: function (chunk, controller) {
+                                current.saved += chunk.byteLength;
+                                setStatus(describe(current));
+                                controller.enqueue(chunk);
+                            }
+                        });
+                        // An abort or a cut-off download aborts the file too, so nothing half-written is kept.
+                        return r.body.pipeThrough(counter).pipeTo(writable, { signal: current.controller.signal });
+                    });
+                })
+                .then(function () {
+                    current.ended = true;
+                    setStatus("Saved " + current.handle.name + " (" + bytes(current.saved) + ").");
+                }, function (e) {
+                    if (current.cancelled) { throw e; }
+                    // A download cut off says nothing; the server's progress says why.
+                    return progressOf(current).then(function (p) {
+                        throw new Error(p && p.state === "FAILED" && p.message ? p.message : e.message);
+                    });
+                });
+        }
+
+        function sendCancel(current) {
+            var form = new FormData();
+            if (csrfParam) { form.append(csrfParam, csrfToken); }
+            var url = progressUrl + current.id + "/cancel";
+            if (!(navigator.sendBeacon && navigator.sendBeacon(url, form))) {
+                fetch(url, { method: "POST", body: form, keepalive: true }).catch(function () {});
+            }
+        }
+
+        function start() {
+            if (job || !outline) { return; }
+            var chosenLayout = layout();
+            var name = chosenLayout === "CHAPTERS" ? outline.zipName : outline.cbzName;
+            var current = {
+                id: "export-" + Math.random().toString(36).slice(2) + Date.now().toString(36),
+                handle: null,
+                progress: null,
+                saved: 0,
+                cancelled: false,
+                ended: false,
+                controller: new AbortController()
+            };
+            var url = withParams(dialog.getAttribute("data-download-url"),
+                { workflow: select.value, layout: chosenLayout, "export": current.id });
+            job = current;
+            setRunning(true);
+            var picking = window.showSaveFilePicker
+                ? window.showSaveFilePicker({
+                    suggestedName: name,
+                    types: [{
+                        description: chosenLayout === "CHAPTERS" ? "ZIP file" : "CBZ file",
+                        accept: chosenLayout === "CHAPTERS"
+                            ? { "application/zip": [".zip"] }
+                            : { "application/vnd.comicbook+zip": [".cbz"] }
+                    }]
+                })
+                : Promise.resolve(null);
+            picking
+                .then(function (handle) { return { handle: handle }; },
+                    function (e) { return e && e.name === "AbortError" ? null : { handle: null }; })
+                .then(function (picked) {
+                    if (!picked) {
+                        setStatus("");
+                        return;
+                    }
+                    current.handle = picked.handle;
+                    setProgress(0, undefined);
+                    setStatus("Starting…");
+                    return current.handle ? save(current, url) : download(current, url);
+                })
+                .catch(function (e) {
+                    current.ended = true;
+                    setStatus(current.cancelled ? "Cancelled." : e.message, !current.cancelled);
+                })
+                .then(function () {
+                    current.ended = true;
+                    setProgress(0, null);
+                    if (job === current) { job = null; }
+                    setRunning(false);
+                });
+        }
+
+        function cancel() {
+            if (!job) { return; }
+            job.cancelled = true;
+            job.ended = true;
+            job.controller.abort();
+            sendCancel(job);
+            setStatus("Cancelled.");
+        }
+
+        link.addEventListener("click", function (e) {
+            e.preventDefault();
+            dialog.showModal();
+            loadOutline();
+            loadWorkflows();
+        });
+        startBtn.addEventListener("click", start);
+        closeBtn.addEventListener("click", function () {
+            if (job) { cancel(); } else { dialog.close(); }
+        });
+        // Escape would close the popup and hide a running export; Cancel stops it.
+        dialog.addEventListener("cancel", function (e) {
+            if (job) { e.preventDefault(); }
+        });
+        // Leaving the page ends a download the popup saves, which the server notices only at its next page. A file
+        // the browser saves itself carries on.
+        window.addEventListener("pagehide", function () {
+            if (job && job.handle) { sendCancel(job); }
+        });
+    })();
+
     // --- Does this browser display JPEG XL? ---
     //     The answer goes in a cookie that tells the server whether to decode .jxl pages to PNG. Probed on
     //     every load, since a browser update can change support and the probe costs nothing.
